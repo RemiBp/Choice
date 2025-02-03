@@ -1,0 +1,51 @@
+name: choice_app
+description: "Une application Flutter pour explorer des lieux en fonction de critères personnalisés."
+
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.5.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  intl: ^0.20.1
+  cupertino_icons: ^1.0.8
+  google_maps_flutter: ^2.2.0
+  google_maps_flutter_web: ^0.5.3
+  http: ^1.2.2
+  flutter_stripe: ^10.0.0
+  geolocator: ^13.0.2
+  permission_handler: ^11.3.0
+  fl_chart: ^0.70.0
+  flutter_launcher_icons: ^0.14.0
+  url_launcher: ^6.1.7
+  add_2_calendar: ^3.0.1
+  stream_transform: ^2.1.1
+  flutter_plugin_android_lifecycle: ^2.0.24
+  http_parser: ^4.1.0
+  flutter_svg: ^1.1.6
+  video_player: ^2.5.2
+  image_picker: ^0.8.7+4
+  flutter_secure_storage: ^8.0.0
+  flutter_chat_ui: ^1.6.12
+  flutter_chat_types: ^3.5.0
+  syncfusion_flutter_charts: ^28.1.41
+  provider: 
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/app_icon.png
+    - assets/images/custom_marker.svg
+
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/images/app_icon.png"
