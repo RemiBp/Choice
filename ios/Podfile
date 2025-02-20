@@ -1,8 +1,10 @@
 # Charger les fichiers de configuration Flutter
 flutter_root = File.expand_path(File.join('..', 'flutter'))
+
 if File.exist?(File.join(flutter_root, 'flutter_export_environment'))
   require File.expand_path(File.join(flutter_root, 'flutter_export_environment'))
 end
+
 require File.expand_path(File.join(flutter_root, 'generated.xcconfig')) if File.exist?(File.join(flutter_root, 'generated.xcconfig'))
 require File.expand_path(File.join(flutter_root, 'pods_runner')) if File.exist?(File.join(flutter_root, 'pods_runner'))
 require File.expand_path(File.join('..', '.symlinks', 'flutter', 'ios_pod_helper.rb')) if File.exist?(File.join('..', '.symlinks', 'flutter', 'ios_pod_helper.rb'))
@@ -18,7 +20,14 @@ target 'Runner' do
   use_modular_headers!
 
   flutter_ios_podfile_setup if defined?(flutter_ios_podfile_setup)
-  flutter_install_all_ios_pods(File.dirname(File.realpath(__FILE__)))
+
+  # ✅ S'assurer que les pods Flutter sont bien installés
+  if File.exist?(File.join(flutter_root, 'pods_ios.rb'))
+    require File.expand_path(File.join(flutter_root, 'pods_ios.rb'))
+    flutter_install_all_ios_pods(File.dirname(File.realpath(__FILE__)))
+  else
+    puts "⚠️  Fichier pods_ios.rb manquant, Flutter pourrait ne pas être bien configuré."
+  end
 
   # ✅ Ajout pour éviter certains bugs liés aux architectures Mac ARM (Mac M1/M2)
   post_install do |installer|

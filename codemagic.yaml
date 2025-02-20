@@ -6,12 +6,13 @@ workflows:
     environment:
       flutter: stable
       xcode: latest
-      cocoapods: latest # 🔥 Assure une version à jour de CocoaPods
+      cocoapods: latest  # 🔥 Assure une version à jour de CocoaPods
     scripts:
       - name: Clean Flutter project
         script: |
           flutter clean
           flutter pub get
+
       - name: Set iOS deployment target
         script: |
           cd ios
@@ -21,19 +22,24 @@ workflows:
             echo "🚨 Podfile non trouvé ! Assure-toi que ton projet Flutter iOS est bien configuré."
             exit 1
           fi
+
       - name: Update CocoaPods
         script: |
           sudo gem install cocoapods --pre
           pod repo update
+
       - name: Install CocoaPods dependencies
         script: |
           cd ios
-          pod install --repo-update
+          pod install --repo-update --verbose
+
       - name: Build iOS
         script: |
           flutter build ios --release --no-codesign
+
     artifacts:
       - build/ios/ipa/*.ipa
+
     publishing:
       email:
         recipients:
