@@ -1,5 +1,9 @@
-# Uncomment the next line to define a global platform for your project
-platform :ios, '14.0'
+require File.expand_path(File.join('..', 'flutter', 'flutter_export_environment'))
+require File.expand_path(File.join('..', 'flutter', 'generated.xcconfig'))
+require File.expand_path(File.join('..', 'flutter', 'pods_runner'))
+require File.expand_path(File.join('..', '.symlinks', 'flutter', 'ios_pod_helper.rb'))
+
+platform :ios, '14.0' # ✅ Assure que l'app cible iOS 14.0+
 
 use_frameworks!
 use_modular_headers!
@@ -8,5 +12,15 @@ target 'Runner' do
   use_frameworks!
   use_modular_headers!
 
-  flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+  flutter_ios_podfile_setup
+  install_all_flutter_pods(File.dirname(File.realpath(__FILE__)))
+
+  # ✅ Ajout pour éviter certains bugs liés aux architectures Mac ARM (Mac M1/M2)
+  post_install do |installer|
+    installer.pods_project.targets.each do |target|
+      target.build_configurations.each do |config|
+        config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'arm64'
+      end
+    end
+  end
 end
