@@ -1,9 +1,14 @@
-require File.expand_path(File.join('..', 'flutter', 'flutter_export_environment'))
-require File.expand_path(File.join('..', 'flutter', 'generated.xcconfig'))
-require File.expand_path(File.join('..', 'flutter', 'pods_runner'))
-require File.expand_path(File.join('..', '.symlinks', 'flutter', 'ios_pod_helper.rb'))
+# Charger les fichiers de configuration Flutter
+flutter_root = File.expand_path(File.join('..', 'flutter'))
+if File.exist?(File.join(flutter_root, 'flutter_export_environment'))
+  require File.expand_path(File.join(flutter_root, 'flutter_export_environment'))
+end
+require File.expand_path(File.join(flutter_root, 'generated.xcconfig')) if File.exist?(File.join(flutter_root, 'generated.xcconfig'))
+require File.expand_path(File.join(flutter_root, 'pods_runner')) if File.exist?(File.join(flutter_root, 'pods_runner'))
+require File.expand_path(File.join('..', '.symlinks', 'flutter', 'ios_pod_helper.rb')) if File.exist?(File.join('..', '.symlinks', 'flutter', 'ios_pod_helper.rb'))
 
-platform :ios, '14.0' # ✅ Assure que l'app cible iOS 14.0+
+# Assurer que l'application cible iOS 14.0+
+platform :ios, '14.0'
 
 use_frameworks!
 use_modular_headers!
@@ -12,7 +17,7 @@ target 'Runner' do
   use_frameworks!
   use_modular_headers!
 
-  flutter_ios_podfile_setup
+  flutter_ios_podfile_setup if defined?(flutter_ios_podfile_setup)
   install_all_flutter_pods(File.dirname(File.realpath(__FILE__)))
 
   # ✅ Ajout pour éviter certains bugs liés aux architectures Mac ARM (Mac M1/M2)
