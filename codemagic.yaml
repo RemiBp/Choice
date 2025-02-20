@@ -12,6 +12,14 @@ workflows:
         script: |
           flutter clean
           flutter pub get
+          flutter pub cache repair
+
+      - name: Verify Flutter dependencies
+        script: |
+          if ! grep -q "add_2_calendar" pubspec.yaml; then
+            echo "⚠️  La dépendance add_2_calendar semble manquante dans pubspec.yaml."
+            exit 1
+          fi
 
       - name: Set iOS deployment target
         script: |
@@ -28,10 +36,20 @@ workflows:
           sudo gem install cocoapods --pre
           pod repo update
 
-      - name: Install CocoaPods dependencies
+      - name: Clean & Install Pods
         script: |
           cd ios
+          rm -rf Pods Podfile.lock
           pod install --repo-update --verbose
+
+      - name: Check GeneratedPluginRegistrant
+        script: |
+          GENERATED_FILE="ios/Runner/GeneratedPluginRegistrant.m"
+          if ! grep -q "add_2_calendar" "$GENERATED_FILE"; then
+            echo "⚠️  Problème détecté : add_2_calendar n'est pas inclus dans GeneratedPluginRegistrant.m"
+            flutter pub get
+            flutter clean
+          fi
 
       - name: Build iOS
         script: |
