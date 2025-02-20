@@ -18,7 +18,7 @@ target 'Runner' do
   use_modular_headers!
 
   flutter_ios_podfile_setup if defined?(flutter_ios_podfile_setup)
-  install_all_flutter_pods(File.dirname(File.realpath(__FILE__)))
+  flutter_install_all_ios_pods(File.dirname(File.realpath(__FILE__)))
 
   # ✅ Ajout pour éviter certains bugs liés aux architectures Mac ARM (Mac M1/M2)
   post_install do |installer|
