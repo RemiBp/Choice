@@ -31,6 +31,14 @@ workflows:
             exit 1
           fi
 
+          # 🔥 Forcer aussi iOS 14.0 dans Xcode
+          if [ -f "Runner.xcodeproj/project.pbxproj" ]; then
+            sed -i '' 's/MINIMUM_DEPLOYMENT_TARGET = 12.0/MINIMUM_DEPLOYMENT_TARGET = 14.0/g' Runner.xcodeproj/project.pbxproj
+          else
+            echo "🚨 Fichier Xcode `project.pbxproj` non trouvé !"
+            exit 1
+          fi
+
       - name: Update CocoaPods
         script: |
           sudo gem install cocoapods --pre
@@ -51,6 +59,11 @@ workflows:
             flutter pub get
             flutter clean
           fi
+
+      - name: Upgrade Flutter dependencies
+        script: |
+          flutter pub upgrade --major-versions
+          flutter pub get
 
       - name: Build iOS IPA (No Code Signing)
         script: |
