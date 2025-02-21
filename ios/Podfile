@@ -25,7 +25,7 @@ target 'Runner' do
   pod 'add_2_calendar'
 
   # ✅ S'assurer que les pods Flutter sont bien installés
-  flutter_install_all_ios_pods(File.dirname(File.realpath(__FILE__)))
+  install_all_flutter_pods(File.dirname(File.realpath(__FILE__))) if defined?(install_all_flutter_pods)
 
   # ✅ Correction des erreurs liées aux Mac M1/M2 et aux architectures
   post_install do |installer|
