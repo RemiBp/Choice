@@ -21,7 +21,7 @@ workflows:
             exit 1
           fi
 
-      - name: Set iOS deployment target
+      - name: Ensure iOS deployment target is 14.0+
         script: |
           cd ios
           if [ -f "Podfile" ]; then
@@ -36,14 +36,14 @@ workflows:
           sudo gem install cocoapods --pre
           pod repo update
 
-      - name: Clean & Install Pods
+      - name: Remove and reinstall CocoaPods dependencies
         script: |
           cd ios
           rm -rf Pods Podfile.lock
           pod deintegrate
           pod install --repo-update --verbose
 
-      - name: Check GeneratedPluginRegistrant
+      - name: Ensure add_2_calendar is in GeneratedPluginRegistrant
         script: |
           GENERATED_FILE="ios/Runner/GeneratedPluginRegistrant.m"
           if ! grep -q "add_2_calendar" "$GENERATED_FILE"; then
@@ -52,9 +52,9 @@ workflows:
             flutter clean
           fi
 
-      - name: Build iOS
+      - name: Build iOS IPA (No Code Signing)
         script: |
-          flutter build ios --release --no-codesign
+          flutter build ipa --no-codesign
 
     artifacts:
       - build/ios/ipa/*.ipa
