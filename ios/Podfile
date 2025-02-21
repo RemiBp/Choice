@@ -22,7 +22,7 @@ target 'Runner' do
   flutter_ios_podfile_setup if defined?(flutter_ios_podfile_setup)
   
   # ✅ Ajout manuel du module `add_2_calendar`
-  pod 'add_2_calendar', :path => '../.symlinks/plugins/add_2_calendar/ios'
+  pod 'add_2_calendar', :path => File.join(File.dirname(__FILE__), '../.symlinks/plugins/add_2_calendar/ios') if File.exist?(File.join(File.dirname(__FILE__), '../.symlinks/plugins/add_2_calendar/ios'))
 
   # ✅ S'assurer que les pods Flutter sont bien installés
   install_all_flutter_pods(File.dirname(File.realpath(__FILE__))) if defined?(install_all_flutter_pods)
