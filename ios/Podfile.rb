@@ -26,8 +26,8 @@ target 'Runner' do
   # ✅ Installation de tous les pods Flutter
   install_all_flutter_pods(File.dirname(File.realpath(__FILE__))) if defined?(install_all_flutter_pods)
 
-  # ✅ Correction des erreurs liées aux architectures et à Bitcode
-  post_install do |installer|
+# ✅ Correction des erreurs liées aux architectures, à Bitcode et à la version iOS minimum
+post_install do |installer|
     installer.pods_project.targets.each do |target|
       target.build_configurations.each do |config|
         # Désactiver Bitcode car Flutter ne l'utilise pas
@@ -35,7 +35,10 @@ target 'Runner' do
         
         # Exclure l'architecture arm64 pour éviter les erreurs de compilation sur simulateur
         config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'arm64'
+  
+        # 🔥 Assurer que l'application cible bien iOS 14.0+
+        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
       end
     end
   end
-end
+end  
