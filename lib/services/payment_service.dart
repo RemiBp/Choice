@@ -1,11 +1,22 @@
 import 'package:flutter_stripe/flutter_stripe.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart'; // ✅ Alternative pour Web
 import 'package:flutter/material.dart';  // Pour utiliser Colors et Color
 
 class PaymentService {
-  static const _storage = FlutterSecureStorage(); // 🔹 Stockage sécurisé
+  static dynamic _storage;
+
+  static Future<void> initStorage() async {
+    if (kIsWeb) {
+      _storage = await SharedPreferences.getInstance();
+    } else {
+      _storage = FlutterSecureStorage();
+    }
+  }
+
 
   /// 🔹 Processus de paiement avec Stripe
   static Future<bool> processPayment(String plan, String producerId) async {
@@ -50,14 +61,24 @@ class PaymentService {
       print("🎉 Paiement réussi !");
 
       // 🔹 Supprime le `client_secret` après un paiement réussi
-      await _storage.delete(key: "stripe_client_secret");
+      if (kIsWeb) {
+        await _storage.remove("stripe_client_secret"); // Utilise SharedPreferences sur Web
+      } else {
+        await _storage.delete(key: "stripe_client_secret"); // Utilise SecureStorage sur mobile
+      }
+
 
       return true;
     } catch (e) {
       print("❌ Erreur Stripe : $e");
 
       // 🔹 Supprime le `client_secret` en cas d'échec pour éviter d'utiliser une ancienne session
-      await _storage.delete(key: "stripe_client_secret");
+      if (kIsWeb) {
+        await _storage.remove("stripe_client_secret"); // Utilise SharedPreferences sur Web
+      } else {
+        await _storage.delete(key: "stripe_client_secret"); // Utilise SecureStorage sur mobile
+      }
+
 
       // 🔹 Gérer les erreurs Stripe spécifiques
       if (e is StripeException) {
