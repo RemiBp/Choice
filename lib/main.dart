@@ -1,6 +1,8 @@
+import 'package:flutter/foundation.dart' show kIsWeb; // Pour détecter le Web
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'screens/utils.dart';
 import 'screens/home_screen.dart'; // Page principale
 import 'screens/profile_screen.dart'; // Profil utilisateur
 import 'screens/map_screen.dart'; // Carte des restaurants

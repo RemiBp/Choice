@@ -4,6 +4,7 @@ import 'package:flutter_chat_types/flutter_chat_types.dart' as types;
 import 'package:syncfusion_flutter_charts/charts.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'utils.dart';
 
 class ProducerDashboardIaPage extends StatefulWidget {
   final String producerId;
@@ -80,7 +81,7 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> {
   Future<String> fetchBotResponse(String producerId, String userMessage) async {
     try {
       final response = await http.post(
-        Uri.parse("http://10.0.2.2:5000/api/chat/chat"),
+        Uri.parse("${getBaseUrl()}/api/chat/chat"),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({"producerId": producerId, "userMessage": userMessage}),
       );

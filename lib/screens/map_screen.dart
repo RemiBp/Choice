@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'producer_screen.dart'; // Importer l'écran ProducerScreen
 import 'package:flutter/services.dart'; // Nécessaire pour rootBundle
+import 'utils.dart';
 
 // Ajout de la classe MapScreen
 class MapScreen extends StatefulWidget {
@@ -194,7 +195,7 @@ class _MapScreenState extends State<MapScreen> {
         if (_maxItemRating != null) 'maxItemRating': _maxItemRating.toString(),
       };
 
-      final uri = Uri.http('10.0.2.2:5000', '/api/producers/nearby', queryParameters);
+      final uri = Uri.http('${getBaseUrl()}', '/api/producers/nearby', queryParameters);
       print("🔍 Requête envoyée : $uri");
 
       final response = await http.get(uri);

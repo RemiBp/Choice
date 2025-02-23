@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'producerLeisure_screen.dart';
 import 'eventLeisure_screen.dart';
 import 'package:add_2_calendar/add_2_calendar.dart';
+import 'utils.dart'; // Ajoute l'import au début du fichier
 
 class EventLeisureScreen extends StatelessWidget {
   final Map<String, dynamic> eventData;
@@ -453,7 +454,7 @@ class EventLeisureScreen extends StatelessWidget {
     final emotions = (eventData['emotions'] ?? []).join(',');
 
     final uri = Uri.parse(
-        'http://10.0.2.2:5000/api/events/advanced-search?category=$category&emotions=$emotions');
+        '${getBaseUrl()}/api/events/advanced-search?category=$category&emotions=$emotions');
 
     showDialog(
       context: context,
@@ -483,7 +484,7 @@ class EventLeisureScreen extends StatelessWidget {
     if (category == null) return;
 
     final uri = Uri.parse(
-        'http://10.0.2.2:5000/api/events/advanced-search?category=${category.split('»').last.trim()}');
+        '${getBaseUrl()}/api/events/advanced-search?category=${category.split('»').last.trim()}');
 
     showDialog(
       context: context,
@@ -608,7 +609,7 @@ class EventLeisureScreen extends StatelessWidget {
 
   /// Naviguer vers un événement à partir de son ID
   Future<void> _navigateEvent(BuildContext context, String id) async {
-    final uri = Uri.parse('http://10.0.2.2:5000/api/events/$id');
+    final uri = Uri.parse('${getBaseUrl()}/api/events/$id');
 
     showDialog(
       context: context,
@@ -640,7 +641,7 @@ class EventLeisureScreen extends StatelessWidget {
 
   /// Recherche du producteur lié via le nom du lieu
   Future<void> _navigateToProducer(BuildContext context, String lieu) async {
-    final searchUrl = Uri.parse('http://10.0.2.2:5000/api/unified/search?query=$lieu');
+    final searchUrl = Uri.parse('${getBaseUrl()}/api/unified/search?query=$lieu');
     print('🔍 Recherche du producteur pour le lieu : $lieu');
 
     try {
@@ -692,7 +693,7 @@ class EventLeisureScreen extends StatelessWidget {
 
     try {
       // URL directement pour les producteurs
-      final url = Uri.parse('http://10.0.2.2:5000/api/leisureProducers/$id');
+      final url = Uri.parse('${getBaseUrl()}/api/leisureProducers/$id');
       final response = await http.get(url);
 
       if (response.statusCode == 200) {

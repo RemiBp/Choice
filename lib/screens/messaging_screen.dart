@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'profile_screen.dart'; // Pour les utilisateurs
 import 'producer_screen.dart'; // Pour les producteurs
 import 'producerLeisure_screen.dart'; // Pour les producteurs de loisirs
+import 'utils.dart';
 
 class MessagingScreen extends StatefulWidget {
   final String userId;
@@ -65,13 +66,13 @@ class _MessagingScreenState extends State<MessagingScreen> {
       String endpoint = '';
       switch (type) {
         case 'user':
-          endpoint = 'http://10.0.2.2:5000/api/users/$id';
+          endpoint = '${getBaseUrl()}/api/users/$id';
           break;
         case 'producer':
-          endpoint = 'http://10.0.2.2:5000/api/producers/$id';
+          endpoint = '${getBaseUrl()}/api/producers/$id';
           break;
         case 'leisureProducer':
-          endpoint = 'http://10.0.2.2:5000/api/leisureProducers/$id';
+          endpoint = '${getBaseUrl()}/api/leisureProducers/$id';
           break;
       }
 
@@ -88,7 +89,7 @@ class _MessagingScreenState extends State<MessagingScreen> {
   Future<void> _fetchConversations() async {
     try {
       final response = await http.get(
-        Uri.parse('http://10.0.2.2:5000/api/conversations/${widget.userId}/conversations'),
+        Uri.parse('${getBaseUrl()}/api/conversations/${widget.userId}/conversations'),
       );
 
       if (response.statusCode == 200) {
@@ -151,9 +152,9 @@ class _MessagingScreenState extends State<MessagingScreen> {
 
   Future<Map<String, dynamic>?> _fetchParticipantDetails(String id) async {
     final List<String> endpoints = [
-      'http://10.0.2.2:5000/api/users/$id',
-      'http://10.0.2.2:5000/api/producers/$id',
-      'http://10.0.2.2:5000/api/leisureProducers/$id',
+      '${getBaseUrl()}/api/users/$id',
+      '${getBaseUrl()}/api/producers/$id',
+      '${getBaseUrl()}/api/leisureProducers/$id',
     ];
 
     for (var endpoint in endpoints) {
@@ -197,7 +198,7 @@ class _MessagingScreenState extends State<MessagingScreen> {
     if (query.isEmpty) return;
 
     try {
-      final response = await http.get(Uri.parse('http://10.0.2.2:5000/api/unified/search?query=$query'));
+      final response = await http.get(Uri.parse('${getBaseUrl()}/api/unified/search?query=$query'));
       if (response.statusCode == 200) {
         final List<dynamic> results = json.decode(response.body);
 
@@ -241,7 +242,7 @@ class _MessagingScreenState extends State<MessagingScreen> {
                         Navigator.pop(context);
 
                         // Vérifier si une conversation existe déjà
-                        final response = await http.get(Uri.parse('http://10.0.2.2:5000/api/conversations/${widget.userId}/check/$id'));
+                        final response = await http.get(Uri.parse('${getBaseUrl()}/api/conversations/${widget.userId}/check/$id'));
                         if (response.statusCode == 200) {
                           final data = json.decode(response.body);
 
@@ -398,7 +399,7 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _fetchMessages() async {
     try {
       final response = await http.get(
-        Uri.parse('http://10.0.2.2:5000/api/conversations/${widget.conversationId}/messages'),
+        Uri.parse('${getBaseUrl()}/api/conversations/${widget.conversationId}/messages'),
       );
 
       if (response.statusCode == 200) {
@@ -431,7 +432,7 @@ class _ChatScreenState extends State<ChatScreen> {
           'content': _messageController.text,
         };
 
-        final endpoint = 'http://10.0.2.2:5000/api/conversations/${widget.conversationId}/message';
+        final endpoint = '${getBaseUrl()}/api/conversations/${widget.conversationId}/message';
         final response = await http.post(
           Uri.parse(endpoint),
           headers: {'Content-Type': 'application/json'},

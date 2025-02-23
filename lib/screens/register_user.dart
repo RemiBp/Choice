@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:choice_app/main.dart'; // Assurez-vous que MainNavigation est bien importé
+import 'utils.dart';
 
 class RegisterUserPage extends StatefulWidget {
   const RegisterUserPage({Key? key}) : super(key: key);
@@ -19,7 +20,7 @@ class _RegisterUserPageState extends State<RegisterUserPage> {
 
   Future<void> registerUser() async {
     // URL de l'API
-    const String apiUrl = 'http://10.0.2.2:5000/api/newuser/register-or-recover';
+    final String apiUrl = '${getBaseUrl()}/api/newuser/register-or-recover';
 
     try {
       setState(() {

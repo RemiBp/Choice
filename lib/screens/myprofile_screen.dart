@@ -7,6 +7,7 @@ import 'eventLeisure_screen.dart'; // Pour les événements
 import 'messaging_screen.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
+import 'utils.dart';
 
 class MyProfileScreen extends StatefulWidget {
   final String userId;
@@ -30,7 +31,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
 
   /// Récupère le profil utilisateur
   Future<Map<String, dynamic>> _fetchUserProfile(String userId) async {
-    final url = Uri.parse('http://10.0.2.2:5000/api/users/$userId');
+    final url = Uri.parse('${getBaseUrl()}/api/users/$userId');
     final response = await http.get(url);
 
     if (response.statusCode == 200) {
@@ -49,7 +50,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
 
     final List<dynamic> posts = [];
     for (final postId in postIds) {
-      final url = Uri.parse('http://10.0.2.2:5000/api/posts/$postId');
+      final url = Uri.parse('${getBaseUrl()}/api/posts/$postId');
       try {
         final response = await http.get(url);
         if (response.statusCode == 200) {
@@ -84,7 +85,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
           throw Exception("Type non reconnu pour l'ID : $id");
       }
 
-      final url = Uri.parse('http://10.0.2.2:5000/api/$endpoint/$id');
+      final url = Uri.parse('${getBaseUrl()}/api/$endpoint/$id');
       final response = await http.get(url);
 
       if (response.statusCode == 200) {
@@ -128,7 +129,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
     }
 
     try {
-      final url = Uri.parse('http://10.0.2.2:5000/api/conversations/check-or-create');
+      final url = Uri.parse('${getBaseUrl()}/api/conversations/check-or-create');
       final response = await http.post(
         url,
         headers: {'Content-Type': 'application/json'},
@@ -581,7 +582,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 
   /// Fonction pour liker un post
   Future<void> _likePost(String postId) async {
-    final url = Uri.parse('http://10.0.2.2:5000/api/posts/$postId/like');
+    final url = Uri.parse('${getBaseUrl()}/api/posts/$postId/like');
     final body = {'user_id': widget.userId};
 
     try {
@@ -607,7 +608,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 
   /// Fonction pour ajouter un choix (choice)
   Future<void> _addChoice(String postId) async {
-    final url = Uri.parse('http://10.0.2.2:5000/api/posts/$postId/choice');
+    final url = Uri.parse('${getBaseUrl()}/api/posts/$postId/choice');
     final body = {'user_id': widget.userId};
 
     try {
@@ -633,7 +634,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 
   /// Fonction pour ajouter un commentaire
   Future<void> _addComment(String postId, String content) async {
-    final url = Uri.parse('http://10.0.2.2:5000/api/posts/$postId/comments');
+    final url = Uri.parse('${getBaseUrl()}/api/posts/$postId/comments');
     final body = {
       'user_id': widget.userId,
       'content': content,
@@ -850,7 +851,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     };
 
     try {
-      final url = Uri.parse('http://10.0.2.2:5000/api/posts');
+      final url = Uri.parse('${getBaseUrl()}/api/posts');
       final response = await http.post(
         url,
         headers: {'Content-Type': 'application/json'},
@@ -914,7 +915,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     }
 
     try {
-      final url = Uri.parse('http://10.0.2.2:5000/api/unified/search?query=$query');
+      final url = Uri.parse('${getBaseUrl()}/api/unified/search?query=$query');
       final response = await http.get(url);
 
       if (response.statusCode == 200) {

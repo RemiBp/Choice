@@ -3,7 +3,7 @@ import 'package:flutter_chat_ui/flutter_chat_ui.dart';
 import 'package:flutter_chat_types/flutter_chat_types.dart' as types;
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-
+import 'utils.dart';
 import 'producer_screen.dart'; // Pour les détails des restaurants
 import 'producerLeisure_screen.dart'; // Pour les producteurs de loisirs
 import 'eventLeisure_screen.dart'; // Pour les événements
@@ -65,7 +65,7 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> {
     });
 
     try {
-      final url = Uri.parse('http://10.0.2.2:5000/api/unified/search?query=$_query');
+      final url = Uri.parse('${getBaseUrl()}/api/unified/search?query=$_query');
       print('🔍 Requête vers : $url');
 
       final response = await http.get(url);
@@ -144,7 +144,7 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> {
           );
           break;
         case 'leisureProducer':
-          final url = Uri.parse('http://10.0.2.2:5000/api/leisureProducers/$id');
+          final url = Uri.parse('${getBaseUrl()}/api/leisureProducers/$id');
           final response = await http.get(url);
           if (response.statusCode == 200) {
             final data = json.decode(response.body);
@@ -157,7 +157,7 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> {
           }
           break;
         case 'event':
-          final url = Uri.parse('http://10.0.2.2:5000/api/events/$id');
+          final url = Uri.parse('${getBaseUrl()}/api/events/$id');
           final response = await http.get(url);
           if (response.statusCode == 200) {
             final data = json.decode(response.body);
@@ -193,7 +193,7 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> {
   Future<String> fetchBotResponse(String userId, String userMessage) async {
     try {
       final response = await http.post(
-        Uri.parse("http://10.0.2.2:5000/api/chat/user/chat"),
+        Uri.parse("${getBaseUrl()}/api/chat/user/chat"),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({"userId": userId, "userMessage": userMessage}),
       );

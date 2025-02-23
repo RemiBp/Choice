@@ -1,9 +1,10 @@
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'utils.dart';
 
 class PostActions {
   static Future<void> likePost(String postId, String userId) async {
-    final url = Uri.parse('http://10.0.2.2:5000/api/posts/$postId/like');
+    final url = Uri.parse('${getBaseUrl()}/api/posts/$postId/like');
     final body = {'user_id': userId};
 
     try {
@@ -24,7 +25,7 @@ class PostActions {
   }
 
   static Future<void> addChoice(String postId, String userId) async {
-    final url = Uri.parse('http://10.0.2.2:5000/api/posts/$postId/choice');
+    final url = Uri.parse('${getBaseUrl()}/api/posts/$postId/choice');
     final body = {'user_id': userId};
 
     try {
@@ -45,7 +46,7 @@ class PostActions {
   }
 
   static Future<void> addComment(String postId, String userId, String content) async {
-    final url = Uri.parse('http://10.0.2.2:5000/api/posts/$postId/comments');
+    final url = Uri.parse('${getBaseUrl()}/api/posts/$postId/comments');
     final body = {
       'user_id': userId,
       'content': content,

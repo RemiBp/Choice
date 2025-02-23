@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:choice_app/screens/profile_screen.dart'; // Import correct du fichier ProfileScreen
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'utils.dart';
 
 class PostScreen extends StatefulWidget {
   final String userId;
@@ -30,7 +31,7 @@ class _PostScreenState extends State<PostScreen> {
 
   /// Effectue la requête HTTP pour récupérer les posts
   Future<List<dynamic>> _getPostsData(String userId) async {
-    final url = Uri.parse('http://10.0.2.2:5000/api/posts/query/$userId');
+    final url = Uri.parse('${getBaseUrl()}/api/posts/query/$userId');
     try {
       print('🔍 Requête vers : $url');
       final response = await http.get(url);

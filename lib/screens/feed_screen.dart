@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import 'package:choice_app/screens/profile_screen.dart';
 import 'package:video_player/video_player.dart'; 
 import 'package:choice_app/screens/producerLeisure_screen.dart';
+import 'utils.dart';
 
 class FeedScreen extends StatefulWidget {
   final String userId;
@@ -35,7 +36,7 @@ class _FeedScreenState extends State<FeedScreen> {
 
   /// Effectue la requête HTTP pour récupérer les posts
   Future<List<dynamic>> _getFeedData(String userId) async {
-    final url = Uri.parse('http://10.0.2.2:5000/api/posts?userId=$userId&limit=10');
+    final url = Uri.parse('${getBaseUrl()}/api/posts?userId=$userId&limit=10');
     try {
       print('🔍 Requête vers : $url');
       final response = await http.get(url);
@@ -55,7 +56,7 @@ class _FeedScreenState extends State<FeedScreen> {
 
   /// Récupère les informations d'un auteur (producteur ou utilisateur)
   Future<Map<String, dynamic>?> _fetchUserProfile(String userId) async {
-    final url = Uri.parse('http://10.0.2.2:5000/api/users/$userId');
+    final url = Uri.parse('${getBaseUrl()}/api/users/$userId');
     try {
       print('🔍 Requête utilisateur vers : $url');
       final response = await http.get(url);
@@ -76,7 +77,7 @@ class _FeedScreenState extends State<FeedScreen> {
   Future<Map<String, dynamic>?> _fetchAuthorDetails(String authorId, bool isProducer,
       {bool isLeisureProducer = false}) async {
     String endpoint = isLeisureProducer ? 'leisureProducers' : (isProducer ? 'producers' : 'users');
-    Uri url = Uri.parse('http://10.0.2.2:5000/api/$endpoint/$authorId');
+    Uri url = Uri.parse('${getBaseUrl()}/api/$endpoint/$authorId');
 
     try {
       print('🔍 Requête auteur vers : $url');
@@ -92,7 +93,7 @@ class _FeedScreenState extends State<FeedScreen> {
         if (!isLeisureProducer && isProducer) {
           print('🔄 Tentative de fallback vers leisureProducers...');
           endpoint = 'leisureProducers';
-          url = Uri.parse('http://10.0.2.2:5000/api/$endpoint/$authorId');
+          url = Uri.parse('${getBaseUrl()}/api/$endpoint/$authorId');
           final fallbackResponse = await http.get(url);
 
           if (fallbackResponse.statusCode == 200) {
@@ -112,7 +113,7 @@ class _FeedScreenState extends State<FeedScreen> {
   }
 
   Future<void> _markInterested(String targetId, Map<String, dynamic> post, {bool isLeisureProducer = false}) async {
-    final url = Uri.parse('http://10.0.2.2:5000/api/choicexinterest/interested');
+    final url = Uri.parse('${getBaseUrl()}/api/choicexinterest/interested');
     final body = {
       'userId': widget.userId,
       'targetId': targetId, // Peut être producerId ou eventId selon le contexte
@@ -141,7 +142,7 @@ class _FeedScreenState extends State<FeedScreen> {
   }
 
   Future<void> _markChoice(String targetId, Map<String, dynamic> post, {bool isLeisureProducer = false}) async {
-    final url = Uri.parse('http://10.0.2.2:5000/api/choicexinterest/choice');
+    final url = Uri.parse('${getBaseUrl()}/api/choicexinterest/choice');
     final body = {
       'userId': widget.userId,
       'targetId': targetId,
@@ -171,7 +172,7 @@ class _FeedScreenState extends State<FeedScreen> {
 
   /// Récupère les informations d'un événement
   Future<Map<String, dynamic>?> _fetchEventDetails(String eventId) async {
-    final url = Uri.parse('http://10.0.2.2:5000/api/events/$eventId');
+    final url = Uri.parse('${getBaseUrl()}/api/events/$eventId');
     try {
       print('🔍 Requête événement vers : $url');
       final response = await http.get(url);
@@ -189,7 +190,7 @@ class _FeedScreenState extends State<FeedScreen> {
 
   /// Ajoute un commentaire
   Future<void> _addComment(String postId, String comment) async {
-    final url = Uri.parse('http://10.0.2.2:5000/api/posts/$postId/comments');
+    final url = Uri.parse('${getBaseUrl()}/api/posts/$postId/comments');
     try {
       final response = await http.post(
         url,
@@ -211,7 +212,7 @@ class _FeedScreenState extends State<FeedScreen> {
 
   /// Like un commentaire
   Future<void> _likeComment(String postId, String commentId) async {
-    final url = Uri.parse('http://10.0.2.2:5000/api/posts/$postId/comments/$commentId/like');
+    final url = Uri.parse('${getBaseUrl()}/api/posts/$postId/comments/$commentId/like');
     try {
       final response = await http.post(url);
       if (response.statusCode == 200) {

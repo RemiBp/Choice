@@ -1,9 +1,10 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../screens/utils.dart';
 
 class ApiService {
   // Adresse du backend. Utilisez '10.0.2.2' pour les émulateurs Android.
-  static const String baseUrl = 'http://10.0.2.2:5000';
+  static final String baseUrl = getBaseUrl();
 
   /// Récupérer le feed personnalisé pour un utilisateur
   static Future<List<dynamic>> getFeed({
@@ -12,19 +13,11 @@ class ApiService {
     int limit = 10,
   }) async {
     try {
-      print('🔍 Chargement du feed pour l\'utilisateur $userId');
+      print('🔍 Chargement du feed pour l\'utilisateur $userId depuis $baseUrl');
 
-      final uri = Uri.http(
-        '10.0.2.2:5000',
-        '/api/posts', // Route ajustée ici
-        {
-          'userId': userId,
-          'limit': '$limit',
-          if (query != null && query.isNotEmpty) 'query': query,
-        },
+      final uri = Uri.parse(
+        '$baseUrl/api/posts?userId=$userId&limit=$limit${query != null && query.isNotEmpty ? '&query=$query' : ''}',
       );
-
-      print('🔍 Requête vers : $uri');
 
       final response = await http.get(uri);
 

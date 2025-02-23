@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'producerLeisure_screen.dart';
 import 'eventLeisure_screen.dart';
+import 'utils.dart';
 
 class MapLeisureScreen extends StatefulWidget {
   const MapLeisureScreen({Key? key}) : super(key: key);
@@ -70,7 +71,7 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
         if (_selectedProducerCategory != null) 'category': _selectedProducerCategory,
       };
 
-      final uri = Uri.http('10.0.2.2:5000', '/api/leisureProducers/nearby', queryParameters);
+      final uri = Uri.http('${getBaseUrl()}', '/api/leisureProducers/nearby', queryParameters);
 
       final response = await http.get(uri);
 
@@ -123,7 +124,7 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
         'maxPrice': _maxPrice.toString(),
       };
 
-      final uri = Uri.http('10.0.2.2:5000', '/api/events/advanced-search', queryParameters);
+      final uri = Uri.http('${getBaseUrl()}', '/api/events/advanced-search', queryParameters);
 
       final response = await http.get(uri);
 
@@ -219,7 +220,7 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
 
   /// Navigation vers les détails de l'événement
   void _navigateToEventDetails(String eventId) async {
-    final url = Uri.parse('http://10.0.2.2:5000/api/events/$eventId');
+    final url = Uri.parse('${getBaseUrl()}/api/events/$eventId');
 
     try {
       final response = await http.get(url);

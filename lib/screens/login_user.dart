@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:choice_app/main.dart'; // Assurez-vous que MainNavigation est bien importé
+import 'utils.dart';
 
 class LoginUserPage extends StatefulWidget {
   @override
@@ -16,7 +17,7 @@ class _LoginUserPageState extends State<LoginUserPage> {
 
   Future<void> loginUser() async {
     // URL de l'API pour se connecter
-    const String apiUrl = 'http://10.0.2.2:5000/api/newuser/login';
+    final String apiUrl = '${getBaseUrl()}/api/newuser/login';
 
     try {
       setState(() {

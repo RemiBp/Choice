@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart'; // ✅ Alternative pour Web
 import 'package:flutter/material.dart';  // Pour utiliser Colors et Color
+import '../screens/utils.dart';
 
 class PaymentService {
   static dynamic _storage;
@@ -92,7 +93,7 @@ class PaymentService {
   /// 🔹 Récupérer dynamiquement le `client_secret` depuis le backend
   static Future<String?> _getClientSecret(int amount, String producerId) async {
     try {
-      final url = Uri.parse("http://10.0.2.2:5000/api/subscription/create-payment-intent");
+      final url = Uri.parse("${getBaseUrl()}/api/subscription/create-payment-intent");
 
       final response = await http.post(
         url,

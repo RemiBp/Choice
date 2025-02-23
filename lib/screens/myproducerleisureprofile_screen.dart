@@ -3,6 +3,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'eventLeisure_screen.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'utils.dart';
 
 class MyProducerLeisureProfileScreen extends StatefulWidget {
   final String userId;
@@ -23,7 +24,7 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
   }
 
   Future<Map<String, dynamic>> _fetchProducerData(String userId) async {
-    final url = Uri.parse('http://10.0.2.2:5000/api/producers/$userId'); // URL API
+    final url = Uri.parse('${getBaseUrl()}/api/producers/$userId'); // URL API
     try {
       final response = await http.get(url);
 
@@ -204,7 +205,7 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
   }
 
   Future<void> _navigateToEventDetails(BuildContext context, String id) async {
-    final url = Uri.parse('http://10.0.2.2:5000/api/events/$id');
+    final url = Uri.parse('${getBaseUrl()}/api/events/$id');
     try {
       final response = await http.get(url);
 

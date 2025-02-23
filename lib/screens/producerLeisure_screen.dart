@@ -3,6 +3,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'eventLeisure_screen.dart'; // Import nécessaire pour afficher les événements
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'utils.dart';
 
 class ProducerLeisureScreen extends StatelessWidget {
   final Map<String, dynamic> producerData;
@@ -167,7 +168,7 @@ class ProducerLeisureScreen extends StatelessWidget {
 
     try {
       // URL directement pour les événements
-      final url = Uri.parse('http://10.0.2.2:5000/api/events/$id');
+      final url = Uri.parse('${getBaseUrl()}/api/events/$id');
       final response = await http.get(url);
 
       if (response.statusCode == 200) {

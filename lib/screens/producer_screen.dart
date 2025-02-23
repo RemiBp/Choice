@@ -8,6 +8,7 @@ import 'dart:convert';
 import 'profile_screen.dart';
 import 'producerLeisure_screen.dart';
 import 'producer_screen.dart';
+import 'utils.dart';
 
 class ProducerScreen extends StatefulWidget {
   final String producerId;
@@ -39,13 +40,13 @@ class _ProducerScreenState extends State<ProducerScreen> {
 
     try {
       print('🔍 Test : appel à /producers/$producerId');
-      final producerUrl = Uri.parse('http://10.0.2.2:5000/api/producers/$producerId');
+      final producerUrl = Uri.parse('${getBaseUrl()}/api/producers/$producerId');
       final producerResponse = await http.get(producerUrl);
       print('Réponse pour /producers : ${producerResponse.statusCode}');
       print('Body : ${producerResponse.body}');
 
       print('🔍 Test : appel à /producers/$producerId/relations');
-      final relationsUrl = Uri.parse('http://10.0.2.2:5000/api/producers/$producerId/relations');
+      final relationsUrl = Uri.parse('${getBaseUrl()}/api/producers/$producerId/relations');
       final relationsResponse = await http.get(relationsUrl);
       print('Réponse pour /producers/relations : ${relationsResponse.statusCode}');
       print('Body : ${relationsResponse.body}');
@@ -62,8 +63,8 @@ class _ProducerScreenState extends State<ProducerScreen> {
 
 
   Future<Map<String, dynamic>> _fetchProducerDetails(String producerId) async {
-    final producerUrl = Uri.parse('http://10.0.2.2:5000/api/producers/$producerId');
-    final relationsUrl = Uri.parse('http://10.0.2.2:5000/api/producers/$producerId/relations');
+    final producerUrl = Uri.parse('${getBaseUrl()}/api/producers/$producerId');
+    final relationsUrl = Uri.parse('${getBaseUrl()}/api/producers/$producerId/relations');
 
     try {
       final responses = await Future.wait([
@@ -93,7 +94,7 @@ class _ProducerScreenState extends State<ProducerScreen> {
 
   /// Fonction pour récupérer les posts d'un producteur
   Future<List<dynamic>> _fetchProducerPosts(String producerId) async {
-    final url = Uri.parse('http://10.0.2.2:5000/api/producers/$producerId');
+    final url = Uri.parse('${getBaseUrl()}/api/producers/$producerId');
     try {
       final response = await http.get(url);
       if (response.statusCode == 200) {
@@ -107,7 +108,7 @@ class _ProducerScreenState extends State<ProducerScreen> {
         // Récupérer les détails de chaque post à partir des IDs
         final List<dynamic> posts = [];
         for (final postId in postIds) {
-          final postUrl = Uri.parse('http://10.0.2.2:5000/api/posts/$postId');
+          final postUrl = Uri.parse('${getBaseUrl()}/api/posts/$postId');
           try {
             final postResponse = await http.get(postUrl);
             if (postResponse.statusCode == 200) {
@@ -130,7 +131,7 @@ class _ProducerScreenState extends State<ProducerScreen> {
   }
 
   Future<void> _markInterested(String targetId, Map<String, dynamic> post) async {
-    final url = Uri.parse('http://10.0.2.2:5000/api/choicexinterest/interested');
+    final url = Uri.parse('${getBaseUrl()}/api/choicexinterest/interested');
     final body = {'userId': widget.userId, 'targetId': targetId};
 
     try {
@@ -155,7 +156,7 @@ class _ProducerScreenState extends State<ProducerScreen> {
   }
 
   Future<void> _markChoice(String targetId, Map<String, dynamic> post) async {
-    final url = Uri.parse('http://10.0.2.2:5000/api/choicexinterest/choice');
+    final url = Uri.parse('${getBaseUrl()}/api/choicexinterest/choice');
     final body = {'userId': widget.userId, 'targetId': targetId};
 
     try {
@@ -180,8 +181,8 @@ class _ProducerScreenState extends State<ProducerScreen> {
   }
 
   Future<Map<String, dynamic>?> _fetchProfileById(String id) async {
-    final userUrl = Uri.parse('http://10.0.2.2:5000/api/users/$id');
-    final unifiedUrl = Uri.parse('http://10.0.2.2:5000/api/unified/$id');
+    final userUrl = Uri.parse('${getBaseUrl()}/api/users/$id');
+    final unifiedUrl = Uri.parse('${getBaseUrl()}/api/unified/$id');
 
     // Tenter l'appel vers `/api/users/:id`
     try {
@@ -977,7 +978,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   }
 
   Future<void> _markInterested(String targetId) async {
-    final url = Uri.parse('http://10.0.2.2:5000/api/choicexinterest/interested');
+    final url = Uri.parse('${getBaseUrl()}/api/choicexinterest/interested');
     final body = {'userId': widget.userId, 'targetId': targetId};
 
     try {
@@ -1003,7 +1004,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   }
 
   Future<void> _markChoice(String targetId) async {
-    final url = Uri.parse('http://10.0.2.2:5000/api/choicexinterest/choice');
+    final url = Uri.parse('${getBaseUrl()}/api/choicexinterest/choice');
     final body = {'userId': widget.userId, 'targetId': targetId};
 
     try {

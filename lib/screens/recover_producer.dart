@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../main.dart'; // Importez votre MainNavigation si nécessaire
+import 'utils.dart';
 
 class RecoverProducerPage extends StatefulWidget {
   const RecoverProducerPage({Key? key}) : super(key: key);
@@ -28,7 +29,7 @@ class _RecoverProducerPageState extends State<RecoverProducerPage> {
   Future<void> recoverProducer() async {
     try {
       final response = await http.post(
-        Uri.parse('http://10.0.2.2:5000/api/newuser/register-or-recover'),
+        Uri.parse('${getBaseUrl()}/api/newuser/register-or-recover'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'producerId': producerId}),
       );
