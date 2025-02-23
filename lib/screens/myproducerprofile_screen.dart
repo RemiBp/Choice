@@ -9,11 +9,11 @@ import 'profile_screen.dart';
 import 'producerLeisure_screen.dart';
 import 'producer_screen.dart';
 import 'package:image_picker/image_picker.dart';
-import 'dart:io' show Platform; // ⚠️ UNIQUEMENT pour Android/iOS
 import 'package:flutter/foundation.dart' show kIsWeb; // ⚠️ Pour détecter le Web
 import '../services/payment_service.dart';
 import 'utils.dart';
-import 'dart:io';
+import 'dart:io' if (dart.library.io) 'dart:io';
+import 'dart:typed_data';
 
 class MyProducerProfileScreen extends StatefulWidget {
   final String producerId;
@@ -1402,25 +1402,35 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   /// Fonction pour sélectionner une photo ou une vidéo
   Future<void> _uploadMedia(bool isImage) async {
     final XFile? mediaFile = await (isImage
-        ? _picker.pickImage(
-            source: ImageSource.gallery, // Utilisez ImageSource.camera pour capturer une photo
-            imageQuality: 50, // Réduction de la qualité pour minimiser la taille
-          )
-        : _picker.pickVideo(
-            source: ImageSource.gallery, // Utilisez ImageSource.camera pour capturer une vidéo
-          ));
+        ? _picker.pickImage(source: ImageSource.gallery, imageQuality: 50)
+        : _picker.pickVideo(source: ImageSource.gallery));
 
     if (mediaFile != null) {
-      setState(() {
-        _mediaUrl = mediaFile.path; // Chemin local du fichier sélectionné
-        _mediaType = isImage ? "image" : "video";
-      });
+      String mediaPath;
+
+      if (kIsWeb) {
+        // Utilisation de `webImage` pour récupérer l'URL de l'image sur Web
+        Uint8List bytes = await mediaFile.readAsBytes();
+        mediaPath = "data:image/jpeg;base64,${base64Encode(bytes)}"; // Convertit en Base64
+      } else {
+        mediaPath = mediaFile.path; // Normal pour Android/iOS
+      }
+
+      if (mounted) {
+        setState(() {
+          _mediaUrl = mediaPath;
+          _mediaType = isImage ? "image" : "video";
+        });
+      }
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Aucun fichier sélectionné.')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Aucun fichier sélectionné.')),
+        );
+      }
     }
   }
+
 
   /// Fonction pour effectuer une recherche
   Future<void> _performSearch(String query) async {
@@ -1465,7 +1475,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     });
   }
 
-  @override
+
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
@@ -1506,7 +1516,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
             ),
             const SizedBox(height: 10),
             if (_searchResults.isNotEmpty)
-              Container(
+              SizedBox(
                 height: 150,
                 child: ListView(
                   children: _searchResults.map((item) {
@@ -1569,14 +1579,19 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
             if (_mediaUrl != null)
               Padding(
                 padding: const EdgeInsets.only(top: 10),
-                child: _mediaType == "image"
-                    ? Image.file(
+                child: kIsWeb
+                    ? Image.network(
+                        _mediaUrl!,
+                        height: 200,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                      ) // Web
+                    : Image.file(
                         File(_mediaUrl!),
                         height: 200,
                         width: double.infinity,
                         fit: BoxFit.cover,
-                      )
-                    : const Text('Vidéo sélectionnée'),
+                      ), // Mobile
               ),
             const SizedBox(height: 20),
             _isLoading
@@ -1591,7 +1606,6 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     );
   }
 }
-
 
 class MenuManagementScreen extends StatefulWidget {
   final String producerId;

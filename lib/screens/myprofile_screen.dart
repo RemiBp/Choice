@@ -6,8 +6,10 @@ import 'producerLeisure_screen.dart'; // Pour les producteurs de loisirs
 import 'eventLeisure_screen.dart'; // Pour les événements
 import 'messaging_screen.dart';
 import 'package:image_picker/image_picker.dart';
-import 'dart:io';
 import 'utils.dart';
+import 'dart:io' if (dart.library.io) 'dart:io';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 class MyProfileScreen extends StatefulWidget {
   final String userId;
@@ -26,7 +28,9 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
   void initState() {
     super.initState();
     _userFuture = _fetchUserProfile(widget.userId);
-    _postsFuture = _fetchUserPosts(widget.userId);
+    _userFuture.then((user) {
+      _postsFuture = _fetchUserPosts(user['posts'] ?? []);
+    });
   }
 
   /// Récupère le profil utilisateur
@@ -42,10 +46,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
   }
 
   /// Récupère les posts associés à l'utilisateur
-  Future<List<dynamic>> _fetchUserPosts(String userId) async {
-    final user = await _fetchUserProfile(userId);
-    final postIds = user['posts'] as List<dynamic>? ?? [];
-
+  Future<List<dynamic>> _fetchUserPosts(List<dynamic> postIds) async {
     if (postIds.isEmpty) return [];
 
     final List<dynamic> posts = [];
@@ -64,6 +65,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
     }
     return posts;
   }
+
 
   /// Navigation vers les détails d'un producteur ou événement
   Future<void> _navigateToDetails(String id, String type) async {
@@ -885,25 +887,28 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   /// Fonction pour sélectionner une photo ou une vidéo
   Future<void> _uploadMedia(bool isImage) async {
     final XFile? mediaFile = await (isImage
-        ? _picker.pickImage(
-            source: ImageSource.gallery, // Utilisez ImageSource.camera pour capturer une photo
-            imageQuality: 50, // Réduction de la qualité pour minimiser la taille
-          )
-        : _picker.pickVideo(
-            source: ImageSource.gallery, // Utilisez ImageSource.camera pour capturer une vidéo
-          ));
+        ? _picker.pickImage(source: ImageSource.gallery, imageQuality: 50)
+        : _picker.pickVideo(source: ImageSource.gallery));
 
     if (mediaFile != null) {
-      setState(() {
-        _mediaUrl = mediaFile.path; // Chemin local du fichier sélectionné
-        _mediaType = isImage ? "image" : "video";
-      });
+      final mediaPath = kIsWeb ? mediaFile.path : mediaFile.path;
+      final mediaType = isImage ? "image" : "video";
+
+      if (mounted) {
+        setState(() {
+          _mediaUrl = mediaPath;
+          _mediaType = mediaType;
+        });
+      }
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Aucun fichier sélectionné.')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Aucun fichier sélectionné.')),
+        );
+      }
     }
   }
+
 
   /// Fonction pour effectuer une recherche
   Future<void> _performSearch(String query) async {
@@ -1054,12 +1059,9 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
               Padding(
                 padding: const EdgeInsets.only(top: 10),
                 child: _mediaType == "image"
-                    ? Image.file(
-                        File(_mediaUrl!),
-                        height: 200,
-                        width: double.infinity,
-                        fit: BoxFit.cover,
-                      )
+                    ? kIsWeb
+                        ? Image.network(_mediaUrl!, height: 200, width: double.infinity, fit: BoxFit.cover)
+                        : Image.file(File(_mediaUrl!), height: 200, width: double.infinity, fit: BoxFit.cover)
                     : const Text('Vidéo sélectionnée'),
               ),
             const SizedBox(height: 20),
