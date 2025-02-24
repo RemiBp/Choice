@@ -30,7 +30,7 @@ dependencies:
   flutter_chat_ui: ^1.6.12
   flutter_chat_types: ^3.5.0
   syncfusion_flutter_charts: ^28.1.41
-  provider: 
+  provider: ^6.1.0
   add_2_calendar: ^3.0.1
 
 dev_dependencies:
