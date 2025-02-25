@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart' show kIsWeb; // Pour détecter le Web
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
@@ -19,14 +19,29 @@ import 'screens/login_user.dart'; // Import de la page de connexion
 import 'screens/myprofile_screen.dart'; // Mon profil utilisateur
 import 'screens/myproducerprofile_screen.dart'; // Mon profil producer (restauration)
 import 'screens/myproducerleisureprofile_screen.dart'; // Mon profil producer (loisir)
-import 'package:flutter_stripe/flutter_stripe.dart';
 import 'screens/producer_dashboard_ia.dart';
 
-void main() {
+// ✅ Import Stripe UNIQUEMENT si ce n'est pas Web
+import 'package:flutter_stripe/flutter_stripe.dart' if (dart.library.html) 'dummy_stripe.dart';
+
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  Stripe.publishableKey = "pk_test_51QmFfDLwsHOKmNitM0g9UclfHTAhpEz366Ko7ff0NjoDICwnxT6wi1W4yfC1YV9QhLQUFeRrc0xnwrpCK7OLhYRF00tOrudArz"; // Remplace par ta clé Stripe
+
+  // ✅ Initialiser Stripe SEULEMENT si ce n'est PAS le Web
+  if (!kIsWeb) {
+    try {
+      Stripe.publishableKey = "pk_test_51QmFfDLwsHOKmNitM0g9UclfHTAhpEz366Ko7ff0NjoDICwnxT6wi1W4yfC1YV9QhLQUFeRrc0xnwrpCK7OLhYRF00tOrudArz";
+      await Stripe.instance.applySettings();
+    } catch (e) {
+      print("❌ Erreur d'initialisation Stripe : $e");
+    }
+  } else {
+    print("⚠️ Stripe désactivé sur Web");
+  }
+
   runApp(const ChoiceApp());
-} 
+}
+
 
 class ChoiceApp extends StatelessWidget {
   const ChoiceApp({Key? key}) : super(key: key);

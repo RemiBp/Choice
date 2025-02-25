@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:geolocator/geolocator.dart';
+import 'dart:html' as html; // Pour récupérer la position sur Web
 import '../services/distance_service.dart';
 
 class DistanceScreen extends StatefulWidget {
@@ -10,56 +12,75 @@ class DistanceScreen extends StatefulWidget {
 class _DistanceScreenState extends State<DistanceScreen> {
   final DistanceService _distanceService = DistanceService();
 
-  double _originLat = 48.8566; // Coordonnées par défaut (Paris)
+  double _originLat = 48.8566; // Paris par défaut
   double _originLng = 2.3522;
-  double _destinationLat = 48.8584; // Coordonnées par défaut (Tour Eiffel)
+  double _destinationLat = 48.8584; // Tour Eiffel par défaut
   double _destinationLng = 2.2945;
 
   String? _distance;
   String? _duration;
 
   Future<void> _getCurrentLocation() async {
-    bool serviceEnabled;
-    LocationPermission permission;
-
-    // Vérifier si le service de localisation est activé
-    serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      setState(() {
-        _distance = 'Le service de localisation est désactivé.';
-      });
-      return;
-    }
-
-    // Vérifier les permissions
-    permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
+    if (kIsWeb) {
+      // Gérer la localisation sur Web
+      try {
+        html.window.navigator.geolocation.getCurrentPosition().then((pos) {
+          setState(() {
+            _originLat = pos.coords!.latitude!;
+            _originLng = pos.coords!.longitude!;
+            _distance = 'Localisation actuelle mise à jour.';
+          });
+        }).catchError((error) {
+          setState(() {
+            _distance = 'Erreur de localisation sur Web';
+          });
+        });
+      } catch (e) {
         setState(() {
-          _distance = 'Permission de localisation refusée.';
+          _distance = 'Localisation non supportée sur Web';
+        });
+      }
+    } else {
+      // Gérer la localisation sur Android/iOS
+      bool serviceEnabled;
+      LocationPermission permission;
+
+      serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        setState(() {
+          _distance = 'Le service de localisation est désactivé.';
         });
         return;
       }
-    }
 
-    if (permission == LocationPermission.deniedForever) {
+      permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          setState(() {
+            _distance = 'Permission de localisation refusée.';
+          });
+          return;
+        }
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        setState(() {
+          _distance = 'Permission de localisation définitivement refusée.';
+        });
+        return;
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+
       setState(() {
-        _distance = 'Permission de localisation définitivement refusée.';
+        _originLat = position.latitude;
+        _originLng = position.longitude;
+        _distance = 'Localisation actuelle mise à jour.';
       });
-      return;
     }
-
-    // Obtenir la position actuelle
-    final position = await Geolocator.getCurrentPosition(
-      desiredAccuracy: LocationAccuracy.high,
-    );
-
-    setState(() {
-      _originLat = position.latitude;
-      _originLng = position.longitude;
-      _distance = 'Localisation actuelle mise à jour.';
-    });
   }
 
   void _calculateDistance() async {

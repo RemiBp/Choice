@@ -1,22 +1,25 @@
-// screens/utils_io.dart (Temporaire pour Web Build)
-import 'package:flutter/foundation.dart' show kIsWeb;
+// screens/utils_io.dart (Mobile & Desktop)
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart'; // Pour utiliser `defaultTargetPlatform`
 import 'utils.dart'; // ✅ Import du fichier principal pour garder la cohérence
 
 String getBaseUrl() {
-  return "https://api.choiceapp.fr"; // URL pour le Web
+  return "https://api.choiceapp.fr"; // Plus d'utilisation de 10.0.2.2:5000
 }
 
 /// Vérifie si l'application tourne sur un mobile
 bool isMobile() {
-  return false; // Web n'est pas un mobile
+  if (kIsWeb) return false; // Sur Web, pas de mobile physique
+  return defaultTargetPlatform == TargetPlatform.android ||
+         defaultTargetPlatform == TargetPlatform.iOS;
 }
 
-/// Vérifie si l'application tourne sur un desktop (Windows, Mac, Linux)
 bool isDesktop() {
-  return false; // Web n'est pas un desktop natif
+  if (kIsWeb) return false; // Sur Web, on n'est jamais sur un desktop natif
+    return defaultTargetPlatform == TargetPlatform.windows ||
 }
 
-/// Vérifie si la plateforme supporte `dart:io`
 bool supportsIO() {
-  return false; // `dart:io` n'est pas disponible sur Web
+  return !kIsWeb; // Web ne supporte pas `dart:io`
 }
+    

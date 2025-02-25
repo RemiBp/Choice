@@ -2108,7 +2108,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     });
 
     try {
-      bool success = await PaymentService.processPayment(plan, widget.producerId);
+      bool success = await PaymentService.processPayment(context, plan, widget.producerId);
 
       if (success) {
         ScaffoldMessenger.of(context).showSnackBar(

@@ -1,29 +1,23 @@
-import 'package:flutter_stripe/flutter_stripe.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:shared_preferences/shared_preferences.dart'; // ✅ Alternative pour Web
-import 'package:flutter/material.dart';  // Pour utiliser Colors et Color
+import 'package:url_launcher/url_launcher.dart'; // ✅ Pour ouvrir Stripe sur Web & Mobile
 import '../screens/utils.dart';
+import 'storage_service.dart'; // ✅ Service de stockage
+import 'webview_stripe_page.dart'; // ✅ Import de la WebView pour Stripe
+
 
 class PaymentService {
-  static dynamic _storage;
-
+  /// 🔹 Initialisation du stockage
   static Future<void> initStorage() async {
-    if (kIsWeb) {
-      _storage = await SharedPreferences.getInstance();
-    } else {
-      _storage = FlutterSecureStorage();
-    }
+    await StorageService.initStorage();
   }
 
-
-  /// 🔹 Processus de paiement avec Stripe
-  static Future<bool> processPayment(String plan, String producerId) async {
+  /// 🔹 Processus de paiement via Stripe Checkout
+  static Future<bool> processPayment(BuildContext context, String plan, String producerId) async {
     try {
       final int amount = _getAmount(plan);
-
       if (amount == 0) {
         print("❌ Plan invalide : $plan");
         return false;
@@ -31,69 +25,44 @@ class PaymentService {
 
       print("📤 Envoi de la requête de paiement pour $plan à $amount centimes...");
 
-      // 🔹 Appelle le backend pour obtenir un `client_secret`
-      final String? clientSecret = await _getClientSecret(amount, producerId);
-      if (clientSecret == null) {
-        print("❌ Erreur : client_secret non reçu.");
+      // 🔹 Vérifie que le stockage est initialisé
+      await initStorage();
+
+      // 🔹 Appelle le backend pour obtenir une session Stripe Checkout
+      final String? checkoutUrl = await _getCheckoutUrl(amount, producerId);
+      if (checkoutUrl == null) {
+        print("❌ Erreur : URL Checkout non reçue.");
         return false;
       }
 
-      print("✅ Client secret reçu : $clientSecret");
+      print("✅ URL Checkout reçue : $checkoutUrl");
 
-      // 🔹 Initialisation du PaymentSheet
-      await Stripe.instance.initPaymentSheet(
-        paymentSheetParameters: SetupPaymentSheetParameters(
-          merchantDisplayName: "Choice App",
-          paymentIntentClientSecret: clientSecret, // ✅ Utilisation dynamique
-          appearance: PaymentSheetAppearance(
-            colors: PaymentSheetAppearanceColors(
-              primary: Color(0xFF007AFF), // Bleu Stripe
-              background: Colors.white, // Fond blanc
-            ),
-          ),
-        ),
-      );
-
-      print("✅ PaymentSheet prêt, ouverture...");
-
-      // 🔹 Présenter le PaymentSheet
-      await Stripe.instance.presentPaymentSheet();
-
-      print("🎉 Paiement réussi !");
-
-      // 🔹 Supprime le `client_secret` après un paiement réussi
+      // 🔹 Ouvrir Stripe Checkout en fonction de la plateforme
       if (kIsWeb) {
-        await _storage.remove("stripe_client_secret"); // Utilise SharedPreferences sur Web
+        print("🌍 Redirection vers Stripe Checkout Web...");
+        await launchUrl(Uri.parse(checkoutUrl), mode: LaunchMode.externalApplication);
       } else {
-        await _storage.delete(key: "stripe_client_secret"); // Utilise SecureStorage sur mobile
+        print("📱 Ouverture de Stripe Checkout en WebView...");
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => WebViewStripePage(url: checkoutUrl),
+          ),
+        );
       }
 
-
+      print("🎉 Paiement terminé ou annulé !");
       return true;
     } catch (e) {
       print("❌ Erreur Stripe : $e");
-
-      // 🔹 Supprime le `client_secret` en cas d'échec pour éviter d'utiliser une ancienne session
-      if (kIsWeb) {
-        await _storage.remove("stripe_client_secret"); // Utilise SharedPreferences sur Web
-      } else {
-        await _storage.delete(key: "stripe_client_secret"); // Utilise SecureStorage sur mobile
-      }
-
-
-      // 🔹 Gérer les erreurs Stripe spécifiques
-      if (e is StripeException) {
-        print("💡 Détails erreur Stripe : ${e.error.localizedMessage}");
-      }
-
       return false;
     }
   }
 
-  /// 🔹 Récupérer dynamiquement le `client_secret` depuis le backend
-  static Future<String?> _getClientSecret(int amount, String producerId) async {
+  /// 🔹 Récupérer dynamiquement l'URL Stripe Checkout depuis le backend
+  static Future<String?> _getCheckoutUrl(int amount, String producerId) async {
     try {
-      final url = Uri.parse("${getBaseUrl()}/api/subscription/create-payment-intent");
+      final url = Uri.parse("${getBaseUrl()}/api/subscription/create-checkout-session");
 
       final response = await http.post(
         url,
@@ -110,10 +79,10 @@ class PaymentService {
         return null;
       }
 
-      final paymentIntent = json.decode(response.body);
-      return paymentIntent['client_secret'];
+      final checkoutSession = json.decode(response.body);
+      return checkoutSession['checkout_url'];
     } catch (e) {
-      print("❌ Erreur lors de la récupération du client_secret : $e");
+      print("❌ Erreur lors de la récupération de l'URL Checkout : $e");
       return null;
     }
   }
@@ -122,11 +91,11 @@ class PaymentService {
   static int _getAmount(String plan) {
     switch (plan.toLowerCase()) {
       case "bronze":
-        return 5; // 5,00 €
+        return 500; // 5,00 €
       case "silver":
-        return 10; // 10,00 €
+        return 1000; // 10,00 €
       case "gold":
-        return 15; // 15,00 €
+        return 1500; // 15,00 €
       default:
         return 0; // Plan inconnu
     }
