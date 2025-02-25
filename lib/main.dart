@@ -37,7 +37,7 @@ class ChoiceApp extends StatelessWidget {
       title: 'Choice App',
       theme: ThemeData(
         primarySwatch: Colors.blue,
-        visualDensity: VisualDensity.adaptivePlatformDensity,
+        visualDensity: VisualDensity.standard,
       ),
       debugShowCheckedModeBanner: false,
       home: const LandingPage(), // Page d'accueil initiale
