@@ -12,7 +12,6 @@ import 'package:image_picker/image_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb; // ⚠️ Pour détecter le Web
 import '../services/payment_service.dart';
 import 'utils.dart';
-import 'dart:io' if (dart.library.io) 'dart:io';
 import 'dart:typed_data';
 
 class MyProducerProfileScreen extends StatefulWidget {
@@ -1475,6 +1474,14 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     });
   }
 
+  Widget _buildMediaPreview() {
+    if (_mediaUrl == null) return const SizedBox.shrink();
+
+    return Image.network(_mediaUrl!, height: 200, width: double.infinity, fit: BoxFit.cover);
+  }
+
+
+
 
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1586,12 +1593,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                         width: double.infinity,
                         fit: BoxFit.cover,
                       ) // Web
-                    : Image.file(
-                        File(_mediaUrl!),
-                        height: 200,
-                        width: double.infinity,
-                        fit: BoxFit.cover,
-                      ), // Mobile
+                    : _buildMediaPreview()
               ),
             const SizedBox(height: 20),
             _isLoading

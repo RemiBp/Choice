@@ -7,7 +7,6 @@ import 'eventLeisure_screen.dart'; // Pour les événements
 import 'messaging_screen.dart';
 import 'package:image_picker/image_picker.dart';
 import 'utils.dart';
-import 'dart:io' if (dart.library.io) 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
 
@@ -1059,9 +1058,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
               Padding(
                 padding: const EdgeInsets.only(top: 10),
                 child: _mediaType == "image"
-                    ? kIsWeb
-                        ? Image.network(_mediaUrl!, height: 200, width: double.infinity, fit: BoxFit.cover)
-                        : Image.file(File(_mediaUrl!), height: 200, width: double.infinity, fit: BoxFit.cover)
+                    ? Image.network(_mediaUrl!, height: 200, width: double.infinity, fit: BoxFit.cover)
                     : const Text('Vidéo sélectionnée'),
               ),
             const SizedBox(height: 20),
