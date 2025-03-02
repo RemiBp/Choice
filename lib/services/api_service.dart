@@ -1,37 +1,64 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import '../screens/utils.dart';
+import '../utils/constants.dart'; // Changer utils.dart en constants.dart
+import '../models/post.dart';
 
 class ApiService {
-  // Adresse du backend. Utilisez '10.0.2.2' pour les émulateurs Android.
-  static final String baseUrl = getBaseUrl();
+  static final ApiService _instance = ApiService._internal();
+  factory ApiService() => _instance;
+  ApiService._internal();
 
-  /// Récupérer le feed personnalisé pour un utilisateur
-  static Future<List<dynamic>> getFeed({
-    required String userId,
-    String? query, // Optionnel : Recherche dans le feed
-    int limit = 10,
-  }) async {
+  // Supprimez cette ligne car nous utiliserons getBaseUrl() directement
+  // final String baseUrl = getBaseUrl();
+
+  Future<List<Post>> getFeed(String userId, int page, int limit) async {
+    final url = Uri.parse('${getBaseUrl()}/api/posts?userId=$userId&page=$page&limit=$limit');
     try {
-      print('🔍 Chargement du feed pour l\'utilisateur $userId depuis $baseUrl');
-
-      final uri = Uri.parse(
-        '$baseUrl/api/posts?userId=$userId&limit=$limit${query != null && query.isNotEmpty ? '&query=$query' : ''}',
-      );
-
-      final response = await http.get(uri);
-
-      print('📩 Réponse reçue pour le feed : ${response.statusCode}');
+      final response = await http.get(url);
       if (response.statusCode == 200) {
-        return json.decode(response.body);
-      } else {
-        throw Exception(
-          'Erreur ${response.statusCode} lors du chargement du feed : ${response.body}',
-        );
+        final List<dynamic> data = json.decode(response.body);
+        return data.map((post) => Post.fromJson(post)).toList();
       }
+      throw Exception('Failed to load feed');
     } catch (e) {
-      print('❌ Erreur dans getFeed : $e');
-      throw Exception('Erreur de connexion au serveur : $e');
+      throw Exception('Network error: $e');
+    }
+  }
+
+  Future<bool> markInterested(String userId, String targetId, {bool isLeisureProducer = false}) async {
+    final url = Uri.parse('${getBaseUrl()}/api/choicexinterest/interested');
+    try {
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'userId': userId,
+          'targetId': targetId,
+          'isLeisureProducer': isLeisureProducer,
+        }),
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      print('Erreur lors du marquage interested: $e');
+      return false;
+    }
+  }
+
+  Future<bool> markChoice(String userId, String targetId) async {
+    final url = Uri.parse('${getBaseUrl()}/api/choicexinterest/choice');
+    try {
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'userId': userId,
+          'targetId': targetId,
+        }),
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      print('Erreur lors du marquage choice: $e');
+      return false;
     }
   }
 
@@ -40,7 +67,7 @@ class ApiService {
     try {
       print('🔍 Récupération du profil utilisateur $userId');
 
-      final uri = Uri.parse('$baseUrl/api/user/$userId');
+      final uri = Uri.parse('${getBaseUrl()}/api/user/$userId');
       print('🔍 Requête vers : $uri');
 
       final response = await http.get(uri);
@@ -64,7 +91,7 @@ class ApiService {
     try {
       print('🔍 Récupération des favoris pour $userId');
 
-      final uri = Uri.parse('$baseUrl/api/user/$userId/favorites');
+      final uri = Uri.parse('${getBaseUrl()}/api/user/$userId/favorites');
       print('🔍 Requête vers : $uri');
 
       final response = await http.get(uri);
@@ -88,7 +115,7 @@ class ApiService {
     try {
       print('🔍 Chargement des détails pour le producteur $producerId');
 
-      final uri = Uri.parse('$baseUrl/api/producers/$producerId');
+      final uri = Uri.parse('${getBaseUrl()}/api/producers/$producerId');
       print('🔍 Requête vers : $uri');
 
       final response = await http.get(uri);
@@ -124,7 +151,7 @@ class ApiService {
 
       print('🔍 Recherche : $query');
 
-      final uri = Uri.parse('$baseUrl/api/search');
+      final uri = Uri.parse('${getBaseUrl()}/api/search');
       print('🔍 Requête vers : $uri');
 
       final response = await http.post(

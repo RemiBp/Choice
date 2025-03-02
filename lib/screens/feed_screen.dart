@@ -5,9 +5,16 @@ import 'package:choice_app/screens/producer_screen.dart';
 import 'package:choice_app/screens/eventLeisure_screen.dart';
 import 'package:intl/intl.dart';
 import 'package:choice_app/screens/profile_screen.dart';
-import 'package:video_player/video_player.dart'; 
+import 'package:video_player/video_player.dart';
 import 'package:choice_app/screens/producerLeisure_screen.dart';
-import 'utils.dart';
+import 'package:photo_view/photo_view.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import '../models/post.dart';
+import '../models/comment.dart';
+import '../services/api_service.dart';
+import '../utils/constants.dart';
+import '../widgets/feed/post_card.dart';
+import '../widgets/feed/comments_sheet.dart';
 
 class FeedScreen extends StatefulWidget {
   final String userId;
@@ -18,694 +25,180 @@ class FeedScreen extends StatefulWidget {
   State<FeedScreen> createState() => _FeedScreenState();
 }
 
-class _FeedScreenState extends State<FeedScreen> {
+class _FeedScreenState extends State<FeedScreen> with SingleTickerProviderStateMixin {
+  final ApiService _apiService = ApiService();
+  late AnimationController _heartAnimationController;
+  final Map<String, bool> _isDoubleTapInProgress = {};
   late Future<List<dynamic>> _feedFuture;
-
+  final ScrollController _scrollController = ScrollController();
+  List<Post> _posts = [];
+  bool _isLoading = false;
+  bool _hasMore = true;
+  int _currentPage = 1;
+  
   @override
   void initState() {
     super.initState();
-    _fetchFeed();
+    _heartAnimationController = AnimationController(
+      duration: const Duration(milliseconds: 300),
+      vsync: this,
+    );
+    _loadInitialPosts();
+    _scrollController.addListener(_onScroll);
   }
 
-  /// Récupère les données du feed depuis le backend
-  void _fetchFeed() {
-    setState(() {
-      _feedFuture = _getFeedData(widget.userId);
-    });
+  @override
+  void dispose() {
+    _heartAnimationController.dispose();
+    _scrollController.dispose();
+    super.dispose();
   }
 
-  /// Effectue la requête HTTP pour récupérer les posts
-  Future<List<dynamic>> _getFeedData(String userId) async {
-    final url = Uri.parse('${getBaseUrl()}/api/posts?userId=$userId&limit=10');
+  Future<void> _loadInitialPosts() async {
+    setState(() => _isLoading = true);
     try {
-      print('🔍 Requête vers : $url');
-      final response = await http.get(url);
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        print('📩 Réponse reçue : ${data.length} posts');
-        return data;
-      } else {
-        print('❌ Erreur lors de la récupération du feed : ${response.body}');
-        return [];
-      }
+      final posts = await _apiService.getFeed(widget.userId, 1, 10);
+      setState(() {
+        _posts = posts;
+        _isLoading = false;
+        _currentPage = 1;
+      });
     } catch (e) {
-      print('❌ Erreur réseau : $e');
-      return [];
+      print('Erreur lors du chargement des posts: $e');
+      setState(() => _isLoading = false);
     }
   }
 
-  /// Récupère les informations d'un auteur (producteur ou utilisateur)
-  Future<Map<String, dynamic>?> _fetchUserProfile(String userId) async {
-    final url = Uri.parse('${getBaseUrl()}/api/users/$userId');
-    try {
-      print('🔍 Requête utilisateur vers : $url');
-      final response = await http.get(url);
-
-      if (response.statusCode == 200) {
-        print('📩 Profil utilisateur récupéré avec succès');
-        return json.decode(response.body);
-      } else {
-        print('❌ Erreur lors de la récupération du profil utilisateur : ${response.body}');
-        return null;
-      }
-    } catch (e) {
-      print('❌ Erreur réseau pour le profil utilisateur : $e');
-      return null;
+  void _onScroll() {
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent * 0.8) {
+      _loadMorePosts();
     }
   }
 
-  Future<Map<String, dynamic>?> _fetchAuthorDetails(String authorId, bool isProducer,
-      {bool isLeisureProducer = false}) async {
-    String endpoint = isLeisureProducer ? 'leisureProducers' : (isProducer ? 'producers' : 'users');
-    Uri url = Uri.parse('${getBaseUrl()}/api/$endpoint/$authorId');
+  Future<void> _loadMorePosts() async {
+    if (_isLoading || !_hasMore) return;
 
+    setState(() => _isLoading = true);
     try {
-      print('🔍 Requête auteur vers : $url');
-      final response = await http.get(url);
-
-      if (response.statusCode == 200) {
-        print('📩 Auteur récupéré avec succès depuis $endpoint');
-        return json.decode(response.body);
-      } else {
-        print('❌ Erreur lors de la récupération des détails de l\'auteur depuis $endpoint : ${response.body}');
-
-        // Fallback : si la requête sur "producers" échoue, essaye "leisureProducers"
-        if (!isLeisureProducer && isProducer) {
-          print('🔄 Tentative de fallback vers leisureProducers...');
-          endpoint = 'leisureProducers';
-          url = Uri.parse('${getBaseUrl()}/api/$endpoint/$authorId');
-          final fallbackResponse = await http.get(url);
-
-          if (fallbackResponse.statusCode == 200) {
-            print('📩 Auteur récupéré avec succès depuis $endpoint');
-            return json.decode(fallbackResponse.body);
-          } else {
-            print('❌ Erreur également sur $endpoint : ${fallbackResponse.body}');
-          }
+      final newPosts = await _apiService.getFeed(widget.userId, _currentPage + 1, 10);
+      setState(() {
+        if (newPosts.isEmpty) {
+          _hasMore = false;
+        } else {
+          _posts.addAll(newPosts);
+          _currentPage++;
         }
-      }
+        _isLoading = false;
+      });
     } catch (e) {
-      print('❌ Erreur réseau pour l\'auteur : $e');
+      print('Erreur lors du chargement de plus de posts: $e');
+      setState(() => _isLoading = false);
     }
-
-    // Retourne null si toutes les tentatives échouent
-    return null;
   }
 
-  Future<void> _markInterested(String targetId, Map<String, dynamic> post, {bool isLeisureProducer = false}) async {
-    final url = Uri.parse('${getBaseUrl()}/api/choicexinterest/interested');
-    final body = {
-      'userId': widget.userId,
-      'targetId': targetId, // Peut être producerId ou eventId selon le contexte
-      'isLeisureProducer': isLeisureProducer
-    };
-
+  Future<void> _handleInterested(String postId) async {
     try {
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode(body),
+      final post = _posts.firstWhere((p) => p.id == postId);
+      final success = await _apiService.markInterested(
+        widget.userId, 
+        postId,
+        isLeisureProducer: post.isLeisureProducer,
       );
-
-      if (response.statusCode == 200) {
-        final updatedInterested = json.decode(response.body)['interested'];
+      if (success) {
         setState(() {
-          post['interested'] = updatedInterested; // Mise à jour locale du post
-        });
-        print('✅ Interested ajouté avec succès');
-      } else {
-        print('❌ Erreur lors de l\'ajout à Interested : ${response.body}');
-      }
-    } catch (e) {
-      print('❌ Erreur réseau lors de l\'ajout à Interested : $e');
-    }
-  }
-
-  Future<void> _markChoice(String targetId, Map<String, dynamic> post, {bool isLeisureProducer = false}) async {
-    final url = Uri.parse('${getBaseUrl()}/api/choicexinterest/choice');
-    final body = {
-      'userId': widget.userId,
-      'targetId': targetId,
-      'isLeisureProducer': isLeisureProducer
-    };
-
-    try {
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode(body),
-      );
-
-      if (response.statusCode == 200) {
-        final updatedChoice = json.decode(response.body)['choice'];
-        setState(() {
-          post['choice'] = updatedChoice; // Mise à jour locale du post
-        });
-        print('✅ Choice ajouté avec succès');
-      } else {
-        print('❌ Erreur lors de l\'ajout à Choice : ${response.body}');
-      }
-    } catch (e) {
-      print('❌ Erreur réseau lors de l\'ajout à Choice : $e');
-    }
-  }
-
-  /// Récupère les informations d'un événement
-  Future<Map<String, dynamic>?> _fetchEventDetails(String eventId) async {
-    final url = Uri.parse('${getBaseUrl()}/api/events/$eventId');
-    try {
-      print('🔍 Requête événement vers : $url');
-      final response = await http.get(url);
-      if (response.statusCode == 200) {
-        return json.decode(response.body);
-      } else {
-        print('❌ Erreur lors de la récupération des détails de l\'événement : ${response.body}');
-        return null;
-      }
-    } catch (e) {
-      print('❌ Erreur réseau pour l\'événement : $e');
-      return null;
-    }
-  }
-
-  /// Ajoute un commentaire
-  Future<void> _addComment(String postId, String comment) async {
-    final url = Uri.parse('${getBaseUrl()}/api/posts/$postId/comments');
-    try {
-      final response = await http.post(
-        url,
-        body: json.encode({'comment': comment}),
-        headers: {'Content-Type': 'application/json'},
-      );
-      if (response.statusCode == 200) {
-        print('✅ Commentaire ajouté avec succès');
-        setState(() {
-          _fetchFeed();
-        });
-      } else {
-        print('❌ Erreur lors de l\'ajout du commentaire : ${response.body}');
-      }
-    } catch (e) {
-      print('❌ Erreur réseau pour l\'ajout du commentaire : $e');
-    }
-  }
-
-  /// Like un commentaire
-  Future<void> _likeComment(String postId, String commentId) async {
-    final url = Uri.parse('${getBaseUrl()}/api/posts/$postId/comments/$commentId/like');
-    try {
-      final response = await http.post(url);
-      if (response.statusCode == 200) {
-        print('✅ Commentaire liké avec succès');
-        setState(() {
-          _fetchFeed();
-        });
-      } else {
-        print('❌ Erreur lors du like du commentaire : ${response.body}');
-      }
-    } catch (e) {
-      print('❌ Erreur réseau pour le like du commentaire : $e');
-    }
-  }
-
-  Future<VideoPlayerController> _initializeVideoController(String videoUrl) async {
-    final controller = VideoPlayerController.network(videoUrl);
-
-    try {
-      await controller.initialize();
-      controller.setLooping(true); // Permet à la vidéo de boucler automatiquement.
-      controller.setVolume(0); // Désactive le son si vous le souhaitez.
-      controller.play(); // Lance automatiquement la lecture de la vidéo.
-      return controller;
-    } catch (e) {
-      debugPrint('Erreur lors de l\'initialisation de la vidéo : $e');
-      throw Exception('Impossible de charger la vidéo');
-    }
-  }
-
-
-
-void _navigateToDetails(String id, bool isProducer, {bool isLeisureProducer = false}) async {
-  final producerData = await _fetchAuthorDetails(id, isProducer, isLeisureProducer: isLeisureProducer);
-
-  if (producerData != null) {
-    if (isLeisureProducer || producerData['type'] == 'leisureProducer') {
-      // Redirection vers ProducerLeisureScreen
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => ProducerLeisureScreen(producerData: producerData),
-        ),
-      );
-    } else if (isProducer) {
-      // Redirection vers ProducerScreen
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => ProducerScreen(producerId: id),
-        ),
-      );
-    } else {
-      // Redirection vers EventLeisureScreen
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => EventLeisureScreen(eventData: {'_id': id}),
-        ),
-      );
-    }
-  } else {
-    print('❌ Impossible de récupérer les données pour l\'auteur avec ID : $id');
-  }
-}
-
-
-
-
-  /// Formate la date et l'heure du post
-  String _formatPostedTime(String postedAt) {
-    final DateTime postedDate = DateTime.parse(postedAt);
-    final Duration difference = DateTime.now().difference(postedDate);
-
-    if (difference.inMinutes < 60) {
-      return "${difference.inMinutes} min";
-    } else if (difference.inHours < 24) {
-      return "${difference.inHours} h";
-    } else {
-      return DateFormat('dd MMM, yyyy').format(postedDate);
-    }
-  }
-
-    /// Construit la carte d'un post
-  Widget _buildPostCard(Map<String, dynamic> post) {
-    final String content = post['content']?.toString() ?? 'Contenu non disponible';
-    final String postedAt = post['posted_at']?.toString() ?? DateTime.now().toIso8601String();
-    final String? mediaUrl = (post['media'] as List?)?.isNotEmpty == true
-        ? ((post['media'][0]?.toString()?.endsWith('.jpg') ?? false) ||
-                (post['media'][0]?.toString()?.endsWith('.png') ?? false) ||
-                (post['media'][0]?.toString()?.endsWith('.jpeg') ?? false))
-            ? post['media'][0].toString()
-            : null
-        : null;
-    final String? videoUrl = (post['media'] as List?)?.isNotEmpty == true
-        ? ((post['media'][0]?.toString()?.endsWith('.mp4') ?? false) ||
-                (post['media'][0]?.toString()?.endsWith('.mov') ?? false) ||
-                (post['media'][0]?.toString()?.endsWith('.avi') ?? false))
-            ? post['media'][0].toString()
-            : null
-        : null;
-    final String? producerId = post['producer_id']?.toString();
-    final String? userId = post['user_id']?.toString();
-    final String? eventId = post['event_id']?.toString();
-    final bool isProducer = producerId != null;
-    final bool isLeisureProducer = post['is_leisure_producer'] == true;
-    final String targetId = isLeisureProducer ? (eventId ?? '') : (producerId ?? '');
-    final List<dynamic> comments = post['comments'] ?? [];
-
-    // Ajout de la gestion de l'état pour le bouton "More"
-    bool isExpanded = false;
-
-    return StatefulBuilder(
-      builder: (context, setState) {
-        return Card(
-          color: isProducer ? Colors.blue[50] : Colors.white,
-          margin: const EdgeInsets.symmetric(vertical: 15, horizontal: 20), // Plus de marge
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(15),
-          ),
-          elevation: 5,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Informations sur l'auteur (nom + avatar) avec redirection
-              if (producerId != null || userId != null)
-                FutureBuilder<Map<String, dynamic>?>(
-                  future: isProducer
-                      ? _fetchAuthorDetails(producerId!, true, isLeisureProducer: isLeisureProducer)
-                      : _fetchUserProfile(userId!),
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const Center(child: CircularProgressIndicator());
-                    } else if (snapshot.hasError || snapshot.data == null) {
-                      return const Padding(
-                        padding: EdgeInsets.all(8.0),
-                        child: Text(
-                          'Auteur non disponible',
-                          style: TextStyle(color: Colors.red),
-                        ),
-                      );
-                    }
-
-                    final authorData = snapshot.data!;
-                    final String name = authorData['name'] ?? 'Nom non disponible';
-                    final String avatarUrl = isProducer
-                        ? authorData['photo'] ?? 'https://via.placeholder.com/150'
-                        : authorData['photo_url'] ?? 'https://via.placeholder.com/150';
-
-                    return GestureDetector(
-                      onTap: () => isProducer
-                          ? _navigateToDetails(producerId!, true, isLeisureProducer: isLeisureProducer)
-                          : Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => ProfileScreen(userId: userId!),
-                              ),
-                            ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(12.0),
-                        child: Row(
-                          children: [
-                            CircleAvatar(
-                              backgroundImage: NetworkImage(avatarUrl),
-                              radius: 25,
-                            ),
-                            const SizedBox(width: 10),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  name,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 16,
-                                  ),
-                                ),
-                                Text(
-                                  _formatPostedTime(postedAt),
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
-
-              // Texte du post avec bouton "More"
-              Padding(
-                padding: const EdgeInsets.all(12.0),
-                child: GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      isExpanded = !isExpanded;
-                    });
-                  },
-                  child: Text(
-                    isExpanded ? content : '${content.substring(0, 100)}...',
-                    style: const TextStyle(fontSize: 16, color: Colors.black87), // Taille augmentée
-                  ),
-                ),
-              ),
-              if (!isExpanded && content.length > 100)
-                TextButton(
-                  onPressed: () {
-                    setState(() {
-                      isExpanded = true;
-                    });
-                  },
-                  child: const Text(
-                    'More',
-                    style: TextStyle(color: Colors.blue),
-                  ),
-                ),
-
-              // Affichage vidéo ou image
-              if (videoUrl != null)
-                ClipRRect(
-                  borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(15),
-                    topRight: Radius.circular(15),
-                  ),
-                  child: FutureBuilder<VideoPlayerController>(
-                    future: _initializeVideoController(videoUrl),
-                    builder: (context, snapshot) {
-                      if (snapshot.connectionState == ConnectionState.done &&
-                          snapshot.hasData) {
-                        final controller = snapshot.data!;
-                        return AspectRatio(
-                          aspectRatio: controller.value.aspectRatio,
-                          child: Stack(
-                            alignment: Alignment.bottomCenter,
-                            children: [
-                              VideoPlayer(controller),
-                              VideoProgressIndicator(controller, allowScrubbing: true),
-                            ],
-                          ),
-                        );
-                      } else if (snapshot.hasError) {
-                        return const Center(
-                          child: Text(
-                            'Erreur de chargement de la vidéo',
-                            style: TextStyle(color: Colors.red),
-                          ),
-                        );
-                      } else {
-                        return const Center(child: CircularProgressIndicator());
-                      }
-                    },
-                  ),
-                )
-              else if (mediaUrl != null)
-                ClipRRect(
-                  borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(15),
-                    topRight: Radius.circular(15),
-                  ),
-                  child: Image.network(
-                    mediaUrl,
-                    height: 300,
-                    width: double.infinity,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) => Container(
-                      color: Colors.grey[200],
-                      height: 300,
-                      width: double.infinity,
-                      child: const Center(
-                        child: Text('Image invalide', style: TextStyle(color: Colors.red)),
-                      ),
-                    ),
-                  ),
-                ),
-
-              const Divider(),
-
-              // Boutons interactifs
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  TextButton.icon(
-                    onPressed: () {
-                      _markInterested(targetId, post, isLeisureProducer: isLeisureProducer);
-                    },
-                    icon: Icon(
-                      Icons.star,
-                      color: post['interested'] == true ? Colors.yellow : Colors.grey,
-                    ),
-                    label: Text(
-                      'Interest',
-                      style: TextStyle(
-                        color: post['interested'] == true ? Colors.yellow : Colors.grey,
-                      ),
-                    ),
-                  ),
-                  TextButton.icon(
-                    onPressed: () {
-                      _markChoice(targetId, post, isLeisureProducer: isLeisureProducer);
-                    },
-                    icon: Icon(
-                      Icons.check_circle,
-                      color: post['choice'] == true ? Colors.green : Colors.grey,
-                    ),
-                    label: Text(
-                      'Choice',
-                      style: TextStyle(
-                        color: post['choice'] == true ? Colors.green : Colors.grey,
-                      ),
-                    ),
-                  ),
-                  TextButton.icon(
-                    onPressed: () {
-                      _showAddCommentDialog(context, post['_id']);
-                    },
-                    icon: const Icon(Icons.comment_outlined),
-                    label: const Text('Comment'),
-                  ),
-                ],
-              ),
-
-              // Section des commentaires
-              Padding(
-                padding: const EdgeInsets.all(12.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: comments
-                      .map((comment) => _buildCommentSection(post['_id'], comment))
-                      .toList(),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-
-// Fonction pour afficher une boîte de dialogue d'ajout de commentaire
-void _showAddCommentDialog(BuildContext context, String postId) {
-  final TextEditingController commentController = TextEditingController();
-  showDialog(
-    context: context,
-    builder: (context) {
-      return AlertDialog(
-        title: const Text('Ajouter un commentaire'),
-        content: TextField(
-          controller: commentController,
-          decoration: const InputDecoration(
-            labelText: 'Votre commentaire',
-            hintText: 'Tapez votre commentaire ici...',
-          ),
-          maxLines: 3, // Permet plusieurs lignes pour le commentaire
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-            },
-            child: const Text('Annuler'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              if (commentController.text.isNotEmpty) {
-                await _addComment(postId, commentController.text); // Utilisation de votre fonction
-                Navigator.of(context).pop(); // Ferme le dialogue après l'ajout
-              } else {
-                print('❌ Le commentaire est vide');
-              }
-            },
-            child: const Text('Publier'),
-          ),
-        ],
-      );
-    },
-  );
-}
-
-
-
-
-
-  Widget _buildCommentSection(String postId, Map<String, dynamic> comment) {
-    return Row(
-      children: [
-        Expanded(
-          child: ListTile(
-            title: Text(comment['author'] ?? 'Anonyme', style: const TextStyle(fontWeight: FontWeight.bold)),
-            subtitle: Text(comment['content'] ?? ''),
-          ),
-        ),
-        IconButton(
-          icon: const Icon(Icons.favorite, color: Colors.red),
-          onPressed: () => _likeComment(postId, comment['_id'] ?? ''),
-        ),
-        Text('${comment['likes'] ?? 0}'),
-      ],
-    );
-  }
-
-  Widget _buildAddCommentSection(String postId) {
-    final TextEditingController commentController = TextEditingController();
-    return Row(
-      children: [
-        Expanded(
-          child: TextField(
-            controller: commentController,
-            decoration: const InputDecoration(labelText: 'Ajouter un commentaire'),
-          ),
-        ),
-        IconButton(
-          icon: const Icon(Icons.send),
-          onPressed: () {
-            if (commentController.text.isNotEmpty) {
-              _addComment(postId, commentController.text);
-              commentController.clear();
+          _posts = _posts.map((p) {
+            if (p.id == postId) {
+              return p.copyWith(
+                isInterested: !p.isInterested,
+                interestedCount: p.isInterested ? p.interestedCount - 1 : p.interestedCount + 1,
+              );
             }
-          },
-        ),
-      ],
-    );
+            return p;
+          }).toList();
+        });
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erreur: $e')),
+      );
+    }
   }
 
-  void _showPostDetail(Map<String, dynamic> post) {
+  Future<void> _handleChoice(String postId) async {
+    try {
+      final success = await _apiService.markChoice(widget.userId, postId);
+      if (success) {
+        setState(() {
+          _posts = _posts.map((p) {
+            if (p.id == postId) {
+              return p.copyWith(
+                isChoice: !p.isChoice,
+                choiceCount: p.isChoice ? p.choiceCount - 1 : p.choiceCount + 1,
+              );
+            }
+            return p;
+          }).toList();
+        });
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erreur: $e')),
+      );
+    }
+  }
+
+  void _showComments(Post post) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      builder: (context) => CommentsSheet(
+        post: post,
+        userId: widget.userId,
+        onCommentAdded: (newComment) => _handleCommentAdded(post.id, newComment),
       ),
-      builder: (context) {
-        return Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                post['title'] ?? 'Titre non spécifié',
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                post['content'] ?? 'Contenu non disponible',
-                style: const TextStyle(fontSize: 16),
-              ),
-            ],
-          ),
-        );
-      },
     );
+  }
+
+  void _handleCommentAdded(String postId, Comment newComment) {
+    setState(() {
+      _posts = _posts.map((p) {
+        if (p.id == postId) {
+          return p.copyWith(
+            comments: [...p.comments, newComment],
+          );
+        }
+        return p;
+      }).toList();
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Feed'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.search),
-            onPressed: () {},
-          ),
-        ],
-      ),
-      body: FutureBuilder<List<dynamic>>(
-        future: _feedFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          } else if (snapshot.hasError) {
-            return Center(child: Text('Erreur : ${snapshot.error}'));
-          } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-            return const Center(child: Text('Aucun post trouvé.'));
-          }
-
-          final posts = snapshot.data!;
-          return ListView.builder(
-            itemCount: posts.length,
-            itemBuilder: (context, index) {
-              final post = posts[index];
-              return _buildPostCard(post);
-            },
-          );
-        },
+      appBar: AppBar(title: Text('Feed')),
+      body: RefreshIndicator(
+        onRefresh: _loadInitialPosts,
+        child: _isLoading && _posts.isEmpty
+          ? Center(child: CircularProgressIndicator())
+          : ListView.builder(
+              controller: _scrollController,
+              itemCount: _posts.length + (_hasMore ? 1 : 0),
+              itemBuilder: (context, index) {
+                if (index == _posts.length) {
+                  return _isLoading
+                    ? Center(child: CircularProgressIndicator())
+                    : SizedBox();
+                }
+                
+                final post = _posts[index];
+                return PostCard(
+                  post: post,
+                  onInterested: _handleInterested,
+                  onChoice: _handleChoice,
+                  onCommentTap: () => _showComments(post),
+                );
+              },
+            ),
       ),
     );
   }
