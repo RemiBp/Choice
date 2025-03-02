@@ -50,7 +50,6 @@ flutter:
     - assets/images/app_icon.png
     - assets/images/custom_marker.svg
 
-
 flutter_launcher_icons:
   android: true
   ios: true

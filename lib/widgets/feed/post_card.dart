@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../models/post.dart';
 import 'post_media.dart';
 import 'post_actions.dart';
+import '../../utils/constants.dart';
 
 class PostCard extends StatelessWidget {
   final Post post;
@@ -40,7 +41,12 @@ class PostCard extends StatelessWidget {
 
   Widget _buildHeader() {
     return ListTile(
-      title: Text(post.authorId), // À remplacer par le nom réel de l'auteur
+      leading: CircleAvatar(
+        backgroundImage: post.authorPhotoUrl != null
+            ? NetworkImage(post.authorPhotoUrl!)
+            : NetworkImage(getDefaultAvatarUrl(post.authorId)),
+      ),
+      title: Text(post.authorName),
       subtitle: Text(post.content),
     );
   }
