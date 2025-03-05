@@ -127,81 +127,6 @@ class AIService {
     }
   }
   
-  /// Méthode de secours: Recherche directe d'Olivia avec son plat Norvegese
-  Future<AIQueryResponse> findOlivia() async {
-    try {
-      _log('Recherche directe du restaurant Olivia');
-      
-      final response = await http.get(
-        _formatUrl('test/search-saumon'),
-        headers: {'Content-Type': 'application/json'},
-      );
-
-      _log('Statut de réponse: ${response.statusCode}');
-      
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        _log('Réponse pour Olivia: ${data['success']}');
-        
-        if (data['success'] == true) {
-          // Construire une réponse avec le restaurant Olivia
-          return AIQueryResponse(
-            query: 'Recherche du restaurant Olivia',
-            intent: 'restaurant_search',
-            entities: {'cuisine_type': 'saumon'},
-            resultCount: 1,
-            executionTimeMs: 0,
-            response: data['response'] ?? 'Restaurant Olivia trouvé avec son plat Norvegese contenant du saumon.',
-            profiles: [
-              ProfileData.fromJson({
-                'id': data['restaurant']?['id'] ?? '',
-                'type': 'restaurant',
-                'name': data['restaurant']?['name'] ?? 'Olivia',
-                'address': data['restaurant']?['address'] ?? '2 Pl. Stalingrad, 92190 Meudon, France',
-                'rating': data['restaurant']?['rating'] ?? 4.4,
-                'image': data['restaurant']?['image'] ?? '',
-                'category': ['Restaurant'],
-                'price_level': 2,
-                'highlighted_item': 'Norvegese - Saumon, crème de sorrente et avocat',
-                'menu_items': [
-                  {
-                    'nom': 'Norvegese',
-                    'description': 'Saumon, crème de sorrente et avocat roquettes, tomates confites',
-                    'prix': 21
-                  }
-                ],
-              })
-            ],
-          );
-        } else {
-          return AIQueryResponse(
-            query: 'Recherche du restaurant Olivia',
-            intent: 'restaurant_search',
-            entities: {'cuisine_type': 'saumon'},
-            resultCount: 0,
-            executionTimeMs: 0,
-            response: 'Restaurant Olivia non trouvé.',
-            profiles: [],
-          );
-        }
-      } else {
-        _log('Erreur HTTP: ${response.statusCode}, Corps: ${response.body}');
-        throw Exception('Erreur ${response.statusCode}: ${response.body}');
-      }
-    } catch (e) {
-      _log('Exception dans findOlivia: $e');
-      return AIQueryResponse(
-        query: 'Recherche du restaurant Olivia',
-        intent: 'restaurant_search',
-        entities: {'cuisine_type': 'saumon'},
-        resultCount: 0,
-        executionTimeMs: 0,
-        response: 'Erreur lors de la recherche d\'Olivia: $e',
-        profiles: [],
-        error: e.toString(),
-      );
-    }
-  }
 
   /// Effectue une requête utilisateur en langage naturel
   /// 
@@ -235,11 +160,6 @@ class AIService {
     } catch (e) {
       _log('Exception: $e');
       
-      // Si la requête contient "saumon", essayer la recherche directe d'Olivia
-      if (query.toLowerCase().contains('saumon')) {
-        _log('Tentative de secours avec findOlivia()');
-        return findOlivia();
-      }
       
       return AIQueryResponse(
         query: query,
@@ -401,13 +321,13 @@ class AIService {
     }
   }
   
-  /// Permet de tester la connexion à MongoDB directement
+  /// Permet de tester la connexion à MongoDB et la disponibilité du service IA
   Future<bool> testMongoConnection() async {
     try {
-      _log('Test de connexion à MongoDB');
+      _log('Test de connexion au service IA et MongoDB');
       
       final response = await http.get(
-        _formatUrl('test/olivia'),
+        _formatUrl('api/ai/health'),
         headers: {'Content-Type': 'application/json'},
       );
 
@@ -415,11 +335,11 @@ class AIService {
       
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        final connected = data['success'] == true;
-        _log('Connexion MongoDB: $connected');
+        final connected = data['success'] == true && data['status'] == 'operational';
+        _log('Connexion service IA et MongoDB: $connected');
         return connected;
       } else {
-        _log('Échec de connexion MongoDB (code ${response.statusCode})');
+        _log('Échec de connexion au service IA (code ${response.statusCode})');
         return false;
       }
     } catch (e) {

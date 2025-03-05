@@ -1271,7 +1271,6 @@ class _MapScreenState extends State<MapScreen> {
                 }
               },
               filterPanel: _buildFilterPanel(), // Panneau de filtres latéral
-              filterPanel: _buildFilterPanel(), // Panneau de filtres latéral
             ),
             
             // Indicateur de chargement

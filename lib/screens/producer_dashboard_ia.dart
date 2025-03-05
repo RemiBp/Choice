@@ -105,8 +105,26 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> {
     });
 
     try {
-      // Utiliser le service AI avec accès direct aux données MongoDB
-      final aiResponse = await _aiService.producerQuery(widget.producerId, message);
+      print("🔍 Envoi de la requête au service AI: $message");
+      
+      // Appel principal au service AI avec plusieurs tentatives
+      AIQueryResponse aiResponse;
+      try {
+        // Premier essai - route principale
+        aiResponse = await _aiService.producerQuery(widget.producerId, message);
+      } catch (primaryError) {
+        print("⚠️ Premier essai échoué, tentative avec route secondaire: $primaryError");
+        try {
+          // Deuxième essai - route de requête simple (fallback)
+          aiResponse = await _aiService.simpleQuery(message);
+        } catch (secondaryError) {
+          print("❌ Tous les essais ont échoué: $secondaryError");
+          throw secondaryError; // Relance l'erreur pour être attrapée par le bloc catch externe
+        }
+      }
+      
+      // Traitement de la réponse réussie
+      print("✅ Réponse AI reçue: ${aiResponse.profiles.length} profils");
       
       // Enregistrer les profils extraits
       if (aiResponse.profiles.isNotEmpty) {
@@ -133,13 +151,11 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> {
     } catch (e) {
       print("❌ Erreur lors de l'appel à l'IA: $e");
       
-      // Fallback sur l'ancienne méthode en cas d'erreur
-      String botResponse = await fetchBotResponse(widget.producerId, message);
-      
+      // Message d'erreur simple en cas d'échec complet
       final botMessage = types.TextMessage(
         author: const types.User(id: 'assistant', firstName: 'Assistant AI'),
         id: DateTime.now().millisecondsSinceEpoch.toString(),
-        text: botResponse,
+        text: "Désolé, je rencontre des difficultés à me connecter à la base de données. Veuillez réessayer plus tard ou contacter le support si le problème persiste.",
       );
 
       Future.delayed(const Duration(seconds: 1), () {
@@ -161,7 +177,8 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> {
       return result.response;
     } catch (e) {
       print("❌ Erreur lors de l'appel au service AI: $e");
-      return "Erreur lors de la communication avec l'assistant IA: $e";
+      // Message d'erreur clair sans fallback vers des routes obsolètes
+      return "Désolé, je ne peux pas traiter votre demande pour le moment. Veuillez réessayer plus tard.";
     }
   }
 
