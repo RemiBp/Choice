@@ -1,11 +1,21 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
+import 'dart:io' show Platform;
+
+// Commenter/décommenter selon l'environnement
+const bool useNgrok = false; // Désactivé
+const String ngrokUrl = "https://cfae-195-220-106-83.ngrok-free.app"; // Non utilisé
+const String localUrl = "http://10.0.2.2:5000"; // Pour émulateur Android
+const String directUrl = "http://localhost:5000"; // Pour Windows/Web
 
 String getBaseUrl() {
-  if (isMobile() && !kIsWeb) {
-    return "http://10.0.2.2:5000"; // Pour l'émulateur Android
+  if (kIsWeb || Platform.isWindows) {
+    return directUrl;  // Utilise localhost pour Windows
   }
-  return "https://api.choiceapp.fr"; // URL de production
+  if (isMobile()) {
+    return localUrl;   // Utilise 10.0.2.2 pour émulateur Android
+  }
+  return "https://api.choiceapp.fr";
 }
 
 bool isMobile() {

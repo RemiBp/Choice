@@ -1,60 +1,62 @@
+import 'package:flutter/foundation.dart';
+import 'media.dart';
 import 'comment.dart';
 
 class Post {
   final String id;
-  final String content;
   final String authorId;
   final String authorName;
-  final String? authorPhotoUrl;
-  final String? mediaUrl;
-  final String? videoUrl;
+  final String authorAvatar;
+  final String content;
   final DateTime postedAt;
-  final bool isProducer;
-  final bool isLeisureProducer;
+  final List<Media> media;
+  final bool isProducerPost;
   final bool isInterested;
   final bool isChoice;
+  final bool isLeisureProducer;
   final int interestedCount;
   final int choiceCount;
   final List<Comment> comments;
 
   Post({
     required this.id,
-    required this.content,
     required this.authorId,
     required this.authorName,
-    this.authorPhotoUrl,
-    this.mediaUrl,
-    this.videoUrl,
+    required this.authorAvatar,
+    required this.content,
     required this.postedAt,
-    this.isProducer = false,
-    this.isLeisureProducer = false,
+    required this.media,
+    this.isProducerPost = false,
     this.isInterested = false,
     this.isChoice = false,
+    this.isLeisureProducer = false,
     this.interestedCount = 0,
     this.choiceCount = 0,
     this.comments = const [],
   });
 
   Post copyWith({
+    bool? isLiked,
     bool? isInterested,
     bool? isChoice,
+    bool? isLeisureProducer,
+    int? likesCount,
     int? interestedCount,
     int? choiceCount,
     List<Comment>? comments,
   }) {
     return Post(
       id: id,
-      content: content,
       authorId: authorId,
       authorName: authorName,
-      authorPhotoUrl: authorPhotoUrl,
-      mediaUrl: mediaUrl,
-      videoUrl: videoUrl,
+      authorAvatar: authorAvatar,
+      content: content,
       postedAt: postedAt,
-      isProducer: isProducer,
-      isLeisureProducer: isLeisureProducer,
+      media: media,
+      isProducerPost: isProducerPost,
       isInterested: isInterested ?? this.isInterested,
       isChoice: isChoice ?? this.isChoice,
+      isLeisureProducer: isLeisureProducer ?? this.isLeisureProducer,
       interestedCount: interestedCount ?? this.interestedCount,
       choiceCount: choiceCount ?? this.choiceCount,
       comments: comments ?? this.comments,
@@ -62,24 +64,49 @@ class Post {
   }
 
   factory Post.fromJson(Map<String, dynamic> json) {
-    return Post(
-      id: json['_id'] ?? '',
-      content: json['content'] ?? '',
-      authorId: json['author_id'] ?? '',
-      authorName: json['author_name'] ?? '',
-      authorPhotoUrl: json['author_photo_url'],
-      mediaUrl: json['media']?.isNotEmpty == true ? json['media'][0] : null,
-      videoUrl: json['video']?.isNotEmpty == true ? json['video'][0] : null,
-      postedAt: DateTime.parse(json['posted_at'] ?? DateTime.now().toIso8601String()),
-      isProducer: json['is_producer'] ?? false,
-      isLeisureProducer: json['is_leisure_producer'] ?? false,
-      isInterested: json['interested'] ?? false,
-      isChoice: json['choice'] ?? false,
-      interestedCount: json['interested_count'] ?? 0,
-      choiceCount: json['choice_count'] ?? 0,
-      comments: (json['comments'] as List?)
-          ?.map((c) => Comment.fromJson(c))
-          .toList() ?? [],
+    try {
+      print('🔄 Parsing post ID: ${json['_id']}');
+      return Post(
+        id: json['_id']?.toString() ?? '',
+        authorId: json['author_id']?.toString() ?? '',
+        authorName: json['author_name']?.toString() ?? '',
+        authorAvatar: json['author_avatar']?.toString() ?? '',
+        content: json['content']?.toString() ?? '',
+        postedAt: json['posted_at'] != null 
+            ? DateTime.parse(json['posted_at'].toString())
+            : DateTime.now(),
+        media: (json['media'] as List?)?.map((e) => Media.fromJson(e)).toList() ?? [],
+        isProducerPost: json['producer_id'] != null,
+        isInterested: json['is_interested'] == true,
+        isChoice: json['is_choice'] == true,
+      );
+    } catch (e, stack) {
+      print('❌ Erreur parsing post: $e');
+      print('📄 Stack: $stack');
+      print('📦 JSON: $json');
+      rethrow;
+    }
+  }
+}
+
+// Comment class moved to comment.dart
+
+class PostLocation {
+  final String name;
+  final String? address;
+  final List<double> coordinates;
+
+  PostLocation({
+    required this.name,
+    this.address,
+    required this.coordinates,
+  });
+
+  factory PostLocation.fromJson(Map<String, dynamic> json) {
+    return PostLocation(
+      name: json['name'] ?? 'Localisation inconnue',
+      address: json['address'],
+      coordinates: List<double>.from(json['coordinates'] ?? []),
     );
   }
 }

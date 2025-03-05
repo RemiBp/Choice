@@ -1,13 +1,35 @@
 // screens/utils_io.dart (Mobile & Desktop)
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart'; // Pour utiliser `defaultTargetPlatform`
+import 'dart:io' show Platform;
 import 'utils.dart'; // ✅ Import du fichier principal pour garder la cohérence
 
 String getBaseUrl() {
-  if (isMobile() && !kIsWeb) {
-    return "http://10.0.2.2:5000"; // Utilisation de l'IP de l'émulateur Android
+  // Cas spécifique: Émulateur Android uniquement
+  if (!kIsWeb && Platform.isAndroid) {
+    // Vérifier si c'est un émulateur Android
+    bool isEmulator = false;
+    
+    try {
+      // Cette vérification est assez basique mais fonctionne dans la plupart des cas
+      // Les émulateurs Android ont généralement des noms de modèles spécifiques
+      String androidModel = Platform.operatingSystemVersion.toLowerCase();
+      isEmulator = androidModel.contains('sdk') || 
+                  androidModel.contains('emulator') || 
+                  androidModel.contains('virtual');
+    } catch (e) {
+      // En cas d'erreur, on suppose que ce n'est pas un émulateur
+      isEmulator = false;
+    }
+    
+    if (isEmulator) {
+      // Pour l'émulateur Android uniquement, utiliser l'adresse spéciale
+      return "http://10.0.2.2:5000";
+    }
   }
-  return "https://api.choiceapp.fr"; // URL de production
+  
+  // Pour tous les autres cas (web, iOS, Android réel, etc.)
+  return "https://api.choiceapp.fr";
 }
 
 /// Vérifie si l'application tourne sur un mobile

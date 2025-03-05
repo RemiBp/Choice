@@ -1,42 +1,48 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:shared_preferences/shared_preferences.dart';
-
-// ✅ Import conditionnel correct
-import 'package:flutter_secure_storage/flutter_secure_storage.dart'
-    if (dart.library.html) 'dummy_storage.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class StorageService {
-  static dynamic _storage;
+  static final StorageService _instance = StorageService._internal();
+  final _storage = const FlutterSecureStorage();
+
+  factory StorageService() => _instance;
+  StorageService._internal();
+
+  late final SharedPreferences _prefs;
+
+  Future<void> init() async {
+    _prefs = await SharedPreferences.getInstance();
+  }
+
+  Future<void> setValue(String key, dynamic value) async {
+    if (value is String) {
+      await _prefs.setString(key, value);
+    } else if (value is int) {
+      await _prefs.setInt(key, value);
+    } else if (value is bool) {
+      await _prefs.setBool(key, value);
+    } else if (value is double) {
+      await _prefs.setDouble(key, value);
+    }
+  }
+
+  T? getValue<T>(String key) {
+    return _prefs.get(key) as T?;
+  }
+
+  Future<void> initialize() async {
+    // Initialization code
+  }
 
   static Future<void> initStorage() async {
-    if (kIsWeb) {
-      _storage = await SharedPreferences.getInstance();
-    } else {
-      _storage = FlutterSecureStorage();
-    }
+    await _instance.initialize();
   }
 
-  static Future<void> setValue(String key, String value) async {
-    if (kIsWeb) {
-      await (_storage as SharedPreferences).setString(key, value);
-    } else {
-      await (_storage as FlutterSecureStorage).write(key: key, value: value);
-    }
+  Future<void> saveToken(String token) async {
+    await _storage.write(key: 'auth_token', value: token);
   }
 
-  static Future<String?> getValue(String key) async {
-    if (kIsWeb) {
-      return (_storage as SharedPreferences).getString(key);
-    } else {
-      return await (_storage as FlutterSecureStorage).read(key: key);
-    }
-  }
-
-  static Future<void> removeValue(String key) async {
-    if (kIsWeb) {
-      await (_storage as SharedPreferences).remove(key);
-    } else {
-      await (_storage as FlutterSecureStorage).delete(key: key);
-    }
+  Future<String?> getToken() async {
+    return await _storage.read(key: 'auth_token');
   }
 }

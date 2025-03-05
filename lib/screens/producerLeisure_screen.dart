@@ -1,23 +1,137 @@
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'eventLeisure_screen.dart'; // Import nécessaire pour afficher les événements
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'utils.dart';
+import 'utils_io.dart'; // Use utils_io.dart for getBaseUrl
 
-class ProducerLeisureScreen extends StatelessWidget {
-  final Map<String, dynamic> producerData;
+import 'eventLeisure_screen.dart'; // Import nécessaire pour afficher les événements
 
-  const ProducerLeisureScreen({Key? key, required this.producerData}) : super(key: key);
+class ProducerLeisureScreen extends StatefulWidget {
+  final String producerId;
+  final Map<String, dynamic>? producerData;
+
+  // Constructor that accepts either producerId or producerData
+  const ProducerLeisureScreen({
+    Key? key, 
+    this.producerId = '', 
+    this.producerData,
+  }) : super(key: key);
+
+  @override
+  _ProducerLeisureScreenState createState() => _ProducerLeisureScreenState();
+}
+
+class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> {
+  Map<String, dynamic>? _producerData;
+  bool _isLoading = true;
+  String? _error;
+  late String _producerId;
+
+  @override
+  void initState() {
+    super.initState();
+    
+    // If producerData is provided, use it directly
+    if (widget.producerData != null) {
+      setState(() {
+        _producerData = widget.producerData;
+        _isLoading = false;
+        // Extract the producer ID from producerData if needed
+        _producerId = widget.producerData!['_id'] ?? '';
+      });
+    } else {
+      // Otherwise, use the provided producerId and fetch data
+      _producerId = widget.producerId;
+      _fetchProducerDetails();
+    }
+  }
+
+  Future<void> _fetchProducerDetails() async {
+    try {
+      final url = Uri.parse('${getBaseUrl()}/api/leisureProducers/$_producerId');
+      final response = await http.get(url);
+
+      if (response.statusCode == 200) {
+        setState(() {
+          _producerData = json.decode(response.body);
+          _isLoading = false;
+        });
+      } else {
+        setState(() {
+          _error = 'Erreur lors de la récupération des données: ${response.statusCode}';
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _error = 'Erreur réseau: $e';
+        _isLoading = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final events = producerData['evenements'] ?? [];
-    final coordinates = producerData['location']?['coordinates'];
+    // Afficher un indicateur de chargement
+    if (_isLoading) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Détails Producteur'),
+          backgroundColor: Colors.deepPurple,
+        ),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    // Afficher un message d'erreur
+    if (_error != null) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Erreur'),
+          backgroundColor: Colors.deepPurple,
+        ),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.error_outline, size: 60, color: Colors.red),
+              const SizedBox(height: 16),
+              Text(_error!, style: const TextStyle(fontSize: 16)),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () {
+                  setState(() {
+                    _isLoading = true;
+                    _error = null;
+                  });
+                  _fetchProducerDetails();
+                },
+                child: const Text('Réessayer'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Si les données sont chargées mais nulles
+    if (_producerData == null) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Données non disponibles'),
+          backgroundColor: Colors.deepPurple,
+        ),
+        body: const Center(child: Text('Aucune donnée disponible pour ce producteur')),
+      );
+    }
+
+    // Afficher les données du producteur
+    final events = _producerData!['evenements'] ?? [];
+    final coordinates = _producerData!['location']?['coordinates'];
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(producerData['lieu'] ?? 'Détails Producteur'),
+        title: Text(_producerData!['lieu'] ?? 'Détails Producteur'),
         backgroundColor: Colors.deepPurple,
       ),
       body: SingleChildScrollView(
@@ -26,9 +140,9 @@ class ProducerLeisureScreen extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildHeader(producerData),
+              _buildHeader(_producerData!),
               const Divider(height: 20, thickness: 2),
-              _buildProfileActions(producerData),
+              _buildProfileActions(_producerData!),
               const Divider(height: 20, thickness: 2),
               if (events.isNotEmpty) ...[
                 _buildUpcomingEvents(events, context),

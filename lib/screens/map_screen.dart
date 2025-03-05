@@ -1,6 +1,9 @@
 import 'dart:math'; // Nécessaire pour sin, cos, sqrt, atan2
 import 'dart:typed_data'; // Pour Uint8List et ByteData
 import 'dart:ui' as ui; // Pour Picture et ImageByteFormat
+import 'dart:isolate'; // Pour traitement en arrière-plan
+import 'dart:async'; // Pour les Completer
+import 'package:flutter/foundation.dart' show kIsWeb, compute; // Pour la détection web et traitement parallèle
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -9,6 +12,8 @@ import 'dart:convert';
 import 'producer_screen.dart'; // Importer l'écran ProducerScreen
 import 'package:flutter/services.dart'; // Nécessaire pour rootBundle
 import 'utils.dart';
+import '../widgets/maps/adaptive_map_widget.dart'; // Widget carte adaptatif
+import 'map_leisure_screen.dart'; // Importer l'écran MapLeisureScreen
 
 // Ajout de la classe MapScreen
 class MapScreen extends StatefulWidget {
@@ -24,8 +29,13 @@ class _MapScreenState extends State<MapScreen> {
   bool _isLoading = false; // Pour indiquer si les données sont en cours de chargement
   bool _isMapReady = false; // Pour vérifier si la carte est prête
   final LatLng _initialPosition = const LatLng(48.8566, 2.3522); // Paris
-  late GoogleMapController _mapController;
+  GoogleMapController? _mapController;
   String? _lastTappedMarkerId; // Stocke l'ID du dernier marqueur cliqué
+  bool _isComputingMarkers = false; // Pour éviter les calculs simultanés
+  bool _isFilterPanelVisible = false; // Pour contrôler la visibilité du panneau de filtres
+  bool _hasShownFilterHint = false; // Pour savoir si l'utilisateur a déjà vu l'indicateur
+  bool _shouldShowMarkers = false; // Contrôle l'affichage des marqueurs
+  final ReceivePort _receivePort = ReceivePort(); // Pour communication avec isolate
 
   // Filtres Items
   String? _searchKeyword;
@@ -42,7 +52,8 @@ class _MapScreenState extends State<MapScreen> {
   double? _minAmbianceRating;
   String? _openingHours; // Format attendu : "Monday:10:00–14:00"
   TimeOfDay? _selectedTime; // Ajout de _selectedTime ici
-  String? _category; // Nouveau filtre
+  List<String> _selectedCategories = []; // Types de restaurants
+  List<String> _selectedDishTypes = []; // Types de plats
   String? _choice; // Nouveau filtre
   int? _minFavorites; // Nouveau filtre
   double? _minPrice; // Nouveau filtre
@@ -56,7 +67,39 @@ class _MapScreenState extends State<MapScreen> {
   @override
   void initState() {
     super.initState();
-    _fetchNearbyProducers(_initialPosition.latitude, _initialPosition.longitude);
+    
+    // Initialiser l'écouteur pour les calculs d'arrière-plan
+    _receivePort.listen((data) {
+      if (data is List<dynamic> && data.isNotEmpty && data[0] == 'markers') {
+        setState(() {
+          _markers = Set<Marker>.from(data[1]);
+          _isComputingMarkers = false;
+        });
+      }
+    });
+  }
+  
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    
+    // Ne pas charger les producteurs automatiquement
+    // Attendre que l'utilisateur décide de le faire
+    if (_isMapReady && _shouldShowMarkers && _markers.isEmpty) {
+      // Utiliser Future.delayed pour s'assurer que le contexte est prêt
+      Future.delayed(Duration.zero, () {
+        if (mounted) {
+          _fetchNearbyProducers(_initialPosition.latitude, _initialPosition.longitude);
+        }
+      });
+    }
+  }
+  
+  @override
+  void dispose() {
+    _receivePort.close();
+    _mapController?.dispose();
+    super.dispose();
   }
 
   double _convertColorToHue(Color color) {
@@ -83,8 +126,7 @@ class _MapScreenState extends State<MapScreen> {
   }
 
 
-  /// Charger une icône par défaut pour les marqueurs
-/// Charger des icônes pour les marqueurs et les afficher sur la carte
+  /// Charger et créer les marqueurs avec traitement en arrière-plan
   void _setMarkerColorsByRank(List<Map<String, dynamic>> rankedProducers) async {
     print("🔍 Début de la création des marqueurs avec classement.");
 
@@ -92,29 +134,131 @@ class _MapScreenState extends State<MapScreen> {
       print("⚠️ Aucun producteur à afficher.");
       return;
     }
-
-    Set<Marker> newMarkers = {};
-    int totalProducers = rankedProducers.length;
-
-    for (int i = 0; i < rankedProducers.length; i++) {
-      final producer = rankedProducers[i];
-
+    
+    // Eviter de lancer plusieurs calculs en parallèle
+    if (_isComputingMarkers) return;
+    _isComputingMarkers = true;
+    
+    // En Web, nous calculons directement dans le thread UI pour éviter des problèmes de compatibilité
+    if (kIsWeb) {
+      Set<Marker> newMarkers = await _createMarkersInUI(rankedProducers);
+      setState(() {
+        _markers = newMarkers;
+        _isComputingMarkers = false;
+      });
+    } else {
+      // Utilisation de compute pour le traitement en arrière-plan (mobile)
+      compute(_createMarkersInBackground, {
+        'producers': rankedProducers,
+        'port': _receivePort.sendPort,
+        'lastTappedMarkerId': _lastTappedMarkerId,
+      });
+    }
+  }
+  
+  /// Créer les marqueurs directement dans l'UI (pour Web)
+  Future<Set<Marker>> _createMarkersInUI(List<Map<String, dynamic>> producers) async {
+    Set<Marker> markers = {};
+    int totalProducers = producers.length;
+    
+    for (int i = 0; i < producers.length; i++) {
+      final producer = producers[i];
+      
       try {
         final List<dynamic>? coordinates = producer['gps_coordinates']?['coordinates'];
         final String? producerId = producer['_id'];
         final String producerName = producer['name'] ?? "Nom inconnu";
-
+        
         if (coordinates == null || coordinates.length < 2 || producerId == null) {
-          print("❌ Données invalides pour le producteur ${producerId ?? 'ID inconnu'}.");
           continue;
         }
-
+        
         double lat = coordinates[1].toDouble();
         double lon = coordinates[0].toDouble();
-
-        // Utiliser directement la teinte
-        double markerHue = _getColorBasedOnScoreRank(i, totalProducers);
-
+        
+        // Récupérer le score pour la couleur (score entre 0 et 1)
+        double score = producer['score'] ?? 0.0;
+        double markerHue = _getColorBasedOnScore(score);
+        
+        // Créer un marqueur plus visible et interactif
+        final BitmapDescriptor customIcon = await _createCustomMarkerBitmap(
+          producerName, 
+          producer['rating']?.toDouble() ?? 0.0,
+          markerHue
+        );
+        
+        Marker marker = Marker(
+          markerId: MarkerId(producerId),
+          position: LatLng(lat, lon),
+          icon: customIcon,
+          onTap: () {
+            // Afficher une carte de détail au-dessus du marqueur
+            _showProducerQuickView(context, producer);
+            
+            // Enregistrer l'ID pour un éventuel double-tap
+            if (_lastTappedMarkerId == producerId) {
+              _navigateToProducerDetails(producerId);
+              _lastTappedMarkerId = null;
+            } else {
+              setState(() {
+                _lastTappedMarkerId = producerId;
+              });
+              
+              // Annuler le dernier identifiant après un délai
+              Future.delayed(const Duration(seconds: 3), () {
+                if (mounted && _lastTappedMarkerId == producerId) {
+                  setState(() {
+                    _lastTappedMarkerId = null;
+                  });
+                }
+              });
+            }
+          },
+        );
+        
+        markers.add(marker);
+      } catch (e) {
+        print("❌ Erreur lors de la création du marqueur : $e");
+      }
+    }
+    
+    return markers;
+  }
+  
+  /// Fonction statique pour créer les marqueurs en arrière-plan (pour mobile)
+  static void _createMarkersInBackground(Map<String, dynamic> params) {
+    final List<Map<String, dynamic>> producers = params['producers'];
+    final SendPort sendPort = params['port'];
+    final String? lastTappedMarkerId = params['lastTappedMarkerId'];
+    
+    Set<Marker> markers = {};
+    
+    if (producers.isEmpty) {
+      sendPort.send(['markers', markers]);
+      return;
+    }
+    
+    int totalProducers = producers.length;
+    
+    for (int i = 0; i < producers.length; i++) {
+      final producer = producers[i];
+      
+      try {
+        final List<dynamic>? coordinates = producer['gps_coordinates']?['coordinates'];
+        final String? producerId = producer['_id'];
+        final String producerName = producer['name'] ?? "Nom inconnu";
+        
+        if (coordinates == null || coordinates.length < 2 || producerId == null) {
+          continue;
+        }
+        
+        double lat = coordinates[1].toDouble();
+        double lon = coordinates[0].toDouble();
+        
+        // Utiliser directement la teinte (fonction statique nécessaire)
+        double normalizedRank = (i / totalProducers).clamp(0.0, 1.0);
+        double markerHue = 120 * (1.0 - normalizedRank);
+        
         Marker marker = Marker(
           markerId: MarkerId(producerId),
           position: LatLng(lat, lon),
@@ -123,43 +267,273 @@ class _MapScreenState extends State<MapScreen> {
             title: producerName,
             snippet: "Note : ${producer['rating']?.toStringAsFixed(1) ?? 'N/A'}",
           ),
-          onTap: () {
-            setState(() {
-              if (_lastTappedMarkerId == producerId) {
-                // Si on clique deux fois sur le même, on navigue vers le profil
-                _navigateToProducerDetails(producerId);
-                _lastTappedMarkerId = null; // Réinitialise après navigation
-              } else {
-                // Sinon, on affiche juste l'infoWindow du marqueur
-                _lastTappedMarkerId = producerId;
-                _mapController.showMarkerInfoWindow(MarkerId(producerId));
-              }
-            });
-          },
         );
-
-        // Ajouter le marqueur à la liste
-        newMarkers.add(marker);
-
+        
+        markers.add(marker);
+        
       } catch (e) {
-        print("❌ Erreur lors de la création du marqueur pour ${producer['_id']} : $e");
+        // Les erreurs sont ignorées silencieusement en arrière-plan
       }
     }
-
-    // Mettre à jour l'état avec les nouveaux marqueurs
-    setState(() {
-      _markers.clear();
-      _markers.addAll(newMarkers);
-      print("✅ ${_markers.length} marqueurs ajoutés à la carte.");
-    });
+    
+    sendPort.send(['markers', markers]);
   }
 
 
-  /// Calculer une couleur de marqueur en fonction du rang
-  double _getColorBasedOnScoreRank(int rank, int totalProducers) {
-    double normalizedRank = (rank / totalProducers).clamp(0.0, 1.0);
-    // Convertir une couleur interpolée en teinte (hue)
-    return 120 * (1.0 - normalizedRank); // Vert (120°) pour les meilleurs, rouge (0°) pour les pires
+  /// Calculer une couleur de marqueur en fonction du score
+  double _getColorBasedOnScore(double score) {
+    // Utiliser un dégradé de couleurs plus visible:
+    // 0.0 (faible) = Rouge (0)
+    // 0.5 (moyen) = Jaune (60)
+    // 1.0 (excellent) = Vert (120)
+    return (score * 120).clamp(0.0, 120.0);
+  }
+  
+  /// Créer une image bitmap personnalisée pour le marqueur
+  Future<BitmapDescriptor> _createCustomMarkerBitmap(String name, double rating, double hue) async {
+    // Utiliser simplement le marqueur par défaut avec la teinte pour éviter les problèmes de rendu
+    return BitmapDescriptor.defaultMarkerWithHue(hue);
+  }
+  
+  /// Afficher une carte de détail rapide au-dessus du marqueur
+  void _showProducerQuickView(BuildContext context, Map<String, dynamic> producer) {
+    final GlobalKey quickViewKey = GlobalKey();
+    
+    // Obtenir l'image du restaurant si disponible
+    final String imageUrl = producer['photo'] ?? 
+                           producer['image'] ?? 
+                           'https://via.placeholder.com/400x200?text=Restaurant';
+    
+    // Trouver la position du marqueur sur l'écran
+    if (_mapController != null) {
+      // Afficher une carte rapide avec les détails essentiels et un bouton pour voir plus
+      showDialog(
+        context: context,
+        builder: (context) => Dialog(
+          key: quickViewKey,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          clipBehavior: Clip.antiAlias,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Container(
+            width: 320,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Image d'en-tête avec nom et note superposés
+                Stack(
+                  children: [
+                    // Image d'en-tête
+                    Container(
+                      height: 150,
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        image: DecorationImage(
+                          image: NetworkImage(imageUrl),
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                    ),
+                    // Dégradé pour améliorer la lisibilité du texte
+                    Container(
+                      height: 150,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.black.withOpacity(0.1),
+                            Colors.black.withOpacity(0.7),
+                          ],
+                        ),
+                      ),
+                    ),
+                    // Nom et note du restaurant
+                    Positioned(
+                      bottom: 10,
+                      left: 15,
+                      right: 15,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              producer['name'] ?? "Restaurant",
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 22,
+                                shadows: [
+                                  Shadow(
+                                    color: Colors.black,
+                                    offset: Offset(0, 1),
+                                    blurRadius: 3,
+                                  ),
+                                ],
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.amber,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  "${producer['rating']?.toStringAsFixed(1) ?? 'N/A'}",
+                                  style: const TextStyle(
+                                    color: Colors.black,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                                const Icon(Icons.star, size: 16, color: Colors.black),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    // Bouton fermer
+                    Positioned(
+                      top: 10,
+                      right: 10,
+                      child: InkWell(
+                        onTap: () => Navigator.pop(context),
+                        child: Container(
+                          padding: const EdgeInsets.all(5),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.5),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.close,
+                            color: Colors.white,
+                            size: 20,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                
+                // Corps avec les détails essentiels
+                Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Adresse
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(Icons.location_on, size: 18, color: Colors.grey),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              producer['address'] ?? "Adresse non disponible",
+                              style: const TextStyle(fontSize: 14),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      
+                      // Catégories si disponibles
+                      if (producer['category'] != null && producer['category'] is List && producer['category'].isNotEmpty) ...[
+                        Wrap(
+                          spacing: 6,
+                          children: (producer['category'] as List).map<Widget>((cat) {
+                            return Chip(
+                              label: Text(cat.toString()),
+                              labelStyle: const TextStyle(fontSize: 12, color: Colors.white),
+                              backgroundColor: Colors.blue,
+                              padding: const EdgeInsets.all(0),
+                              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            );
+                          }).toList(),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      
+                      // Notes détaillées
+                      if (producer['notes_globales'] != null) ...[
+                        const Text(
+                          "Notes détaillées :",
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceAround,
+                          children: [
+                            _buildRatingItem("Service", producer['notes_globales']?['service'] ?? 0.0),
+                            _buildRatingItem("Lieu", producer['notes_globales']?['lieu'] ?? 0.0),
+                            _buildRatingItem("Portions", producer['notes_globales']?['portions'] ?? 0.0),
+                            _buildRatingItem("Ambiance", producer['notes_globales']?['ambiance'] ?? 0.0),
+                          ],
+                        ),
+                      ],
+                      
+                      const SizedBox(height: 20),
+                      
+                      // Bouton pour voir plus de détails
+                      SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: ElevatedButton.icon(
+                          icon: const Icon(Icons.restaurant_menu),
+                          label: const Text('VOIR LE PROFIL COMPLET', style: TextStyle(fontSize: 16)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.deepOrange,
+                            foregroundColor: Colors.white,
+                            elevation: 3,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          onPressed: () {
+                            Navigator.pop(context); // Fermer la boîte de dialogue
+                            _navigateToProducerDetails(producer['_id']);
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+  }
+  
+  // Construire un widget d'étoiles de notation
+  Widget _buildRatingItem(String label, double rating) {
+    return Column(
+      children: [
+        Text(
+          label,
+          style: const TextStyle(fontSize: 12),
+        ),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              rating.toStringAsFixed(1),
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+            ),
+            const Icon(Icons.star, size: 12, color: Colors.amber),
+          ],
+        ),
+      ],
+    );
   }
 
 
@@ -186,7 +560,8 @@ class _MapScreenState extends State<MapScreen> {
         if (_minPortionRating != null) 'minPortionRating': _minPortionRating.toString(),
         if (_minAmbianceRating != null) 'minAmbianceRating': _minAmbianceRating.toString(),
         if (_openingHours != null) 'openingHours': _openingHours,
-        if (_category != null) 'category': _category,
+        if (_selectedCategories.isNotEmpty) 'categories': _selectedCategories.join(","),
+        if (_selectedDishTypes.isNotEmpty) 'dishTypes': _selectedDishTypes.join(","),
         if (_choice != null) 'choice': _choice,
         if (_minFavorites != null) 'minFavorites': _minFavorites.toString(),
         if (_minPrice != null) 'minPrice': _minPrice.toString(),
@@ -195,7 +570,23 @@ class _MapScreenState extends State<MapScreen> {
         if (_maxItemRating != null) 'maxItemRating': _maxItemRating.toString(),
       };
 
-      final uri = Uri.http('${getBaseUrl()}', '/api/producers/nearby', queryParameters);
+      // Extraire le domaine et le protocole de l'URL complète
+      final baseUrl = getBaseUrl();
+      Uri uri;
+      
+      if (baseUrl.startsWith('http://')) {
+        // Si c'est http://
+        final domain = baseUrl.replaceFirst('http://', '');
+        uri = Uri.http(domain, '/api/producers/nearby', queryParameters);
+      } else if (baseUrl.startsWith('https://')) {
+        // Si c'est https://
+        final domain = baseUrl.replaceFirst('https://', '');
+        uri = Uri.https(domain, '/api/producers/nearby', queryParameters);
+      } else {
+        // Utiliser Uri.parse comme solution de secours
+        uri = Uri.parse('$baseUrl/api/producers/nearby').replace(queryParameters: queryParameters);
+      }
+      
       print("🔍 Requête envoyée : $uri");
 
       final response = await http.get(uri);
@@ -274,7 +665,9 @@ class _MapScreenState extends State<MapScreen> {
       _minAmbianceRating = null;
       _openingHours = null;
       _selectedTime = null;
-      _category = null;
+      _selectedCategories.clear();
+      _selectedDishTypes.clear();
+      // Remove old category reference since we now use _selectedCategories
       _choice = null;
       _minFavorites = null;
       _minPrice = null;
@@ -310,9 +703,10 @@ class _MapScreenState extends State<MapScreen> {
   /// Applique les filtres et relance la recherche
   void _applyFilters() {
     if (_isMapReady) {
-      _resetFilters(); // Réinitialiser tous les anciens critères
+      // Appliquer les filtres sans les réinitialiser
       _fetchNearbyProducers(_initialPosition.latitude, _initialPosition.longitude);
-      _showSnackBar("Filtres réinitialisés et recherche mise à jour !");
+      _showSnackBar("Filtres appliqués et recherche mise à jour !");
+      _isFilterPanelVisible = false; // Fermer le panneau de filtres après application
     } else {
       _showSnackBar("La carte n'est pas encore prête. Veuillez patienter.");
     }
@@ -464,12 +858,18 @@ class _MapScreenState extends State<MapScreen> {
             const SizedBox(height: 16.0),
 
             // Bouton Appliquer
-            ElevatedButton(
+            ElevatedButton.icon(
               onPressed: () {
                 _applyFilters();
                 _showFilters();
               },
-              child: const Text('Appliquer les filtres items'),
+              icon: const Icon(Icons.search),
+              label: const Text('Appliquer les filtres items'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+              ),
             ),
           ],
         ),
@@ -499,6 +899,67 @@ class _MapScreenState extends State<MapScreen> {
             const Text(
               "Filtres restaurants",
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16.0),
+            
+            // Catégories de restaurants
+            const Text(
+              "Restaurations",
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8.0),
+            Wrap(
+              spacing: 8.0,
+              runSpacing: 8.0,
+              children: [
+                'Restaurant', 'Fast-food', 'Brasserie', 'Pizzeria', 'Bistro', 'Café', 'Bar'
+              ].map((category) {
+                return FilterChip(
+                  label: Text(category),
+                  selected: _selectedCategories.contains(category),
+                  selectedColor: Colors.blue.withOpacity(0.2),
+                  onSelected: (isSelected) {
+                    setState(() {
+                      if (isSelected) {
+                        _selectedCategories.add(category);
+                      } else {
+                        _selectedCategories.remove(category);
+                      }
+                    });
+                  },
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 16.0),
+
+            // Types de plats
+            const Text(
+              "Type de plat",
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8.0),
+            Wrap(
+              spacing: 8.0,
+              runSpacing: 8.0,
+              children: [
+                'Italien', 'Français', 'Japonais', 'Indien', 'Mexicain', 'Libanais', 
+                'Végétarien', 'Végétalien', 'Américain', 'Chinois', 'Thaïlandais'
+              ].map((dishType) {
+                return FilterChip(
+                  label: Text(dishType),
+                  selected: _selectedDishTypes.contains(dishType),
+                  selectedColor: Colors.green.withOpacity(0.2),
+                  onSelected: (isSelected) {
+                    setState(() {
+                      if (isSelected) {
+                        _selectedDishTypes.add(dishType);
+                      } else {
+                        _selectedDishTypes.remove(dishType);
+                      }
+                    });
+                  },
+                );
+              }).toList(),
             ),
             const SizedBox(height: 16.0),
 
@@ -718,9 +1179,15 @@ class _MapScreenState extends State<MapScreen> {
             const SizedBox(height: 16.0),
 
             // Bouton Appliquer
-            ElevatedButton(
+            ElevatedButton.icon(
               onPressed: _applyFilters,
-              child: const Text('Appliquer les filtres restaurants'),
+              icon: const Icon(Icons.search),
+              label: const Text('Appliquer les filtres restaurants'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+              ),
             ),
           ],
         ),
@@ -728,68 +1195,471 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Carte des Restaurants et Items'),
         centerTitle: true,
-      ),
-      body: Stack(
-        children: [
-          // Google Map Widget
-          GoogleMap(
-            initialCameraPosition: CameraPosition(
-              target: _initialPosition,
-              zoom: 15.0,
-            ),
-            markers: _markers,
-            onMapCreated: (GoogleMapController controller) {
-              _mapController = controller;
-              setState(() {
-                _isMapReady = true;
-              });
+        actions: [
+          // Bouton de filtres rapides
+          IconButton(
+            icon: const Icon(Icons.tune),
+            tooltip: 'Filtres rapides',
+            onPressed: () => _showQuickFilterDialog(context),
+          ),
+          // Bouton d'aide
+          IconButton(
+            icon: const Icon(Icons.help_outline),
+            tooltip: 'Aide',
+            onPressed: () => _showHelpDialog(context),
+          ),
+          // Bouton pour basculer vers la carte des loisirs
+          IconButton(
+            icon: const Icon(Icons.theater_comedy),
+            tooltip: 'Carte des loisirs',
+            onPressed: () {
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (context) => const MapLeisureScreen()),
+              );
             },
           ),
-
-          // Loader si les données sont en cours de chargement
-          if (_isLoading)
-            const Center(
-              child: CircularProgressIndicator(),
+        ],
+      ),
+      body: PopScope(
+        // Empêche de fermer l'application en appuyant sur retour
+        canPop: false,
+        child: Stack(
+          children: [
+            AdaptiveMapWidget(
+              initialPosition: _initialPosition,
+              initialZoom: 15.0,
+              markers: _markers,
+              onMapCreated: (GoogleMapController controller) {
+                _mapController = controller;
+                setState(() {
+                  _isMapReady = true;
+                });
+                
+                // Afficher un guide visuel pour les critères uniquement si pas encore vu
+                if (!_hasShownFilterHint) {
+                  Future.delayed(const Duration(seconds: 1), () {
+                    if (mounted) {
+                      _showFilterHintTooltip();
+                    }
+                  });
+                }
+                
+                // Améliorer le style de la carte pour plus de lisibilité
+                _setMapStyle(controller);
+              },
+              onTap: (position) {
+                // Fermer le panneau de filtres si ouvert et permettre le déplacement
+                setState(() {
+                  if (_isFilterPanelVisible) {
+                    _isFilterPanelVisible = false;
+                  }
+                });
+                
+                // Permettre le déplacement sur la carte en tapant
+                if (_mapController != null) {
+                  _mapController!.animateCamera(
+                    CameraUpdate.newLatLng(position),
+                  );
+                }
+              },
+              filterPanel: _buildFilterPanel(), // Panneau de filtres latéral
+              filterPanel: _buildFilterPanel(), // Panneau de filtres latéral
             ),
+            
+            // Indicateur de chargement
+            if (_isLoading)
+              Container(
+                color: Colors.black.withOpacity(0.3),
+                child: const Center(
+                  child: CircularProgressIndicator(),
+                ),
+              ),
+            
+            // Bulle informative indiquant où trouver les critères - visible uniquement si pas encore vu
+            if (!_hasShownFilterHint)
+              Positioned(
+                top: 80,
+                left: 60,
+                child: AnimatedOpacity(
+                  opacity: _isFilterPanelVisible ? 0.0 : 1.0,
+                  duration: const Duration(milliseconds: 300),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.withOpacity(0.9),
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.2),
+                          blurRadius: 4,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.arrow_back, color: Colors.white, size: 16),
+                        const SizedBox(width: 6),
+                        const Text(
+                          "Cliquez ici pour les critères",
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            
+            // Légende des couleurs - repositionnée pour ne pas gêner les boutons de zoom
+            Positioned(
+              top: 80,
+              right: 16,
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.9),
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.2),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          "Correspondance",
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                        ),
+                        // Bouton pour masquer la légende
+                        InkWell(
+                          onTap: () {
+                            // Masquer la légende (à implémenter)
+                          },
+                          child: const Icon(Icons.info_outline, size: 16),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Container(
+                          width: 16,
+                          height: 16,
+                          decoration: const BoxDecoration(
+                            color: Colors.green,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        const Text("Élevé", style: TextStyle(fontSize: 12)),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        Container(
+                          width: 16,
+                          height: 16,
+                          decoration: const BoxDecoration(
+                            color: Colors.yellow,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        const Text("Moyen", style: TextStyle(fontSize: 12)),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        Container(
+                          width: 16,
+                          height: 16,
+                          decoration: const BoxDecoration(
+                            color: Colors.red,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        const Text("Faible", style: TextStyle(fontSize: 12)),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            
+            // Bouton pour afficher les lieux si pas encore chargés
+            if (_markers.isEmpty && !_isLoading && _isMapReady)
+              Positioned(
+                bottom: 80,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.place),
+                    label: const Text("Afficher les lieux"),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                      foregroundColor: Colors.white,
+                      elevation: 4,
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(30),
+                      ),
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        _shouldShowMarkers = true;
+                      });
+                      _fetchNearbyProducers(_initialPosition.latitude, _initialPosition.longitude);
+                    },
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+      // Boutons d'action flottants
+      floatingActionButton: Column(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          // Bouton pour rafraîchir les données
+          FloatingActionButton(
+            mini: true,
+            heroTag: "refreshBtn",
+            child: const Icon(Icons.refresh),
+            onPressed: () {
+              if (_isMapReady) {
+                setState(() {
+                  _shouldShowMarkers = true; // Assurez-vous que les marqueurs sont affichés après rafraîchissement
+                });
+                _fetchNearbyProducers(_initialPosition.latitude, _initialPosition.longitude);
+              }
+            },
+          ),
+          const SizedBox(height: 8),
+          // Bouton pour la position actuelle
+          FloatingActionButton(
+            mini: true,
+            heroTag: "locateBtn",
+            child: const Icon(Icons.my_location),
+            onPressed: () {
+              if (_mapController != null) {
+                _mapController!.animateCamera(
+                  CameraUpdate.newLatLngZoom(_initialPosition, 15.0),
+                );
+              }
+            },
+          ),
+        ],
+      ),
 
-          // Bouton pour ouvrir les filtres des items
-          Positioned(
-            top: 16,
-            left: 16,
-            right: 16,
-            child: ElevatedButton(
-              onPressed: () => showModalBottomSheet(
-                context: context,
-                builder: (context) => _buildItemFilters(),
-              ),
-              child: const Text(
-                'Filtres pour les Items',
-                style: TextStyle(fontSize: 16),
-              ),
+      // Pas de barre de navigation en bas pour éviter le bandeau blanc
+    );
+  }
+  
+  /// Construction du panneau de filtres avec onglets
+  Widget _buildFilterPanel() {
+    // Obtenir la hauteur d'écran pour définir une taille maximale
+    final screenHeight = MediaQuery.of(context).size.height;
+    
+    return DefaultTabController(
+      length: 2,
+      child: Column(
+        mainAxisSize: MainAxisSize.min, // Important: limiter la taille de la colonne
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // En-tête avec onglets et bouton fermer
+          Container(
+            color: Colors.blue,
+            child: Row(
+              children: [
+                // Bouton fermer à gauche
+                IconButton(
+                  icon: const Icon(Icons.close, color: Colors.white),
+                  onPressed: () {
+                    setState(() {
+                      _isFilterPanelVisible = false;
+                    });
+                  },
+                ),
+                // Titre des filtres
+                const Expanded(
+                  child: Center(
+                    child: Text(
+                      "Filtres",
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                      ),
+                    ),
+                  ),
+                ),
+                // Bouton réinitialiser à droite
+                TextButton.icon(
+                  icon: const Icon(Icons.refresh, color: Colors.white, size: 16),
+                  label: const Text(
+                    "Réinitialiser",
+                    style: TextStyle(color: Colors.white, fontSize: 12),
+                  ),
+                  onPressed: () {
+                    _resetFilters();
+                  },
+                ),
+              ],
             ),
           ),
-
-          // Bouton pour ouvrir les filtres des restaurants
-          Positioned(
-            bottom: 16,
-            left: 16,
-            right: 16,
-            child: ElevatedButton(
-              onPressed: () => showModalBottomSheet(
-                context: context,
-                builder: (context) => _buildRestaurantFilters(),
-              ),
-              child: const Text(
-                'Filtres pour les Restaurants',
-                style: TextStyle(fontSize: 16),
-              ),
+          // Onglets
+          const TabBar(
+            labelColor: Colors.blue,
+            unselectedLabelColor: Colors.grey,
+            indicatorColor: Colors.blue,
+            tabs: [
+              Tab(text: "Items", icon: Icon(Icons.fastfood)),
+              Tab(text: "Restaurants", icon: Icon(Icons.restaurant)),
+            ],
+          ),
+          // Contenu des onglets avec hauteur contrainte
+          SizedBox(
+            height: screenHeight * 0.5, // Hauteur fixe qui correspond à 50% de l'écran
+            child: TabBarView(
+              children: [
+                _buildItemFilters(),
+                _buildRestaurantFilters(),
+              ],
             ),
+          ),
+          // Bouton Appliquer
+          Padding(
+            padding: const EdgeInsets.all(12.0),
+            child: ElevatedButton.icon(
+              icon: const Icon(Icons.search),
+              label: const Text('APPLIQUER LES FILTRES', style: TextStyle(fontSize: 16)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              onPressed: _applyFilters,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  /// Affiche un dialogue d'aide pour expliquer l'utilisation des filtres
+  void _showHelpDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Aide - Utilisation des filtres"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: const [
+            Text("Comment utiliser les filtres:"),
+            SizedBox(height: 8),
+            Text("• Cliquez sur le bouton 🔍 en haut à gauche pour afficher le panneau de critères"),
+            SizedBox(height: 4),
+            Text("• Le premier onglet permet de filtrer par items (plats, boissons, etc.)"),
+            SizedBox(height: 4),
+            Text("• Le deuxième onglet permet de filtrer par type de restaurant"),
+            SizedBox(height: 4),
+            Text("• Sélectionnez vos critères puis cliquez sur 'Appliquer'"),
+            SizedBox(height: 4),
+            Text("• Les lieux correspondants apparaîtront sur la carte"),
+            SizedBox(height: 8),
+            Text("• Cliquez sur un marqueur pour voir les détails du restaurant"),
+            SizedBox(height: 4),
+            Text("• Cliquez deux fois sur un marqueur pour visiter la page du restaurant"),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Compris"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Affiche un dialogue de filtres rapides
+  void _showQuickFilterDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Filtres rapides"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.star, color: Colors.amber),
+              title: const Text("Meilleures notes"),
+              onTap: () {
+                Navigator.pop(context);
+                setState(() {
+                  _minRating = 4.0;
+                });
+                _applyFilters();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.eco, color: Colors.green),
+              title: const Text("Écologique"),
+              onTap: () {
+                Navigator.pop(context);
+                setState(() {
+                  _selectedNutriScores = ["A", "B"];
+                  _maxCarbonFootprint = 0.5;
+                });
+                _applyFilters();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.fastfood, color: Colors.orange),
+              title: const Text("Faibles calories"),
+              onTap: () {
+                Navigator.pop(context);
+                setState(() {
+                  _maxCalories = 500;
+                });
+                _applyFilters();
+              },
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Fermer"),
           ),
         ],
       ),
@@ -939,5 +1809,250 @@ class _MapScreenState extends State<MapScreen> {
     });
 
     return scoredProducers;
+  }
+  
+  /// Affiche une bulle d'aide pour guider l'utilisateur vers le panneau de filtres
+  void _showFilterHintTooltip() {
+    // Vérifier si le panneau de filtres est déjà visible
+    if (!_isFilterPanelVisible) {
+      // Afficher temporairement la bulle d'aide puis la masquer après quelques secondes
+      setState(() {
+        // La bulle s'affiche grâce au widget Positioned dans le build
+      });
+      
+      // Masquer après un délai (l'animation se fait dans le widget)
+      Future.delayed(const Duration(seconds: 5), () {
+        if (mounted) {
+          setState(() {
+            // Indiquer que l'utilisateur a vu l'indicateur
+            _hasShownFilterHint = true;
+          });
+        }
+      });
+    }
+  }
+  
+  /// Met à jour la visibilité du panneau de filtres (appelé depuis AdaptiveMapWidget)
+  void updateFilterPanelVisibility(bool isVisible) {
+    setState(() {
+      _isFilterPanelVisible = isVisible;
+    });
+  }
+  
+  /// Applique un style personnalisé à la carte pour une meilleure lisibilité
+  Future<void> _setMapStyle(GoogleMapController controller) async {
+    // Style inspiré de "Retro" de Google avec ajustements pour rendre les POIs plus visibles
+    const String mapStyle = '''
+    [
+      {
+        "elementType": "geometry",
+        "stylers": [
+          {
+            "color": "#f5f5f5"
+          }
+        ]
+      },
+      {
+        "elementType": "labels.icon",
+        "stylers": [
+          {
+            "visibility": "on"
+          }
+        ]
+      },
+      {
+        "elementType": "labels.text.fill",
+        "stylers": [
+          {
+            "color": "#616161"
+          }
+        ]
+      },
+      {
+        "elementType": "labels.text.stroke",
+        "stylers": [
+          {
+            "color": "#f5f5f5"
+          }
+        ]
+      },
+      {
+        "featureType": "administrative.land_parcel",
+        "stylers": [
+          {
+            "visibility": "off"
+          }
+        ]
+      },
+      {
+        "featureType": "administrative.land_parcel",
+        "elementType": "labels.text.fill",
+        "stylers": [
+          {
+            "color": "#bdbdbd"
+          }
+        ]
+      },
+      {
+        "featureType": "poi",
+        "elementType": "geometry",
+        "stylers": [
+          {
+            "color": "#eeeeee"
+          }
+        ]
+      },
+      {
+        "featureType": "poi",
+        "elementType": "labels.text.fill",
+        "stylers": [
+          {
+            "color": "#757575"
+          }
+        ]
+      },
+      {
+        "featureType": "poi.business",
+        "elementType": "geometry.fill",
+        "stylers": [
+          {
+            "color": "#f0f7eb"
+          }
+        ]
+      },
+      {
+        "featureType": "poi.park",
+        "elementType": "geometry",
+        "stylers": [
+          {
+            "color": "#e5e5e5"
+          }
+        ]
+      },
+      {
+        "featureType": "poi.park",
+        "elementType": "labels.text.fill",
+        "stylers": [
+          {
+            "color": "#9e9e9e"
+          }
+        ]
+      },
+      {
+        "featureType": "road",
+        "elementType": "geometry",
+        "stylers": [
+          {
+            "color": "#ffffff"
+          }
+        ]
+      },
+      {
+        "featureType": "road",
+        "elementType": "geometry.fill",
+        "stylers": [
+          {
+            "color": "#f1f1f1"
+          }
+        ]
+      },
+      {
+        "featureType": "road.arterial",
+        "elementType": "geometry.fill",
+        "stylers": [
+          {
+            "color": "#ffffff"
+          }
+        ]
+      },
+      {
+        "featureType": "road.arterial",
+        "elementType": "labels.text.fill",
+        "stylers": [
+          {
+            "color": "#757575"
+          }
+        ]
+      },
+      {
+        "featureType": "road.highway",
+        "elementType": "geometry",
+        "stylers": [
+          {
+            "color": "#dadada"
+          }
+        ]
+      },
+      {
+        "featureType": "road.highway",
+        "elementType": "labels.text.fill",
+        "stylers": [
+          {
+            "color": "#616161"
+          }
+        ]
+      },
+      {
+        "featureType": "road.local",
+        "elementType": "labels.text.fill",
+        "stylers": [
+          {
+            "color": "#9e9e9e"
+          }
+        ]
+      },
+      {
+        "featureType": "transit.line",
+        "elementType": "geometry",
+        "stylers": [
+          {
+            "color": "#e5e5e5"
+          }
+        ]
+      },
+      {
+        "featureType": "transit.station",
+        "elementType": "geometry",
+        "stylers": [
+          {
+            "color": "#eeeeee"
+          }
+        ]
+      },
+      {
+        "featureType": "water",
+        "elementType": "geometry",
+        "stylers": [
+          {
+            "color": "#c9c9c9"
+          }
+        ]
+      },
+      {
+        "featureType": "water",
+        "elementType": "geometry.fill",
+        "stylers": [
+          {
+            "color": "#d3eaf8"
+          }
+        ]
+      },
+      {
+        "featureType": "water",
+        "elementType": "labels.text.fill",
+        "stylers": [
+          {
+            "color": "#9e9e9e"
+          }
+        ]
+      }
+    ]
+    ''';
+
+    try {
+      await controller.setMapStyle(mapStyle);
+    } catch (e) {
+      print("❌ Erreur lors de l'application du style de carte: $e");
+    }
   }
 }

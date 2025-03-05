@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';  // Corriger l'import
 import '../screens/profile_screen.dart';
 import '../screens/producer_screen.dart';
 

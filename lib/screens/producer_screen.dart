@@ -2,12 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:fl_chart/fl_chart.dart'; // Pour les graphiques
 import '../services/api_service.dart';
-import 'post_detail_screen.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'profile_screen.dart';
 import 'producerLeisure_screen.dart';
-import 'producer_screen.dart';
 import 'utils.dart';
 
 class ProducerScreen extends StatefulWidget {
@@ -61,7 +59,6 @@ class _ProducerScreenState extends State<ProducerScreen> {
     }
   }
 
-
   Future<Map<String, dynamic>> _fetchProducerDetails(String producerId) async {
     final producerUrl = Uri.parse('${getBaseUrl()}/api/producers/$producerId');
     final relationsUrl = Uri.parse('${getBaseUrl()}/api/producers/$producerId/relations');
@@ -89,8 +86,6 @@ class _ProducerScreenState extends State<ProducerScreen> {
       throw Exception('Impossible de charger les données du producteur.');
     }
   }
-
-
 
   /// Fonction pour récupérer les posts d'un producteur
   Future<List<dynamic>> _fetchProducerPosts(String producerId) async {
@@ -131,8 +126,18 @@ class _ProducerScreenState extends State<ProducerScreen> {
   }
 
   Future<void> _markInterested(String targetId, Map<String, dynamic> post) async {
+    // Afficher l'indicateur de chargement
+    setState(() {
+      post['isLoading'] = true;
+    });
+
     final url = Uri.parse('${getBaseUrl()}/api/choicexinterest/interested');
-    final body = {'userId': widget.userId, 'targetId': targetId};
+    
+    // Format de données attendu par le backend - simplifié pour correspondre à l'API
+    final body = {
+      'userId': widget.userId,
+      'targetId': targetId,
+    };
 
     try {
       final response = await http.post(
@@ -142,22 +147,68 @@ class _ProducerScreenState extends State<ProducerScreen> {
       );
 
       if (response.statusCode == 200) {
-        final updatedInterested = json.decode(response.body)['interested'];
+        final responseData = json.decode(response.body);
+        final updatedInterested = responseData['interested'];
         setState(() {
-          post['interested'] = updatedInterested; // Mettez à jour le post localement
+          post['interested'] = updatedInterested;
+          post['isLoading'] = false;
         });
-        print('✅ Interested ajouté avec succès');
+        
+        // Feedback à l'utilisateur
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(updatedInterested ? 'Ajouté à vos intérêts' : 'Retiré de vos intérêts'),
+            backgroundColor: updatedInterested ? Colors.green : Colors.grey,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+        
+        // Mettre à jour le profil utilisateur pour refléter le changement
+        _updateUserProfile();
+        
+        print('✅ Interested mis à jour avec succès');
       } else {
-        print('❌ Erreur lors de l\'ajout à Interested : ${response.body}');
+        setState(() {
+          post['isLoading'] = false;
+        });
+        print('❌ Erreur lors de la mise à jour d\'Interested : ${response.body}');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur lors de la mise à jour : ${response.statusCode}'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     } catch (e) {
-      print('❌ Erreur réseau lors de l\'ajout à Interested : $e');
+      setState(() {
+        post['isLoading'] = false;
+      });
+      print('❌ Erreur réseau lors de la mise à jour d\'Interested : $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erreur réseau : $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
   Future<void> _markChoice(String targetId, Map<String, dynamic> post) async {
+    // Afficher l'indicateur de chargement
+    setState(() {
+      post['isLoading'] = true;
+    });
+    
     final url = Uri.parse('${getBaseUrl()}/api/choicexinterest/choice');
-    final body = {'userId': widget.userId, 'targetId': targetId};
+    
+    // Format de données attendu par le backend - simplifié pour correspondre à l'API
+    final body = {
+      'userId': widget.userId,
+      'targetId': targetId,
+      // Optionnel: ajout d'un commentaire si nécessaire
+      // 'comment': 'Ajouté depuis la page producteur'
+    };
 
     try {
       final response = await http.post(
@@ -167,16 +218,76 @@ class _ProducerScreenState extends State<ProducerScreen> {
       );
 
       if (response.statusCode == 200) {
-        final updatedChoices = json.decode(response.body)['choices'];
+        final responseData = json.decode(response.body);
+        final updatedChoice = responseData['choice'];
         setState(() {
-          post['choices'] = updatedChoices; // Mettez à jour le post localement
+          post['choices'] = updatedChoice;
+          post['isLoading'] = false;
         });
-        print('✅ Choice ajouté avec succès');
+        
+        // Feedback à l'utilisateur
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(updatedChoice ? 'Ajouté à vos choix' : 'Retiré de vos choix'),
+            backgroundColor: updatedChoice ? Colors.green : Colors.grey,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+        
+        // Mettre à jour le profil utilisateur pour refléter le changement
+        _updateUserProfile();
+        
+        print('✅ Choice mis à jour avec succès');
       } else {
-        print('❌ Erreur lors de l\'ajout à Choices : ${response.body}');
+        setState(() {
+          post['isLoading'] = false;
+        });
+        print('❌ Erreur lors de la mise à jour de Choice : ${response.body}');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur lors de la mise à jour : ${response.statusCode}'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     } catch (e) {
-      print('❌ Erreur réseau lors de l\'ajout à Choices : $e');
+      setState(() {
+        post['isLoading'] = false;
+      });
+      print('❌ Erreur réseau lors de la mise à jour de Choice : $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erreur réseau : $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  /// Mettre à jour le profil utilisateur après un changement d'interest/choice
+  Future<void> _updateUserProfile() async {
+    if (widget.userId == null) {
+      print('⚠️ Impossible de mettre à jour le profil : userId est null');
+      return;
+    }
+    
+    try {
+      final url = Uri.parse('${getBaseUrl()}/api/users/${widget.userId}');
+      final response = await http.get(url);
+      
+      if (response.statusCode == 200) {
+        final userData = json.decode(response.body);
+        print('✅ Profil utilisateur mis à jour avec succès');
+        print('📋 Intérêts: ${userData['interests']?.length ?? 0}');
+        print('📋 Choices: ${userData['choices']?.length ?? 0}');
+        
+        // On pourrait stocker ces données dans un état global si nécessaire
+      } else {
+        print('❌ Erreur lors de la mise à jour du profil : ${response.body}');
+      }
+    } catch (e) {
+      print('❌ Erreur réseau lors de la mise à jour du profil : $e');
     }
   }
 
@@ -219,7 +330,6 @@ class _ProducerScreenState extends State<ProducerScreen> {
     return null;
   }
 
-
   Future<List<Map<String, dynamic>>> _validateProfiles(List<String> ids) async {
     List<Map<String, dynamic>> validProfiles = [];
 
@@ -233,48 +343,146 @@ class _ProducerScreenState extends State<ProducerScreen> {
     return validProfiles;
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Détail Producteur'),
-        backgroundColor: Colors.orangeAccent,
+  void _navigateToPostDetail(Map<String, dynamic> post) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ProducerPostDetailScreen(
+          post: post, // Passez les données du post directement
+          userId: widget.userId, // Utilisez le userId pour les actions
+        ),
       ),
-      body: GestureDetector(
-        onTap: () => FocusScope.of(context).unfocus(), // Désactiver le clavier si nécessaire
-        child: FutureBuilder<Map<String, dynamic>>(
-          future: _producerFuture,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            } else if (snapshot.hasError) {
-              return Center(child: Text('Erreur : ${snapshot.error}'));
-            }
+    );
+  }
 
-            final producer = snapshot.data!;
-            return SingleChildScrollView(
+  Widget _buildProfileActions(Map<String, dynamic> data) {
+    final followersCount = (data['followers'] is Map && data['followers']?['count'] != null) 
+        ? int.tryParse(data['followers']?['count']?.toString() ?? '0') ?? 0 
+        : 0;
+    final followingCount = (data['following'] is Map && data['following']?['count'] != null)
+        ? int.tryParse(data['following']?['count']?.toString() ?? '0') ?? 0
+        : 0;
+    final interestedCount = (data['interestedUsers'] is Map && data['interestedUsers']?['count'] != null)
+        ? int.tryParse(data['interestedUsers']?['count']?.toString() ?? '0') ?? 0
+        : 0;
+    final choicesCount = (data['choiceUsers'] is Map && data['choiceUsers']?['count'] != null)
+        ? int.tryParse(data['choiceUsers']?['count']?.toString() ?? '0') ?? 0
+        : 0;
+
+    void _navigateToRelationDetails(String title, dynamic ids) async {
+      if (ids is! List) {
+        print('❌ Les IDs ne sont pas une liste valide.');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur : Les IDs ne sont pas valides.')),
+        );
+        return;
+      }
+
+      // Convertir manuellement chaque ID en String au lieu d'utiliser cast<String>()
+      final List<String> validIds = [];
+      for (var id in ids) {
+        if (id != null) {
+          validIds.add(id.toString());
+        }
+      }
+      
+      final validProfiles = await _validateProfiles(validIds);
+
+      if (validProfiles.isNotEmpty) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => RelationDetailsScreen(
+              title: title,
+              profiles: validProfiles,
+            ),
+          ),
+        );
+      } else {
+        print('❌ Aucun profil valide trouvé pour les IDs : $ids');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Aucun profil valide trouvé.')),
+        );
+      }
+    }
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          GestureDetector(
+            onTap: () {
+              final users = data['followers']?['users'] as List<dynamic>? ?? [];
+              _navigateToRelationDetails('Followers', users);
+            },
+            child: Container(
+              color: Colors.transparent,
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildHeader(producer),
-                  _buildProfileActions(producer),
-                  const Divider(height: 20, thickness: 2),
-                  _buildFrequencyGraph(producer),
-                  const Divider(height: 20, thickness: 2),
-                  _buildFilterOptions(),
-                  const Divider(height: 20, thickness: 2),
-                  _buildTabs(producer),
-                  const Divider(height: 20, thickness: 2),
-                  _buildFilteredItems(producer),
-                  const Divider(height: 20, thickness: 2),
-                  _buildMap(producer['gps_coordinates']),
-                  const Divider(height: 20, thickness: 2),
-                  _buildContactDetails(producer),
+                  Text(
+                    '$followersCount',
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const Text('Followers'),
                 ],
               ),
-            );
-          },
-        ),
+            ),
+          ),
+          GestureDetector(
+            onTap: () {
+              final users = data['following']?['users'] as List<dynamic>? ?? [];
+              _navigateToRelationDetails('Following', users);
+            },
+            child: Container(
+              color: Colors.transparent,
+              child: Column(
+                children: [
+                  Text(
+                    '$followingCount',
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const Text('Following'),
+                ],
+              ),
+            ),
+          ),
+          GestureDetector(
+            onTap: () {
+              final users = data['interestedUsers']?['users'] as List<dynamic>? ?? [];
+              _navigateToRelationDetails('Interested', users);
+            },
+            child: Container(
+              color: Colors.transparent,
+              child: Column(
+                children: [
+                  Text(
+                    '$interestedCount',
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const Text('Interested'),
+                ],
+              ),
+            ),
+          ),
+          GestureDetector(
+            onTap: () {
+              final users = data['choiceUsers']?['users'] as List<dynamic>? ?? [];
+              _navigateToRelationDetails('Choices', users);
+            },
+            child: Container(
+              color: Colors.transparent,
+              child: Column(
+                children: [
+                  Text(
+                    '$choicesCount',
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const Text('Choices'),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -318,80 +526,214 @@ class _ProducerScreenState extends State<ProducerScreen> {
   }
 
   Widget _buildFrequencyGraph(Map<String, dynamic> producer) {
-    final popularTimes = producer['popular_times'] ?? [];
-    if (popularTimes.isEmpty) {
-      return const Text('Données de fréquentation non disponibles.');
-    }
+    try {
+      // Vérification de l'existence des données de fréquentation
+      final popularTimes = producer['popular_times'];
+      if (popularTimes == null) {
+        print('❌ popular_times est null dans les données du producteur');
+        return const Padding(
+          padding: EdgeInsets.all(16.0),
+          child: Text('Données de fréquentation non disponibles.'),
+        );
+      }
 
-    final filteredTimes = popularTimes[_selectedDay]['data']?.cast<int>().sublist(8, 24) ?? [];
+      // Vérification du type de popular_times
+      if (!(popularTimes is List) && !(popularTimes is Map)) {
+        print('❌ popular_times n\'est ni une liste ni un Map: ${popularTimes.runtimeType}');
+        return const Padding(
+          padding: EdgeInsets.all(16.0),
+          child: Text('Format de données de fréquentation non supporté.'),
+        );
+      }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 16.0),
-          child: Text(
-            'Fréquentation (8h - Minuit)',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+      // Si la liste est vide
+      if ((popularTimes is List && popularTimes.isEmpty) ||
+          (popularTimes is Map && popularTimes.isEmpty)) {
+        print('❌ popular_times est vide');
+        return const Padding(
+          padding: EdgeInsets.all(16.0),
+          child: Text('Aucune donnée de fréquentation disponible.'),
+        );
+      }
+
+      // Déterminer la taille
+      int size = popularTimes is List 
+          ? popularTimes.length 
+          : popularTimes.keys.length;
+
+      // Sécurité pour l'index sélectionné
+      if (_selectedDay >= size) {
+        print('❌ _selectedDay ($_selectedDay) hors limites, remise à 0');
+        _selectedDay = 0;
+      }
+
+      // Extraire les données du jour sélectionné
+      var selectedDayData;
+      if (popularTimes is List && popularTimes.isNotEmpty) {
+        if (_selectedDay < popularTimes.length) {
+          selectedDayData = popularTimes[_selectedDay];
+        }
+      } else if (popularTimes is Map && popularTimes.isNotEmpty) {
+        // Chercher par clé string
+        String selectedDayKey = _selectedDay.toString();
+        if (popularTimes.containsKey(selectedDayKey)) {
+          selectedDayData = popularTimes[selectedDayKey];
+        } else {
+          // Essayer de trouver une clé contenant la valeur comme chaîne
+          var matchingKey = popularTimes.keys.firstWhere(
+            (key) => key.toString() == _selectedDay.toString(),
+            orElse: () => popularTimes.keys.first.toString()
+          );
+          selectedDayData = popularTimes[matchingKey];
+        }
+      }
+
+      // Vérification des données du jour
+      if (selectedDayData == null) {
+        print('❌ selectedDayData est null');
+        return const Padding(
+          padding: EdgeInsets.all(16.0),
+          child: Text('Données du jour sélectionné non disponibles.'),
+        );
+      }
+      
+      // Extraction des données de fréquentation
+      var data = selectedDayData['data'];
+      if (data == null) {
+        print('❌ data est null dans selectedDayData');
+        return const Padding(
+          padding: EdgeInsets.all(16.0),
+          child: Text('Données de fréquentation pour le jour sélectionné non disponibles.'),
+        );
+      }
+
+      // Conversion et filtrage des données
+      List<int> filteredTimes = [];
+      if (data is List) {
+        try {
+          // Essayer de convertir en List<int>
+          filteredTimes = data.map<int>((item) {
+            if (item is int) return item;
+            if (item is String) return int.tryParse(item) ?? 0;
+            if (item is double) return item.toInt();
+            return 0; // Valeur par défaut
+          }).toList();
+          
+          // Sous-ensemble des données pour les heures 8h-minuit
+          if (filteredTimes.length >= 24) {
+            filteredTimes = filteredTimes.sublist(8, 24);
+          }
+        } catch (e) {
+          print('❌ Erreur lors de la conversion des données: $e');
+          filteredTimes = List.filled(16, 0); // 16 heures de données vides
+        }
+      } else {
+        print('❌ data n\'est pas une liste: ${data.runtimeType}');
+        filteredTimes = List.filled(16, 0); // 16 heures de données vides
+      }
+
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16.0),
+            child: Text(
+              'Fréquentation (8h - Minuit)',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
           ),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0),
-          child: DropdownButton<int>(
-            value: _selectedDay,
-            items: List.generate(popularTimes.length, (index) {
-              return DropdownMenuItem(
-                value: index,
-                child: Text(popularTimes[index]['name']),
-              );
-            }),
-            onChanged: (value) {
-              setState(() {
-                _selectedDay = value!;
-              });
-            },
-          ),
-        ),
-        SizedBox(
-          height: 200,
-          child: Padding(
+          Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16.0),
-            child: BarChart(
-              BarChartData(
-                barGroups: List.generate(filteredTimes.length, (index) {
-                  return BarChartGroupData(
-                    x: index,
-                    barRods: [
-                      BarChartRodData(
-                        toY: filteredTimes[index].toDouble(),
-                        width: 12,
-                        color: Colors.orange,
-                      ),
-                    ],
+            child: DropdownButton<int>(
+              value: _selectedDay,
+              items: List.generate(
+                size, 
+                (index) {
+                  var dayData;
+                  try {
+                    if (popularTimes is List) {
+                      dayData = popularTimes[index];
+                    } else if (popularTimes is Map) {
+                      final key = index.toString();
+                      if (popularTimes.containsKey(key)) {
+                        dayData = popularTimes[key];
+                      } else {
+                        // Fallback
+                        var keys = popularTimes.keys.toList();
+                        if (index < keys.length) {
+                          dayData = popularTimes[keys[index]];
+                        }
+                      }
+                    }
+                  } catch (e) {
+                    print('❌ Erreur lors de l\'accès à l\'élément $index: $e');
+                    dayData = null;
+                  }
+                  
+                  String dayName = 'Jour ${index + 1}';
+                  if (dayData != null && dayData['name'] != null) {
+                    dayName = dayData['name'].toString();
+                  }
+                  
+                  return DropdownMenuItem(
+                    value: index,
+                    child: Text(dayName),
                   );
                 }),
-                titlesData: FlTitlesData(
-                  leftTitles: AxisTitles(
-                    sideTitles: SideTitles(showTitles: false),
-                  ),
-                  bottomTitles: AxisTitles(
-                    sideTitles: SideTitles(
-                      showTitles: true,
-                      interval: 2,
-                      getTitlesWidget: (value, _) {
-                        int hour = value.toInt() + 8;
-                        return Text('$hour h');
-                      },
+              onChanged: (value) {
+                setState(() {
+                  _selectedDay = value!;
+                });
+              },
+            ),
+          ),
+          SizedBox(
+            height: 200,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: BarChart(
+                BarChartData(
+                  barGroups: List.generate(filteredTimes.length, (index) {
+                    return BarChartGroupData(
+                      x: index,
+                      barRods: [
+                        BarChartRodData(
+                          toY: filteredTimes[index].toDouble(),
+                          width: 12,
+                          color: Colors.orange,
+                        ),
+                      ],
+                    );
+                  }),
+                  titlesData: FlTitlesData(
+                    leftTitles: AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
+                    bottomTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        interval: 2,
+                        getTitlesWidget: (value, _) {
+                          int hour = value.toInt() + 8;
+                          return Text('$hour h');
+                        },
+                      ),
                     ),
                   ),
+                  borderData: FlBorderData(show: false),
                 ),
-                borderData: FlBorderData(show: false),
               ),
             ),
           ),
-        ),
-      ],
-    );
+        ],
+      );
+    } catch (e) {
+      print('❌ Erreur inattendue dans _buildFrequencyGraph: $e');
+      return Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Text('Erreur lors de l\'affichage des données de fréquentation: $e'),
+      );
+    }
   }
 
   Widget _buildFilterOptions() {
@@ -512,35 +854,6 @@ class _ProducerScreenState extends State<ProducerScreen> {
     );
   }
 
-  Widget _buildTabs(Map<String, dynamic> producer) {
-    return DefaultTabController(
-      length: 3,
-      child: Column(
-        children: [
-          const TabBar(
-            tabs: [
-              Tab(text: 'Carte du Menu'),
-              Tab(text: 'Photos'),
-              Tab(text: 'Posts'),
-            ],
-            labelColor: Colors.orangeAccent,
-            indicatorColor: Colors.orangeAccent,
-          ),
-          SizedBox(
-            height: 400,
-            child: TabBarView(
-              children: [
-                _buildMenuDetails(producer),
-                _buildPhotosSection(producer['photos'] ?? []),
-                _buildPostsSection(),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildMenuDetails(Map<String, dynamic> producer) {
     final menus = producer['structured_data']?['Menus Globaux'] ?? [];
     if (menus.isEmpty) {
@@ -617,7 +930,7 @@ class _ProducerScreenState extends State<ProducerScreen> {
 
   Widget _buildPostsSection() {
     return FutureBuilder<List<dynamic>>(
-      future: _fetchProducerPosts(widget.producerId), // Appel correct
+      future: _fetchProducerPosts(widget.producerId),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -644,7 +957,6 @@ class _ProducerScreenState extends State<ProducerScreen> {
       },
     );
   }
-
 
   Widget _buildPostCard(Map<String, dynamic> post) {
     final mediaUrls = post['media'] as List<dynamic>? ?? [];
@@ -775,18 +1087,6 @@ class _ProducerScreenState extends State<ProducerScreen> {
     );
   }
 
-  void _navigateToPostDetail(Map<String, dynamic> post) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => PostDetailScreen(
-          post: post, // Passez les données du post directement
-          userId: widget.userId, // Utilisez le userId pour les actions
-        ),
-      ),
-    );
-  }
-
   Widget _buildMap(Map<String, dynamic>? coordinates) {
     if (coordinates == null || coordinates['coordinates'] == null) {
       return const Text('Coordonnées GPS non disponibles.');
@@ -823,124 +1123,28 @@ class _ProducerScreenState extends State<ProducerScreen> {
     );
   }
 
-  Widget _buildProfileActions(Map<String, dynamic> data) {
-    final followersCount = (data['followers'] is Map && data['followers']?['count'] is int)
-        ? data['followers']['count']
-        : 0;
-    final followingCount = (data['following'] is Map && data['following']?['count'] is int)
-        ? data['following']['count']
-        : 0;
-    final interestedCount = (data['interestedUsers'] is Map && data['interestedUsers']?['count'] is int)
-        ? data['interestedUsers']['count']
-        : 0;
-    final choicesCount = (data['choiceUsers'] is Map && data['choiceUsers']?['count'] is int)
-        ? data['choiceUsers']['count']
-        : 0;
-
-    void _navigateToRelationDetails(String title, dynamic ids) async {
-      if (ids is! List) {
-        print('❌ Les IDs ne sont pas une liste valide.');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur : Les IDs ne sont pas valides.')),
-        );
-        return;
-      }
-
-      final validIds = ids.cast<String>(); // Essaie de convertir en List<String>
-      final validProfiles = await _validateProfiles(validIds);
-
-      if (validProfiles.isNotEmpty) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => RelationDetailsScreen(
-              title: title,
-              profiles: validProfiles,
-            ),
-          ),
-        );
-      } else {
-        print('❌ Aucun profil valide trouvé pour les IDs : $ids');
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Aucun profil valide trouvé.')),
-        );
-      }
-    }
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
+  Widget _buildTabs(Map<String, dynamic> producer) {
+    return DefaultTabController(
+      length: 3,
+      child: Column(
         children: [
-          GestureDetector(
-            onTap: () {
-              final users = data['followers']?['users'] as List<dynamic>? ?? [];
-              _navigateToRelationDetails('Followers', users.cast<String>());
-            },
-            child: Container(
-              color: Colors.transparent,
-              child: Column(
-                children: [
-                  Text(
-                    '$followersCount',
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  const Text('Followers'),
-                ],
-              ),
-            ),
+          const TabBar(
+            tabs: [
+              Tab(text: 'Carte du Menu'),
+              Tab(text: 'Photos'),
+              Tab(text: 'Posts'),
+            ],
+            labelColor: Colors.orangeAccent,
+            indicatorColor: Colors.orangeAccent,
           ),
-          GestureDetector(
-            onTap: () {
-              final users = data['following']?['users'] as List<dynamic>? ?? [];
-              _navigateToRelationDetails('Following', users.cast<String>());
-            },
-            child: Container(
-              color: Colors.transparent,
-              child: Column(
-                children: [
-                  Text(
-                    '$followingCount',
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  const Text('Following'),
-                ],
-              ),
-            ),
-          ),
-          GestureDetector(
-            onTap: () {
-              final users = data['interestedUsers']?['users'] as List<dynamic>? ?? [];
-              _navigateToRelationDetails('Interested', users.cast<String>());
-            },
-            child: Container(
-              color: Colors.transparent,
-              child: Column(
-                children: [
-                  Text(
-                    '$interestedCount',
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  const Text('Interested'),
-                ],
-              ),
-            ),
-          ),
-          GestureDetector(
-            onTap: () {
-              final users = data['choiceUsers']?['users'] as List<dynamic>? ?? [];
-              _navigateToRelationDetails('Choices', users.cast<String>());
-            },
-            child: Container(
-              color: Colors.transparent,
-              child: Column(
-                children: [
-                  Text(
-                    '$choicesCount',
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  const Text('Choices'),
-                ],
-              ),
+          SizedBox(
+            height: 400,
+            child: TabBarView(
+              children: [
+                _buildMenuDetails(producer),
+                _buildPhotosSection(producer['photos'] ?? []),
+                _buildPostsSection(),
+              ],
             ),
           ),
         ],
@@ -948,23 +1152,65 @@ class _ProducerScreenState extends State<ProducerScreen> {
     );
   }
 
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Détail Producteur'),
+        backgroundColor: Colors.orangeAccent,
+      ),
+      body: GestureDetector(
+        onTap: () => FocusScope.of(context).unfocus(), // Désactiver le clavier si nécessaire
+        child: FutureBuilder<Map<String, dynamic>>(
+          future: _producerFuture,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            } else if (snapshot.hasError) {
+              return Center(child: Text('Erreur : ${snapshot.error}'));
+            }
 
-
-
-
+            final producer = snapshot.data!;
+            return SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildHeader(producer),
+                  _buildProfileActions(producer),
+                  const Divider(height: 20, thickness: 2),
+                  _buildFrequencyGraph(producer),
+                  const Divider(height: 20, thickness: 2),
+                  _buildFilterOptions(),
+                  const Divider(height: 20, thickness: 2),
+                  _buildTabs(producer),
+                  const Divider(height: 20, thickness: 2),
+                  _buildFilteredItems(producer),
+                  const Divider(height: 20, thickness: 2),
+                  _buildMap(producer['gps_coordinates']),
+                  const Divider(height: 20, thickness: 2),
+                  _buildContactDetails(producer),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
 }
 
-class PostDetailScreen extends StatefulWidget {
+// Classe dédiée à l'écran de détail de post pour les producteurs
+class ProducerPostDetailScreen extends StatefulWidget {
   final Map<String, dynamic> post;
   final String? userId;
 
-  const PostDetailScreen({Key? key, required this.post, this.userId}) : super(key: key);
+  const ProducerPostDetailScreen({Key? key, required this.post, this.userId}) : super(key: key);
 
   @override
-  _PostDetailScreenState createState() => _PostDetailScreenState();
+  _ProducerPostDetailScreenState createState() => _ProducerPostDetailScreenState();
 }
 
-class _PostDetailScreenState extends State<PostDetailScreen> {
+class _ProducerPostDetailScreenState extends State<ProducerPostDetailScreen> {
   late Map<String, dynamic> post; // Post à modifier localement
   late int interestedCount;
   late int choicesCount;
@@ -978,6 +1224,11 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   }
 
   Future<void> _markInterested(String targetId) async {
+    // Afficher un indicateur de chargement
+    setState(() {
+      post['isLoading'] = true;
+    });
+    
     final url = Uri.parse('${getBaseUrl()}/api/choicexinterest/interested');
     final body = {'userId': widget.userId, 'targetId': targetId};
 
@@ -989,21 +1240,57 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       );
 
       if (response.statusCode == 200) {
-        final updatedInterested = json.decode(response.body)['interested'];
+        final responseData = json.decode(response.body);
+        final updatedInterested = responseData['interested'];
         setState(() {
           post['interested'] = updatedInterested;
           interestedCount = updatedInterested.length; // Mise à jour du compteur
+          post['isLoading'] = false;
         });
+        
+        // Feedback utilisateur
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(updatedInterested ? 'Ajouté à vos intérêts' : 'Retiré de vos intérêts'),
+            backgroundColor: updatedInterested ? Colors.green : Colors.grey,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+        
         print('✅ Interested ajouté avec succès');
       } else {
+        setState(() {
+          post['isLoading'] = false;
+        });
         print('❌ Erreur lors de l\'ajout à Interested : ${response.body}');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur : ${response.statusCode}'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     } catch (e) {
+      setState(() {
+        post['isLoading'] = false;
+      });
       print('❌ Erreur réseau lors de l\'ajout à Interested : $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erreur réseau : $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
   Future<void> _markChoice(String targetId) async {
+    // Afficher un indicateur de chargement
+    setState(() {
+      post['isLoading'] = true;
+    });
+    
     final url = Uri.parse('${getBaseUrl()}/api/choicexinterest/choice');
     final body = {'userId': widget.userId, 'targetId': targetId};
 
@@ -1015,17 +1302,64 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       );
 
       if (response.statusCode == 200) {
-        final updatedChoices = json.decode(response.body)['choices'];
+        final responseData = json.decode(response.body);
+        final updatedChoices = responseData['choice'];
         setState(() {
           post['choices'] = updatedChoices;
           choicesCount = updatedChoices.length; // Mise à jour du compteur
+          post['isLoading'] = false;
         });
+        
+        // Feedback utilisateur
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(updatedChoices ? 'Ajouté à vos choix' : 'Retiré de vos choix'),
+            backgroundColor: updatedChoices ? Colors.green : Colors.grey,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+        
         print('✅ Choice ajouté avec succès');
       } else {
+        setState(() {
+          post['isLoading'] = false;
+        });
         print('❌ Erreur lors de l\'ajout à Choices : ${response.body}');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur : ${response.statusCode}'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     } catch (e) {
+      setState(() {
+        post['isLoading'] = false;
+      });
       print('❌ Erreur réseau lors de l\'ajout à Choices : $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erreur réseau : $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+  
+  // Mettre à jour le profil utilisateur
+  Future<void> _updateUserProfile() async {
+    if (widget.userId == null) return;
+    
+    try {
+      final url = Uri.parse('${getBaseUrl()}/api/users/${widget.userId}');
+      final response = await http.get(url);
+      
+      if (response.statusCode == 200) {
+        print('✅ Profil utilisateur mis à jour avec succès');
+      }
+    } catch (e) {
+      print('❌ Erreur réseau lors de la mise à jour du profil : $e');
     }
   }
 
@@ -1064,51 +1398,73 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
               ),
               const SizedBox(height: 16),
 
-              // Boutons d'actions
+              // Boutons d'actions avec indicateurs de chargement
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
                   // Interested Button
                   Column(
                     children: [
-                      IconButton(
-                        icon: Icon(
-                          post['interested']?.contains(widget.userId) ?? false
-                              ? Icons.emoji_objects
-                              : Icons.emoji_objects_outlined,
-                          color: post['interested']?.contains(widget.userId) ?? false
-                              ? Colors.orange
-                              : Colors.grey,
+                      post['isLoading'] == true
+                      ? const SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.0,
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.orange),
+                          ),
+                        )
+                      : IconButton(
+                          icon: Icon(
+                            post['interested']?.contains(widget.userId) ?? false
+                                ? Icons.emoji_objects
+                                : Icons.emoji_objects_outlined,
+                            color: post['interested']?.contains(widget.userId) ?? false
+                                ? Colors.orange
+                                : Colors.grey,
+                          ),
+                          onPressed: () {
+                            if (producerId != null) {
+                              _markInterested(producerId);
+                              // Appeler updateUserProfile pour synchroniser les données
+                              _updateUserProfile();
+                            }
+                          },
                         ),
-                        onPressed: () {
-                          if (producerId != null) {
-                            _markInterested(producerId);
-                          }
-                        },
-                      ),
-                      Text('$interestedCount Interested'),
+                      Text('$interestedCount Intéressé${interestedCount > 1 ? 's' : ''}'),
                     ],
                   ),
 
                   // Choice Button
                   Column(
                     children: [
-                      IconButton(
-                        icon: Icon(
-                          post['choices']?.contains(widget.userId) ?? false
-                              ? Icons.check_circle
-                              : Icons.check_circle_outline,
-                          color: post['choices']?.contains(widget.userId) ?? false
-                              ? Colors.green
-                              : Colors.grey,
+                      post['isLoading'] == true
+                      ? const SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.0,
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.green),
+                          ),
+                        )
+                      : IconButton(
+                          icon: Icon(
+                            post['choices']?.contains(widget.userId) ?? false
+                                ? Icons.check_circle
+                                : Icons.check_circle_outline,
+                            color: post['choices']?.contains(widget.userId) ?? false
+                                ? Colors.green
+                                : Colors.grey,
+                          ),
+                          onPressed: () {
+                            if (producerId != null) {
+                              _markChoice(producerId);
+                              // Appeler updateUserProfile pour synchroniser les données
+                              _updateUserProfile();
+                            }
+                          },
                         ),
-                        onPressed: () {
-                          if (producerId != null) {
-                            _markChoice(producerId);
-                          }
-                        },
-                      ),
-                      Text('$choicesCount Choices'),
+                      Text('$choicesCount Choix'),
                     ],
                   ),
 
@@ -1134,6 +1490,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   }
 }
 
+// Écran pour afficher les relations (followers, following, etc.)
 class RelationDetailsScreen extends StatelessWidget {
   final String title;
   final List<Map<String, dynamic>> profiles; // Liste des profils à afficher
@@ -1265,8 +1622,3 @@ class RelationDetailsScreen extends StatelessWidget {
     );
   }
 }
-
-
-
-
-

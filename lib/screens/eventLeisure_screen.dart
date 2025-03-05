@@ -4,20 +4,132 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:url_launcher/url_launcher.dart';
 import 'producerLeisure_screen.dart';
-import 'eventLeisure_screen.dart';
 import 'package:add_2_calendar/add_2_calendar.dart';
-import 'utils.dart'; // Ajoute l'import au début du fichier
+import 'utils.dart';
+import 'utils_io.dart'; // Use utils_io.dart for getBaseUrl
 
-class EventLeisureScreen extends StatelessWidget {
-  final Map<String, dynamic> eventData;
+class EventLeisureScreen extends StatefulWidget {
+  final String eventId;
+  final Map<String, dynamic>? eventData;
 
-  const EventLeisureScreen({Key? key, required this.eventData}) : super(key: key);
+  // Constructor that accepts either eventId or eventData
+  const EventLeisureScreen({
+    Key? key, 
+    this.eventId = '', 
+    this.eventData,
+  }) : super(key: key);
+
+  @override
+  _EventLeisureScreenState createState() => _EventLeisureScreenState();
+}
+
+class _EventLeisureScreenState extends State<EventLeisureScreen> {
+  Map<String, dynamic>? _eventData;
+  bool _isLoading = true;
+  String? _error;
+  late String _eventId;
+
+  @override
+  void initState() {
+    super.initState();
+    
+    // If eventData is provided, use it directly
+    if (widget.eventData != null) {
+      setState(() {
+        _eventData = widget.eventData;
+        _isLoading = false;
+        // Extract the event ID from eventData if needed
+        _eventId = widget.eventData!['_id'] ?? '';
+      });
+    } else {
+      // Otherwise, use the provided eventId and fetch data
+      _eventId = widget.eventId;
+      _fetchEventDetails();
+    }
+  }
+
+  Future<void> _fetchEventDetails() async {
+    try {
+      final url = Uri.parse('${getBaseUrl()}/api/events/$_eventId');
+      final response = await http.get(url);
+
+      if (response.statusCode == 200) {
+        setState(() {
+          _eventData = json.decode(response.body);
+          _isLoading = false;
+        });
+      } else {
+        setState(() {
+          _error = 'Erreur lors de la récupération des données: ${response.statusCode}';
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _error = 'Erreur réseau: $e';
+        _isLoading = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    // Afficher un indicateur de chargement
+    if (_isLoading) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Détails Événement'),
+          backgroundColor: Colors.teal,
+        ),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    // Afficher un message d'erreur
+    if (_error != null) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Erreur'),
+          backgroundColor: Colors.teal,
+        ),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.error_outline, size: 60, color: Colors.red),
+              const SizedBox(height: 16),
+              Text(_error!, style: const TextStyle(fontSize: 16)),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () {
+                  setState(() {
+                    _isLoading = true;
+                    _error = null;
+                  });
+                  _fetchEventDetails();
+                },
+                child: const Text('Réessayer'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Si les données sont chargées mais nulles
+    if (_eventData == null) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Données non disponibles'),
+          backgroundColor: Colors.teal,
+        ),
+        body: const Center(child: Text('Aucune donnée disponible pour cet événement')),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
-        title: Text(eventData['intitulé'] ?? 'Détails Événement'),
+        title: Text(_eventData!['intitulé'] ?? 'Détails Événement'),
         backgroundColor: Colors.teal,
       ),
       body: SingleChildScrollView(
@@ -55,8 +167,8 @@ class EventLeisureScreen extends StatelessWidget {
                   const SizedBox(height: 16),
 
                   // Lien pour réserver
-                  if (eventData['purchase_url'] != null)
-                    _buildPurchaseButton(eventData['purchase_url']),
+                  if (_eventData!['purchase_url'] != null)
+                    _buildPurchaseButton(_eventData!['purchase_url']),
                 ],
               ),
             ),
@@ -78,9 +190,9 @@ class EventLeisureScreen extends StatelessWidget {
   Widget _buildHeader() {
     return Stack(
       children: [
-        if (eventData['image'] != null)
+        if (_eventData!['image'] != null)
           Image.network(
-            eventData['image'],
+            _eventData!['image'],
             height: 250,
             width: double.infinity,
             fit: BoxFit.cover,
@@ -93,7 +205,7 @@ class EventLeisureScreen extends StatelessWidget {
               size: 100,
             ),
           ),
-        if (eventData['note'] != null && eventData['note'] is num)
+        if (_eventData!['note'] != null && _eventData!['note'] is num)
           Positioned(
             bottom: 16,
             right: 16,
@@ -108,7 +220,7 @@ class EventLeisureScreen extends StatelessWidget {
                   const Icon(Icons.star, color: Colors.yellow, size: 20),
                   const SizedBox(width: 4),
                   Text(
-                    '${double.parse(eventData['note'].toString()).toStringAsFixed(1)}',
+                    '${double.parse(_eventData!['note'].toString()).toStringAsFixed(1)}',
                     style: const TextStyle(color: Colors.white, fontSize: 16),
                   ),
                 ],
@@ -169,27 +281,27 @@ class EventLeisureScreen extends StatelessWidget {
       children: [
         // Titre de l'événement
         Text(
-          eventData['intitulé'] ?? 'Nom non spécifié',
+          _eventData!['intitulé'] ?? 'Nom non spécifié',
           style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 8),
 
         // Description de l'événement
         Text(
-          eventData['détail'] ?? 'Description non spécifiée',
+          _eventData!['détail'] ?? 'Description non spécifiée',
           style: const TextStyle(fontSize: 16, color: Colors.black54, height: 1.5),
         ),
         const SizedBox(height: 16),
 
         // Catégorie avec navigation vers des événements similaires
         GestureDetector(
-          onTap: () => _fetchEventsByCategory(context, eventData['catégorie']),
+          onTap: () => _fetchEventsByCategory(context, _eventData!['catégorie']),
           child: Row(
             children: [
               const Icon(Icons.category, color: Colors.grey),
               const SizedBox(width: 8),
               Text(
-                'Catégorie : ${eventData['catégorie']?.split('»').last.trim() ?? 'Non spécifiée'}',
+                'Catégorie : ${_eventData!['catégorie']?.split('»').last.trim() ?? 'Non spécifiée'}',
                 style: const TextStyle(
                   fontSize: 16,
                   color: Colors.blue,
@@ -202,15 +314,15 @@ class EventLeisureScreen extends StatelessWidget {
         const SizedBox(height: 16),
 
         // Lieu avec navigation vers le producteur
-        if (eventData['lieu'] != null)
+        if (_eventData!['lieu'] != null)
           GestureDetector(
-            onTap: () => _navigateToProducer(context, eventData['lieu']!), // Utilise 'lieu' au lieu de '_id'
+            onTap: () => _navigateToProducer(context, _eventData!['lieu']!), // Utilise 'lieu' au lieu de '_id'
             child: Row(
               children: [
                 const Icon(Icons.place, color: Colors.blue),
                 const SizedBox(width: 8),
                 Text(
-                  'Lieu : ${eventData['lieu']}',
+                  'Lieu : ${_eventData!['lieu']}',
                   style: const TextStyle(
                     fontSize: 16,
                     color: Colors.blue,
@@ -223,7 +335,7 @@ class EventLeisureScreen extends StatelessWidget {
         const SizedBox(height: 16),
 
         // Dates et horaires
-        if (eventData['date_debut'] != null && eventData['date_fin'] != null)
+        if (_eventData!['date_debut'] != null && _eventData!['date_fin'] != null)
           Padding(
             padding: const EdgeInsets.only(top: 16.0),
             child: Column(
@@ -235,13 +347,13 @@ class EventLeisureScreen extends StatelessWidget {
                   style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
                 Text(
-                  '${eventData['date_debut']} - ${eventData['date_fin']}',
+                  '${_eventData!['date_debut']} - ${_eventData!['date_fin']}',
                   style: const TextStyle(fontSize: 16, color: Colors.black54),
                 ),
                 const SizedBox(height: 8),
 
                 // Affichage des horaires
-                if (eventData['horaires'] != null && eventData['horaires'] is List)
+                if (_eventData!['horaires'] != null && _eventData!['horaires'] is List)
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -249,7 +361,7 @@ class EventLeisureScreen extends StatelessWidget {
                         'Horaires :',
                         style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                       ),
-                      ...eventData['horaires'].map<Widget>((horaire) {
+                      ..._eventData!['horaires'].map<Widget>((horaire) {
                         return Padding(
                           padding: const EdgeInsets.symmetric(vertical: 4.0),
                           child: Text(
@@ -265,8 +377,8 @@ class EventLeisureScreen extends StatelessWidget {
                 // Bouton Ajouter à l'agenda
                 ElevatedButton.icon(
                   onPressed: () {
-                    if (eventData['date_debut'] != null && eventData['date_fin'] != null) {
-                      _addToCalendar(eventData);
+                    if (_eventData!['date_debut'] != null && _eventData!['date_fin'] != null) {
+                      _addToCalendar(_eventData!);
                     }
                   },
                   icon: const Icon(Icons.calendar_today),
@@ -287,7 +399,7 @@ class EventLeisureScreen extends StatelessWidget {
 
   /// Prix par catégories
   Widget _buildPriceDetails() {
-    final categoriesPrix = eventData['catégories_prix'] ?? [];
+    final categoriesPrix = _eventData!['catégories_prix'] ?? [];
     if (categoriesPrix.isEmpty) {
       return const Text(
         'Prix : Non disponible',
@@ -327,9 +439,9 @@ class EventLeisureScreen extends StatelessWidget {
   }
   /// Notes globales, émotions et appréciation globale
   Widget _buildGlobalNotes() {
-    final notes = eventData['notes_globales'] ?? {};
-    final emotions = eventData['emotions'] ?? [];
-    final appreciation = eventData['notes_globales']?['appréciation_globale'] ?? '';
+    final notes = _eventData!['notes_globales'] ?? {};
+    final emotions = _eventData!['emotions'] ?? [];
+    final appreciation = _eventData!['notes_globales']?['appréciation_globale'] ?? '';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -400,7 +512,7 @@ class EventLeisureScreen extends StatelessWidget {
           label: const Text('Voir événements similaires'),
         ),
         ElevatedButton.icon(
-          onPressed: () => _fetchEventsByCategory(context, eventData['catégorie']),
+          onPressed: () => _fetchEventsByCategory(context, _eventData!['catégorie']),
           icon: const Icon(Icons.category),
           label: const Text('Voir par catégorie'),
         ),
@@ -410,7 +522,7 @@ class EventLeisureScreen extends StatelessWidget {
 
   /// Carte avec position de l'événement
   Widget _buildMap() {
-    final location = eventData['location']?['coordinates'];
+    final location = _eventData!['location']?['coordinates'];
     if (location == null || location.length != 2) {
       return const Center(child: Text('Localisation non disponible.'));
     }
@@ -427,8 +539,8 @@ class EventLeisureScreen extends StatelessWidget {
             markerId: const MarkerId('event_location'),
             position: LatLng(location[1], location[0]),
             infoWindow: InfoWindow(
-              title: eventData['intitulé'],
-              snippet: eventData['lieu'],
+              title: _eventData!['intitulé'],
+              snippet: _eventData!['lieu'],
             ),
           ),
         },
@@ -450,8 +562,8 @@ class EventLeisureScreen extends StatelessWidget {
 
   /// Rechercher des événements similaires
   Future<void> _fetchSimilarEvents(BuildContext context) async {
-    final category = eventData['catégorie']?.split('»').last.trim();
-    final emotions = (eventData['emotions'] ?? []).join(',');
+    final category = _eventData!['catégorie']?.split('»').last.trim();
+    final emotions = (_eventData!['emotions'] ?? []).join(',');
 
     final uri = Uri.parse(
         '${getBaseUrl()}/api/events/advanced-search?category=$category&emotions=$emotions');
@@ -627,7 +739,7 @@ class EventLeisureScreen extends StatelessWidget {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => EventLeisureScreen(eventData: eventData),
+            builder: (context) => EventLeisureScreen(eventId: id),
           ),
         );
       } else {
@@ -703,7 +815,7 @@ class EventLeisureScreen extends StatelessWidget {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => ProducerLeisureScreen(producerData: data),
+            builder: (context) => ProducerLeisureScreen(producerId: id),
           ),
         );
       } else {

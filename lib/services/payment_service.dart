@@ -9,6 +9,13 @@ import 'webview_stripe_page.dart'; // ✅ Import de la WebView pour Stripe
 
 
 class PaymentService {
+  final _storageService = StorageService();
+
+  static Future<void> initialize() async {
+    await StorageService.initStorage();
+    // Additional initialization code...
+  }
+
   /// 🔹 Initialisation du stockage
   static Future<void> initStorage() async {
     await StorageService.initStorage();

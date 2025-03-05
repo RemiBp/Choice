@@ -4,13 +4,11 @@ import '../../models/comment.dart';
 
 class CommentsSheet extends StatefulWidget {
   final Post post;
-  final String userId;
-  final Function(Comment) onCommentAdded;
+  final Function(String) onCommentAdded;  // Changed from Function(Comment) to Function(String)
 
   const CommentsSheet({
     Key? key,
     required this.post,
-    required this.userId,
     required this.onCommentAdded,
   }) : super(key: key);
 
@@ -23,27 +21,30 @@ class _CommentsSheetState extends State<CommentsSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.only(
-        bottom: MediaQuery.of(context).viewInsets.bottom,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Expanded(
-            child: ListView.builder(
-              itemCount: widget.post.comments.length,
-              itemBuilder: (context, index) {
-                final comment = widget.post.comments[index];
-                return ListTile(
-                  title: Text(comment.username),
-                  subtitle: Text(comment.content),
-                );
-              },
-            ),
+    return Column(
+      children: [
+        Expanded(
+          child: ListView.builder(
+            itemCount: widget.post.comments.length,
+            itemBuilder: (context, index) {
+              final comment = widget.post.comments[index];
+              return ListTile(
+                leading: CircleAvatar(
+                  backgroundImage: NetworkImage(comment.authorAvatar),
+                ),
+                title: Text(comment.authorName),
+                subtitle: Text(comment.content),
+              );
+            },
           ),
-          Padding(
-            padding: const EdgeInsets.all(8.0),
+        ),
+        SafeArea(
+          child: Padding(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(context).viewInsets.bottom,
+              left: 8,
+              right: 8,
+            ),
             child: Row(
               children: [
                 Expanded(
@@ -58,7 +59,7 @@ class _CommentsSheetState extends State<CommentsSheet> {
                   icon: const Icon(Icons.send),
                   onPressed: () {
                     if (_commentController.text.isNotEmpty) {
-                      // TODO: Implémenter l'ajout de commentaire
+                      widget.onCommentAdded(_commentController.text);
                       _commentController.clear();
                     }
                   },
@@ -66,8 +67,14 @@ class _CommentsSheetState extends State<CommentsSheet> {
               ],
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
+  }
+
+  @override
+  void dispose() {
+    _commentController.dispose();
+    super.dispose();
   }
 }

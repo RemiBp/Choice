@@ -213,22 +213,41 @@ class _ProfileScreenState extends State<ProfileScreen> {
           }
 
           final user = snapshot.data!;
-          return CustomScrollView(
-            slivers: [
-              SliverToBoxAdapter(
-                child: Column(
-                  children: [
-                    _buildProfileHeader(user),
-                    const Divider(thickness: 1),
-                    _buildStatsSection(user),
-                    const Divider(thickness: 1),
-                    _buildLikedTags(user),
-                    const Divider(thickness: 1),
+          return DefaultTabController(
+            length: 3, // Trois tabs: Posts, Interests, Choices
+            child: Column(
+              children: [
+                _buildProfileHeader(user),
+                const Divider(thickness: 1),
+                _buildStatsSection(user),
+                const Divider(thickness: 1),
+                _buildLikedTags(user),
+                const Divider(thickness: 1),
+                // Barre de navigation avec les tabs
+                TabBar(
+                  tabs: const [
+                    Tab(icon: Icon(Icons.grid_on), text: 'Posts'),
+                    Tab(icon: Icon(Icons.star_border), text: 'Intérêts'),
+                    Tab(icon: Icon(Icons.check_circle_outline), text: 'Choix'),
                   ],
+                  indicatorColor: Colors.blue,
+                  labelColor: Colors.blue,
+                  unselectedLabelColor: Colors.grey,
                 ),
-              ),
-              _buildPostsSection(),
-            ],
+                Expanded(
+                  child: TabBarView(
+                    children: [
+                      // Tab 1: Posts
+                      _buildPostsTab(),
+                      // Tab 2: Interests
+                      _buildInterestsTab(user),
+                      // Tab 3: Choices
+                      _buildChoicesTab(user),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           );
         },
       ),
@@ -381,40 +400,365 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildPostsSection() {
+  // Construit la vue des posts de l'utilisateur (TabView 1)
+  Widget _buildPostsTab() {
     return FutureBuilder<List<dynamic>>(
       future: _postsFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const SliverToBoxAdapter(
-            child: Center(child: CircularProgressIndicator()),
-          );
+          return const Center(child: CircularProgressIndicator());
         } else if (snapshot.hasError) {
-          return SliverToBoxAdapter(
-            child: Center(child: Text('Erreur : ${snapshot.error}')),
-          );
+          return Center(child: Text('Erreur : ${snapshot.error}'));
         }
 
         final posts = snapshot.data!;
         if (posts.isEmpty) {
-          return const SliverToBoxAdapter(
-            child: Center(child: Text('Aucun post trouvé.')),
-          );
+          return const Center(child: Text('Aucun post trouvé.'));
         }
 
-        return SliverList(
-          delegate: SliverChildBuilderDelegate(
-            (context, index) {
-              final post = posts[index];
-              return _buildPostCard(post);
-            },
-            childCount: posts.length,
-          ),
+        return ListView.builder(
+          itemCount: posts.length,
+          itemBuilder: (context, index) {
+            final post = posts[index];
+            return _buildPostCard(post);
+          },
         );
       },
     );
   }
-
+  // Construit la grille d'intérêts Instagram-style (TabView 2)
+  Widget _buildInterestsTab(Map<String, dynamic> user) {
+    final interests = user['interests'] as List<dynamic>? ?? [];
+    
+    if (interests.isEmpty) {
+      return const Center(child: Text('Aucun intérêt trouvé.'));
+    }
+    
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _fetchInterestsDetails(interests),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        } else if (snapshot.hasError) {
+          return Center(child: Text('Erreur : ${snapshot.error}'));
+        }
+        
+        final interestsDetails = snapshot.data!;
+        
+        return GridView.builder(
+          padding: const EdgeInsets.all(2),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 3,
+            childAspectRatio: 1.0,
+            mainAxisSpacing: 2,
+            crossAxisSpacing: 2,
+          ),
+          itemCount: interestsDetails.length,
+          itemBuilder: (context, index) {
+            final interest = interestsDetails[index];
+            return _buildInterestItem(interest);
+          },
+        );
+      },
+    );
+  }
+  
+  // Construit la grille de choix Instagram-style (TabView 3)
+  Widget _buildChoicesTab(Map<String, dynamic> user) {
+    final choices = user['choices'] as List<dynamic>? ?? [];
+    
+    if (choices.isEmpty) {
+      return const Center(child: Text('Aucun choix trouvé.'));
+    }
+    
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _fetchChoicesDetails(choices),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        } else if (snapshot.hasError) {
+          return Center(child: Text('Erreur : ${snapshot.error}'));
+        }
+        
+        final choicesDetails = snapshot.data!;
+        
+        return GridView.builder(
+          padding: const EdgeInsets.all(2),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 3,
+            childAspectRatio: 1.0,
+            mainAxisSpacing: 2,
+            crossAxisSpacing: 2,
+          ),
+          itemCount: choicesDetails.length,
+          itemBuilder: (context, index) {
+            final choice = choicesDetails[index];
+            return _buildChoiceItem(choice);
+          },
+        );
+      },
+    );
+  }
+  
+  // Récupère les détails de chaque intérêt
+  Future<List<Map<String, dynamic>>> _fetchInterestsDetails(List<dynamic> interestIds) async {
+    final List<Map<String, dynamic>> interestsDetails = [];
+    
+    for (final id in interestIds) {
+      try {
+        // D'abord essayer comme un producer standard
+        var data = await _fetchItemDetails(id, 'producers');
+        if (data != null) {
+          data['_type'] = 'restaurant';
+          interestsDetails.add(data);
+          continue;
+        }
+        
+        // Ensuite essayer comme un leisure producer
+        data = await _fetchItemDetails(id, 'leisureProducers');
+        if (data != null) {
+          data['_type'] = 'leisureProducer';
+          interestsDetails.add(data);
+          continue;
+        }
+        
+        // Enfin essayer comme un événement
+        data = await _fetchItemDetails(id, 'events');
+        if (data != null) {
+          data['_type'] = 'event';
+          interestsDetails.add(data);
+          continue;
+        }
+        
+        print('⚠️ Impossible de trouver les détails pour l\'intérêt: $id');
+      } catch (e) {
+        print('❌ Erreur lors de la récupération des détails de l\'intérêt $id: $e');
+      }
+    }
+    
+    return interestsDetails;
+  }
+  
+  // Récupère les détails de chaque choix
+  Future<List<Map<String, dynamic>>> _fetchChoicesDetails(List<dynamic> choiceIds) async {
+    final List<Map<String, dynamic>> choicesDetails = [];
+    
+    for (final id in choiceIds) {
+      try {
+        // D'abord essayer comme un producer standard
+        var data = await _fetchItemDetails(id, 'producers');
+        if (data != null) {
+          data['_type'] = 'restaurant';
+          choicesDetails.add(data);
+          continue;
+        }
+        
+        // Ensuite essayer comme un leisure producer
+        data = await _fetchItemDetails(id, 'leisureProducers');
+        if (data != null) {
+          data['_type'] = 'leisureProducer';
+          choicesDetails.add(data);
+          continue;
+        }
+        
+        // Enfin essayer comme un événement
+        data = await _fetchItemDetails(id, 'events');
+        if (data != null) {
+          data['_type'] = 'event';
+          choicesDetails.add(data);
+          continue;
+        }
+        
+        print('⚠️ Impossible de trouver les détails pour le choix: $id');
+      } catch (e) {
+        print('❌ Erreur lors de la récupération des détails du choix $id: $e');
+      }
+    }
+    
+    return choicesDetails;
+  }
+  
+  // Récupère les détails d'un item (utilisé pour les intérêts et les choix)
+  Future<Map<String, dynamic>?> _fetchItemDetails(String id, String endpoint) async {
+    final url = Uri.parse('${getBaseUrl()}/api/$endpoint/$id');
+    try {
+      final response = await http.get(url);
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      }
+    } catch (e) {
+      print('❌ Erreur réseau pour l\'endpoint $endpoint: $e');
+    }
+    return null;
+  }
+  
+  // Construit un élément d'intérêt dans la grille
+  Widget _buildInterestItem(Map<String, dynamic> interest) {
+    // Extraire intelligemment le nom et l'image selon le type d'item
+    final String name = _extractItemName(interest);
+    final String imageUrl = _extractItemImage(interest);
+    final String type = interest['_type'] ?? 'unknown';
+    
+    return GestureDetector(
+      onTap: () => _navigateToDetails(interest['_id'], type),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Image de fond
+          Image.network(
+            imageUrl,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) {
+              return Container(
+                color: Colors.grey[300],
+                child: const Icon(Icons.broken_image, size: 50, color: Colors.grey),
+              );
+            },
+          ),
+          // Overlay foncé pour rendre le texte lisible
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.transparent,
+                  Colors.black.withOpacity(0.7),
+                ],
+              ),
+            ),
+          ),
+          // Indicateur d'intérêt
+          const Positioned(
+            top: 5,
+            right: 5,
+            child: Icon(
+              Icons.star,
+              color: Colors.amber,
+              size: 18,
+            ),
+          ),
+          // Nom en bas
+          Positioned(
+            bottom: 5,
+            left: 5,
+            right: 5,
+            child: Text(
+              name,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 12,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  // Construit un élément de choix dans la grille
+  Widget _buildChoiceItem(Map<String, dynamic> choice) {
+    // Extraire intelligemment le nom et l'image selon le type d'item
+    final String name = _extractItemName(choice);
+    final String imageUrl = _extractItemImage(choice);
+    final String type = choice['_type'] ?? 'unknown';
+    
+    return GestureDetector(
+      onTap: () => _navigateToDetails(choice['_id'], type),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Image de fond
+          Image.network(
+            imageUrl,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) {
+              return Container(
+                color: Colors.grey[300],
+                child: const Icon(Icons.broken_image, size: 50, color: Colors.grey),
+              );
+            },
+          ),
+          // Overlay foncé pour rendre le texte lisible
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.transparent,
+                  Colors.black.withOpacity(0.7),
+                ],
+              ),
+            ),
+          ),
+          // Indicateur de choix
+          const Positioned(
+            top: 5,
+            right: 5,
+            child: Icon(
+              Icons.check_circle,
+              color: Colors.green,
+              size: 18,
+            ),
+          ),
+          // Nom en bas
+          Positioned(
+            bottom: 5,
+            left: 5,
+            right: 5,
+            child: Text(
+              name,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 12,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  // Extrait le nom d'un item selon son type
+  String _extractItemName(Map<String, dynamic> item) {
+    final type = item['_type'];
+    
+    if (type == 'leisureProducer') {
+      return item['nom'] ?? 
+             item['intitulé'] ?? 
+             item['title'] ?? 
+             item['name'] ?? 
+             'Lieu culturel';
+    } else if (type == 'restaurant') {
+      return item['name'] ?? 
+             item['nom'] ?? 
+             item['établissement'] ?? 
+             'Restaurant';
+    } else if (type == 'event') {
+      return item['title'] ?? 
+             item['nom'] ?? 
+             item['name'] ?? 
+             'Événement';
+    }
+    
+    return item['name'] ?? 'Nom non disponible';
+  }
+  
+  // Extrait l'image d'un item selon son type
+  String _extractItemImage(Map<String, dynamic> item) {
+    return item['photo'] ?? 
+           item['photo_url'] ?? 
+           item['image'] ?? 
+           item['banner'] ?? 
+           'https://via.placeholder.com/150';
+  }
   Widget _buildPostCard(Map<String, dynamic> post) {
     final mediaUrls = post['media'] as List<dynamic>? ?? [];
     return GestureDetector(

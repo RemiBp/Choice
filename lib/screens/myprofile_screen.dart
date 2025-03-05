@@ -295,10 +295,30 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
   }
 
 
+  /// Build a message button for contacting users
+  Widget _buildMessageButton(Map<String, dynamic> user) {
+    return ElevatedButton.icon(
+      onPressed: () {
+        // Démarrer une conversation avec cet utilisateur
+        _startConversation(user['_id']);
+      },
+      icon: const Icon(Icons.message),
+      label: const Text('Écrire'),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: Colors.blueAccent,
+        foregroundColor: Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(30),
+        ),
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 20),
+      ),
+    );
+  }
+
   Widget _buildStatsSection(Map<String, dynamic> user) {
     return Container(
       color: Colors.white,
-      padding: const EdgeInsets.symmetric(vertical: 8), // Réduit le padding vertical
+      padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
@@ -306,28 +326,6 @@ class _MyProfileScreenState extends State<MyProfileScreen> {
           _buildMessageButton(user),
           _buildStatItem('Interactions', user['interaction_metrics']['total_interactions'].toString()),
         ],
-      ),
-    );
-  }
-
-  // Remplacer "Influence" par un bouton "Écrire"
-  Widget _buildMessageButton(Map<String, dynamic> user) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 16),
-      color: Colors.white,
-      child: ElevatedButton(
-        onPressed: () {
-          // Démarrer une conversation avec cet utilisateur
-          _startConversation(user['_id']);
-        },
-        child: const Text('Écrire', style: TextStyle(fontSize: 16)),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.blueAccent, // Modifier "primary" par "backgroundColor"
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(30),
-          ),
-          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 40),
-        ),
       ),
     );
   }

@@ -1,8 +1,9 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../utils/constants.dart';
 
 class RestaurantService {
-  final String baseUrl = 'http://localhost:5000/api/search';
+  final String baseUrl = '${getBaseUrl()}/api/search';
 
   Future<List<dynamic>> rechercherLieux(Map<String, dynamic> criteres) async {
     final response = await http.post(

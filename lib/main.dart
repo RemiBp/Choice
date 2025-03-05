@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'theme/theme_manager.dart'; // Import du gestionnaire de thèmes
 import 'screens/utils.dart';
 import 'screens/home_screen.dart'; // Page principale
 import 'screens/profile_screen.dart'; // Profil utilisateur
@@ -43,36 +44,67 @@ void main() async {
 }
 
 
-class ChoiceApp extends StatelessWidget {
+class ChoiceApp extends StatefulWidget {
   const ChoiceApp({Key? key}) : super(key: key);
+
+  @override
+  State<ChoiceApp> createState() => _ChoiceAppState();
+}
+
+class _ChoiceAppState extends State<ChoiceApp> {
+  // Contrôle du thème (clair/sombre)
+  ThemeMode _themeMode = ThemeMode.light;
+
+  // Méthode pour basculer entre les thèmes
+  void toggleTheme() {
+    setState(() {
+      _themeMode = _themeMode == ThemeMode.light 
+          ? ThemeMode.dark 
+          : ThemeMode.light;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Choice App',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-        visualDensity: VisualDensity.standard,
-      ),
+      // Utilisation des thèmes définis dans ThemeManager
+      theme: ThemeManager.lightTheme,     // Thème clair (style Instagram)
+      darkTheme: ThemeManager.darkTheme,  // Thème sombre (style X/Twitter)
+      themeMode: _themeMode,              // Mode de thème actuel
       debugShowCheckedModeBanner: false,
-      home: const LandingPage(), // Page d'accueil initiale
+      home: _themeMode == ThemeMode.light 
+          ? LandingPage(toggleTheme: toggleTheme) 
+          : LandingPage(toggleTheme: toggleTheme),
       routes: {
         '/register': (context) => const RegisterUserPage(),
         '/recover': (context) => const RecoverProducerPage(),
-        '/login': (context) => LoginUserPage(), // Ajout de la route pour se connecter
+        '/login': (context) => LoginUserPage(),
       },
     );
   }
 }
 
 class LandingPage extends StatelessWidget {
-  const LandingPage({Key? key}) : super(key: key);
+  final Function toggleTheme;
+  
+  const LandingPage({Key? key, required this.toggleTheme}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    
     return Scaffold(
       appBar: AppBar(
         title: const Text('Choice App'),
+        actions: [
+          // Bouton pour basculer entre thème clair et sombre
+          IconButton(
+            icon: Icon(isDarkMode ? Icons.wb_sunny : Icons.nightlight_round),
+            onPressed: () => toggleTheme(),
+            tooltip: isDarkMode ? 'Mode clair' : 'Mode sombre',
+          ),
+        ],
       ),
       body: Center(
         child: Column(
@@ -107,9 +139,15 @@ class LandingPage extends StatelessWidget {
 
 class MainNavigation extends StatefulWidget {
   final String userId;
-  final String accountType; // Ajout du type de compte
+  final String accountType;
+  final Function? toggleTheme; // Ajouter la fonction de bascule de thème
 
-  const MainNavigation({Key? key, required this.userId, required this.accountType}) : super(key: key);
+  const MainNavigation({
+    Key? key, 
+    required this.userId, 
+    required this.accountType,
+    this.toggleTheme,
+  }) : super(key: key);
 
   @override
   State<MainNavigation> createState() => _MainNavigationState();
@@ -174,6 +212,7 @@ class _MainNavigationState extends State<MainNavigation> {
           ? AppBar(
               title: const Text('Choice App'),
               actions: [
+                // Bouton de messagerie
                 IconButton(
                   icon: const Icon(Icons.chat_bubble_outline),
                   onPressed: () {
@@ -185,6 +224,18 @@ class _MainNavigationState extends State<MainNavigation> {
                     );
                   },
                 ),
+                // Bouton pour basculer le thème
+                if (widget.toggleTheme != null)
+                  IconButton(
+                    icon: Icon(Theme.of(context).brightness == Brightness.dark 
+                        ? Icons.wb_sunny 
+                        : Icons.nightlight_round),
+                    onPressed: () {
+                      if (widget.toggleTheme != null) {
+                        widget.toggleTheme!();
+                      }
+                    },
+                  ),
               ],
             )
           : null, // Pas d'AppBar sur les pages de carte
@@ -200,8 +251,8 @@ class _MainNavigationState extends State<MainNavigation> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.9), // Fond blanc semi-transparent
-                    borderRadius: BorderRadius.circular(8), // Coins arrondis
+                    color: Theme.of(context).cardColor.withOpacity(0.9), // Utilise la couleur de carte du thème actuel
+                    borderRadius: BorderRadius.circular(8),
                     boxShadow: [
                       BoxShadow(
                         color: Colors.black.withOpacity(0.2),
