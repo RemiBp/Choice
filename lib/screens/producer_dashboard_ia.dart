@@ -402,7 +402,412 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> {
     );
   }
   
-  /// 🔹 Construit un message personnalisé avec des liens cliquables
+  Widget _buildCompetitiveAnalysisCard() {
+    return GestureDetector(
+      onTap: _fetchCompetitorInsights,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 5,
+              spreadRadius: 1,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.teal.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.compare_arrows, color: Colors.teal, size: 20),
+                ),
+                const SizedBox(width: 12),
+                const Text(
+                  "Analyse concurrentielle",
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const Spacer(),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[100],
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.touch_app, size: 14, color: Colors.teal),
+                      const SizedBox(width: 4),
+                      Text(
+                        "Détails",
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.teal[700],
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              "Découvrez comment vous vous positionnez par rapport à vos principaux concurrents et obtenez des recommandations personnalisées.",
+              style: TextStyle(
+                fontSize: 14,
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 16),
+            _buildCompetitorsList(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCompetitorsList() {
+    return Column(
+      children: [
+        _buildCompetitorItem(
+          name: "Le Bistrot Parisien",
+          rating: 4.7,
+          distance: "0.8 km",
+          better: true,
+        ),
+        const Divider(height: 24),
+        _buildCompetitorItem(
+          name: "L'Atelier Gourmand",
+          rating: 4.2,
+          distance: "1.2 km",
+          better: false,
+        ),
+        const Divider(height: 24),
+        _buildCompetitorItem(
+          name: "Saveurs du Monde",
+          rating: 4.0,
+          distance: "1.5 km",
+          better: false,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCompetitorItem({
+    required String name,
+    required double rating,
+    required String distance,
+    required bool better,
+  }) {
+    return Row(
+      children: [
+        Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: Colors.grey[200],
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: const Center(
+            child: Icon(Icons.restaurant, color: Colors.grey),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                name,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  const Icon(Icons.star, color: Colors.amber, size: 14),
+                  Text(
+                    " $rating",
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                  const SizedBox(width: 8),
+                  const Icon(Icons.place, color: Colors.grey, size: 14),
+                  Text(
+                    " $distance",
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: better ? Colors.green.withOpacity(0.1) : Colors.orange.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            better ? "+10% mieux" : "-5% en retard",
+            style: TextStyle(
+              fontSize: 12,
+              color: better ? Colors.green[700] : Colors.orange[700],
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRecommendationsTab() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildRecommendationsCard(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRecommendationsCard() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 5,
+            spreadRadius: 1,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.amber.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.lightbulb, color: Colors.amber, size: 20),
+              ),
+              const SizedBox(width: 12),
+              const Text(
+                "Recommandations IA",
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            "Notre IA a analysé vos données et celles du marché pour vous proposer des actions à fort impact.",
+            style: TextStyle(
+              fontSize: 14,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 20),
+          _buildRecommendationItem(
+            icon: Icons.photo_camera,
+            title: "Ajouter des photos de qualité",
+            description: "Les établissements avec 5+ photos HD obtiennent +30% d'interactions",
+            impact: "Élevé",
+            effort: "Faible",
+          ),
+          const SizedBox(height: 16),
+          _buildRecommendationItem(
+            icon: Icons.local_offer,
+            title: "Créer une promotion",
+            description: "Les promotions créent un pic d'engagement de +45% en moyenne",
+            impact: "Élevé",
+            effort: "Moyen",
+          ),
+          const SizedBox(height: 16),
+          _buildRecommendationItem(
+            icon: Icons.restaurant_menu,
+            title: "Mettre à jour votre menu",
+            description: "Un menu à jour et complet améliore la visibilité dans les recherches",
+            impact: "Moyen",
+            effort: "Moyen",
+          ),
+          const SizedBox(height: 16),
+          _buildRecommendationItem(
+            icon: Icons.eco,
+            title: "Ajouter options végétariennes",
+            description: "Les options végétariennes attirent un nouveau segment de clientèle",
+            impact: "Moyen",
+            effort: "Faible",
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRecommendationItem({
+    required IconData icon,
+    required String title,
+    required String description,
+    required String impact,
+    required String effort,
+  }) {
+    Color impactColor;
+    Color effortColor;
+    
+    // Couleurs pour l'impact
+    switch (impact) {
+      case "Élevé":
+        impactColor = Colors.green;
+        break;
+      case "Moyen":
+        impactColor = Colors.orange;
+        break;
+      default:
+        impactColor = Colors.blue;
+    }
+    
+    // Couleurs pour l'effort
+    switch (effort) {
+      case "Faible":
+        effortColor = Colors.green;
+        break;
+      case "Moyen":
+        effortColor = Colors.orange;
+        break;
+      default:
+        effortColor = Colors.red;
+    }
+    
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey[200]!),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(icon, color: Colors.blue[700], size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            description,
+            style: TextStyle(
+              fontSize: 13,
+              color: Colors.grey[700],
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: impactColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.trending_up,
+                      size: 12,
+                      color: impactColor,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      "Impact: $impact",
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: impactColor,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: effortColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.build,
+                      size: 12,
+                      color: effortColor,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      "Effort: $effort",
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: effortColor,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 🔹 Construit un message personnalisé avec des liens cliquables - style amélioré
   Widget _buildCustomMessage(types.CustomMessage message, {required int messageWidth}) {
     final text = message.metadata?['text'] as String? ?? 'Message sans texte';
     final hasProfiles = message.metadata?['hasProfiles'] as bool? ?? false;
@@ -411,29 +816,55 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> {
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.blue[50],
+        color: message.author.id == 'assistant' 
+            ? Colors.blue.withOpacity(0.1) 
+            : Colors.grey.withOpacity(0.1),
         borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: message.author.id == 'assistant' 
+              ? Colors.blue.withOpacity(0.2) 
+              : Colors.grey.withOpacity(0.2),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 3,
+            offset: const Offset(0, 1),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Afficher l'auteur
-          Text(
-            message.author.firstName ?? 'Assistant',
-            style: const TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 14,
-              color: Colors.blue,
-            ),
+          // Afficher l'auteur avec icône
+          Row(
+            children: [
+              Icon(
+                message.author.id == 'assistant' ? Icons.smart_toy : Icons.business,
+                size: 16,
+                color: message.author.id == 'assistant' ? Colors.blue[700] : Colors.grey[700],
+              ),
+              const SizedBox(width: 6),
+              Text(
+                message.author.firstName ?? (message.author.id == 'assistant' ? 'Assistant' : 'Vous'),
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                  color: message.author.id == 'assistant' ? Colors.blue[700] : Colors.grey[700],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 8),
           
           // Afficher le texte avec des liens cliquables
           RichText(
             text: TextSpan(
-              style: const TextStyle(
+              style: TextStyle(
                 color: Colors.black87,
-                fontSize: 16,
+                fontSize: 15,
+                height: 1.4, // Améliore l'espacement des lignes
               ),
               children: hasProfiles
                 ? AIService.parseMessageWithLinks(
@@ -504,88 +935,171 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> {
     }
   }
 
-  /// 🔹 Construit une carte pour un profil extrait
+  /// 🔹 Construit une carte pour un profil extrait - design amélioré
   Widget _buildProfileCard(ProfileData profile) {
     return GestureDetector(
       onTap: () => _navigateToProfile(profile.type, profile.id),
       child: Card(
-        elevation: 3,
-        margin: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+        elevation: 2,
+        margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: Colors.blue.withOpacity(0.2)),
         ),
         child: Container(
-          width: 160,
-          padding: const EdgeInsets.all(8),
+          width: 180,
+          padding: const EdgeInsets.all(10),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Image du profil
-              if (profile.image != null && profile.image!.isNotEmpty)
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: CachedNetworkImage(
-                    imageUrl: profile.image!,
-                    height: 50,
-                    width: double.infinity,
-                    fit: BoxFit.cover,
-                    placeholder: (context, url) => Container(
-                      height: 50,
-                      color: Colors.grey[300],
-                      child: const Center(child: CircularProgressIndicator()),
+              // Image du profil - plus grande et mieux gérée
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: profile.image != null && profile.image!.isNotEmpty
+                  ? CachedNetworkImage(
+                      imageUrl: profile.image!,
+                      height: 100,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                      placeholder: (context, url) => Container(
+                        height: 100,
+                        color: Colors.grey[200],
+                        child: const Center(
+                          child: SizedBox(
+                            width: 20, 
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2)
+                          ),
+                        ),
+                      ),
+                      errorWidget: (context, url, error) => Container(
+                        height: 100,
+                        color: Colors.grey[200],
+                        child: Center(
+                          child: Icon(
+                            _getIconForType(profile.type),
+                            color: Colors.blue[200],
+                            size: 40,
+                          ),
+                        ),
+                      ),
+                    )
+                  : Container(
+                      height: 100,
+                      color: Colors.grey[200],
+                      width: double.infinity,
+                      child: Center(
+                        child: Icon(
+                          _getIconForType(profile.type),
+                          color: Colors.blue[200],
+                          size: 40,
+                        ),
+                      ),
                     ),
-                    errorWidget: (context, url, error) => Container(
-                      height: 50,
-                      color: Colors.grey[300],
-                      child: const Icon(Icons.image_not_supported),
-                    ),
-                  ),
-                )
-              else
-                Container(
-                  height: 50,
-                  color: Colors.grey[300],
-                  width: double.infinity,
-                  child: Icon(
-                    profile.type == 'restaurant' ? Icons.restaurant :
-                    profile.type == 'leisureProducer' ? Icons.local_activity :
-                    Icons.store,
-                    color: Colors.grey[500],
-                  ),
-                ),
+              ),
               
-              const SizedBox(height: 5),
+              const SizedBox(height: 8),
               
-              // Nom du profil
+              // Nom du profil avec style amélioré
               Text(
                 profile.name,
-                style: const TextStyle(fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
               
-              // Note et catégorie
-              if (profile.rating != null)
-                Row(
-                  children: [
-                    const Icon(Icons.star, color: Colors.amber, size: 14),
-                    Text(' ${profile.rating!.toStringAsFixed(1)}',
-                        style: const TextStyle(fontSize: 12)),
-                  ],
+              // Adresse si disponible
+              if (profile.address != null && profile.address!.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2.0),
+                  child: Text(
+                    profile.address!,
+                    style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
               
+              // Note avec étoiles et niveau de prix
+              Padding(
+                padding: const EdgeInsets.only(top: 4.0),
+                child: Row(
+                  children: [
+                    if (profile.rating != null) ...[
+                      const Icon(Icons.star, color: Colors.amber, size: 14),
+                      Text(' ${profile.rating!.toStringAsFixed(1)}',
+                          style: const TextStyle(fontSize: 12)),
+                      const SizedBox(width: 8),
+                    ],
+                    
+                    if (profile.price_level != null) ...[
+                      Text(
+                        '${_getPriceSymbol(profile.price_level!)}',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              
+              // Catégorie avec style amélioré
               if (profile.category.isNotEmpty)
-                Text(
-                  profile.category.first,
-                  style: TextStyle(fontSize: 10, color: Colors.grey[600]),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                Container(
+                  margin: const EdgeInsets.only(top: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    profile.category.first,
+                    style: TextStyle(fontSize: 10, color: Colors.blue[700]),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
             ],
           ),
         ),
       ),
     );
+  }
+
+  // Fonctions helpers pour le style
+  IconData _getIconForType(String type) {
+    switch (type) {
+      case 'restaurant':
+        return Icons.restaurant;
+      case 'leisureProducer':
+        return Icons.local_activity;
+      case 'event':
+        return Icons.event;
+      case 'user':
+        return Icons.person;
+      default:
+        return Icons.business;
+    }
+  }
+  
+  String _getPriceSymbol(dynamic price) {
+    if (price is! num) return '';
+    
+    int priceLevel = price.toInt();
+    switch (priceLevel) {
+      case 1:
+        return '€';
+      case 2:
+        return '€€';
+      case 3:
+        return '€€€';
+      case 4:
+        return '€€€€';
+      default:
+        return '';
+    }
   }
 }
 
