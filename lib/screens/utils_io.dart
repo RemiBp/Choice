@@ -2,7 +2,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart'; // Pour utiliser `defaultTargetPlatform`
 import 'dart:io' show Platform;
-import 'utils.dart'; // ✅ Import du fichier principal pour garder la cohérence
+// Removed circular import of utils.dart
 
 // ✅ Activer le mode développement local pour les tests
 const bool _useLocalServer = true; // Basculer à false pour utiliser le serveur de production

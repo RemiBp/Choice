@@ -1,6 +1,6 @@
 // screens/utils_web.dart (Flutter Web)
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'utils.dart'; // ✅ Import du fichier principal pour garder la cohérence
+// Removed circular import of utils.dart
 
 String getBaseUrl() {
   return "https://api.choiceapp.fr"; // URL pour le Web

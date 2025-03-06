@@ -5,8 +5,7 @@ import 'dart:convert';
 import 'package:url_launcher/url_launcher.dart';
 import 'producerLeisure_screen.dart';
 import 'package:add_2_calendar/add_2_calendar.dart';
-import 'utils.dart';
-import 'utils_io.dart'; // Use utils_io.dart for getBaseUrl
+import 'utils.dart'; // Utilise le mécanisme d'exports conditionnels pour la bonne implémentation selon la plateforme
 
 class EventLeisureScreen extends StatefulWidget {
   final String eventId;
