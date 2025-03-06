@@ -257,7 +257,7 @@ class _AdaptiveMapWidgetState extends State<AdaptiveMapWidget> {
         fmap.FlutterMap(
           mapController: _webMapController,
           options: fmap.MapOptions(
-            center: latLng.LatLng(
+            initialCenter: latLng.LatLng(
               widget.initialPosition.latitude, 
               widget.initialPosition.longitude
             ),
@@ -319,9 +319,11 @@ class _AdaptiveMapWidgetState extends State<AdaptiveMapWidget> {
                 child: const Icon(Icons.add, color: Colors.black87),
                 onPressed: () {
                   if (_webMapController != null) {
-                    final currentZoom = _webMapController!.zoom;
+                    // Obtenir le zoom et la position actuels
+                    final mapCamera = _webMapController!.camera;
+                    final currentZoom = mapCamera.zoom;
                     _webMapController!.move(
-                      _webMapController!.center, 
+                      mapCamera.center,
                       currentZoom + 1
                     );
                   }
@@ -336,9 +338,11 @@ class _AdaptiveMapWidgetState extends State<AdaptiveMapWidget> {
                 child: const Icon(Icons.remove, color: Colors.black87),
                 onPressed: () {
                   if (_webMapController != null) {
-                    final currentZoom = _webMapController!.zoom;
+                    // Obtenir le zoom et la position actuels
+                    final mapCamera = _webMapController!.camera;
+                    final currentZoom = mapCamera.zoom;
                     _webMapController!.move(
-                      _webMapController!.center, 
+                      mapCamera.center,
                       currentZoom - 1
                     );
                   }

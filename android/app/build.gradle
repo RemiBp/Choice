@@ -29,12 +29,12 @@ if (flutterRoot == null) {
 
 android {
     namespace "fr.choiceapp.app"
-    compileSdkVersion 34
+    compileSdkVersion 35
 
     defaultConfig {
         applicationId "fr.choiceapp.app"
         minSdkVersion 21
-        targetSdkVersion 34
+        targetSdkVersion 35
         versionCode 1
         versionName "1.0"
 
