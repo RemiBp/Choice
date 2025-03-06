@@ -261,7 +261,7 @@ class _AdaptiveMapWidgetState extends State<AdaptiveMapWidget> {
               widget.initialPosition.latitude, 
               widget.initialPosition.longitude
             ),
-            zoom: widget.initialZoom,
+            initialZoom: widget.initialZoom,
             onTap: (tapPosition, point) {
               if (widget.onTap != null) {
                 widget.onTap!(gmaps.LatLng(point.latitude, point.longitude));
