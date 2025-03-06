@@ -9,6 +9,7 @@ import '../services/ai_service.dart'; // Import du nouveau service AI
 import 'package:cached_network_image/cached_network_image.dart'; // Pour charger les images avec cache
 import 'producer_screen.dart'; // Pour les détails des restaurants
 import 'producerLeisure_screen.dart'; // Pour les producteurs de loisirs
+import 'package:scroll_to_index/scroll_to_index.dart'; // Pour le contrôleur de défilement
 
 class ProducerDashboardIaPage extends StatefulWidget {
   final String producerId;
@@ -29,6 +30,7 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> {
   bool _isTyping = false;
   bool _chatFullScreen = false; // ✅ Variable pour activer/désactiver le mode plein écran
   List<ProfileData> _extractedProfiles = []; // Pour stocker les profils extraits par l'IA
+  final AutoScrollController _chatScrollController = AutoScrollController(); // Contrôleur de défilement pour le chat
 
   @override
   void initState() {
@@ -209,6 +211,21 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> {
       _handleSendPressed("Combien de fois suis-je apparu dans le feed récemment ?");
     }
   }
+  
+  Future<void> _fetchCompetitorInsights() async {
+    try {
+      // Demande spécifique pour analyser les concurrents
+      final result = await _aiService.producerQuery(
+        widget.producerId, 
+        "Analyse mes concurrents directs et compare leurs performances avec la mienne"
+      );
+      
+      // Ajouter la réponse complète au chat
+      _handleSendPressed(result.response);
+    } catch (e) {
+      _handleSendPressed("Qui sont mes principaux concurrents et comment puis-je me démarquer ?");
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -263,6 +280,7 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> {
             messages: _messages,
             onSendPressed: (partialText) => _handleSendPressed(partialText.text),
             user: _user,
+            scrollController: _chatScrollController,
             customMessageBuilder: _buildCustomMessage,
             theme: const DefaultChatTheme(
               inputBackgroundColor: Colors.black, // Fond de la barre en noir
@@ -1035,9 +1053,9 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> {
                       const SizedBox(width: 8),
                     ],
                     
-                    if (profile.price_level != null) ...[
+                    if (profile.priceLevel != null) ...[
                       Text(
-                        '${_getPriceSymbol(profile.price_level!)}',
+                        '${_getPriceSymbol(profile.priceLevel!)}',
                         style: const TextStyle(fontSize: 12),
                       ),
                     ],

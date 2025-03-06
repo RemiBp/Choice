@@ -10,6 +10,7 @@ import 'eventLeisure_screen.dart'; // Pour les événements
 import 'profile_screen.dart'; // Pour les utilisateurs
 import '../services/ai_service.dart'; // Import du nouveau service AI
 import 'package:cached_network_image/cached_network_image.dart'; // Pour charger les images avec cache
+import 'package:scroll_to_index/scroll_to_index.dart'; // Pour le contrôleur de défilement
 
 class ProducerSearchPage extends StatefulWidget {
   final String userId; // Ajout du champ userId
@@ -26,6 +27,8 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> {
   String _query = "";
   bool _isLoading = false;
   String _errorMessage = "";
+  bool _isFullScreenChat = false; // Variable pour suivre le mode plein écran
+  final AutoScrollController _chatScrollController = AutoScrollController(); // Contrôleur de défilement pour le chat
 
   List<types.Message> _messages = [];
   final _user = const types.User(id: 'user');
@@ -130,6 +133,7 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> {
       _messages.insert(0, userMessage);
       _searchController.clear();
       _extractedProfiles = []; // Réinitialiser les profils extraits
+      _isFullScreenChat = true; // Activer automatiquement le mode plein écran lors de l'envoi d'un message
     });
 
     try {
@@ -346,8 +350,10 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> {
 
             const SizedBox(height: 10),
 
-            // 🤖 Copilot en haut - plus visible et accessible
-            Container(
+            // 🤖 Copilot en mode normal ou plein écran selon l'état
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeInOut,
               decoration: BoxDecoration(
                 color: Colors.grey[100],
                 borderRadius: BorderRadius.circular(12),
@@ -362,10 +368,13 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> {
               ),
               margin: const EdgeInsets.only(bottom: 16),
               padding: const EdgeInsets.all(8),
+              height: _isFullScreenChat 
+                ? MediaQuery.of(context).size.height * 0.7 // 70% de la hauteur de l'écran en mode plein écran
+                : 220, // Taille normale légèrement agrandie
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // En-tête du copilot
+                  // En-tête du copilot avec bouton de basculement plein écran
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
                     child: Row(
@@ -392,23 +401,40 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> {
                           ),
                         ),
                         const Spacer(),
-                        Text(
-                          "Posez vos questions ici",
-                          style: TextStyle(
-                            color: Colors.grey[600],
-                            fontStyle: FontStyle.italic,
+                        // Bouton pour basculer le mode plein écran
+                        IconButton(
+                          icon: Icon(
+                            _isFullScreenChat ? Icons.fullscreen_exit : Icons.fullscreen,
+                            color: Colors.blueAccent,
                           ),
+                          onPressed: () {
+                            setState(() {
+                              _isFullScreenChat = !_isFullScreenChat;
+                            });
+                          },
+                          tooltip: _isFullScreenChat ? 'Réduire le chat' : 'Agrandir le chat',
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
                         ),
+                        const SizedBox(width: 8),
+                        if (!_isFullScreenChat)
+                          Text(
+                            "Posez vos questions ici",
+                            style: TextStyle(
+                              color: Colors.grey[600],
+                              fontStyle: FontStyle.italic,
+                            ),
+                          ),
                       ],
                     ),
                   ),
-                  // Zone de chat améliorée - priorité plus haute
-                  SizedBox(
-                    height: 200, // Taille fixe pour assurer la visibilité
+                  // Zone de chat améliorée - s'adapte à la hauteur du conteneur
+                  Expanded(
                     child: Chat(
                       messages: _messages,
                       onSendPressed: (partialText) => _handleSendPressed(partialText.text),
                       user: _user,
+                      scrollController: _chatScrollController,
                       customMessageBuilder: _buildCustomMessage,
                       theme: const DefaultChatTheme(
                         inputBackgroundColor: Colors.white,
@@ -422,8 +448,8 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> {
               ),
             ),
 
-            // 📍 Profils extraits par l'IA (s'il y en a)
-            if (_extractedProfiles.isNotEmpty) ...[
+            // 📍 Profils extraits par l'IA (s'il y en a et si le chat n'est pas en plein écran)
+            if (_extractedProfiles.isNotEmpty && !_isFullScreenChat) ...[
               Container(
                 decoration: BoxDecoration(
                   color: Colors.blue.withOpacity(0.06),
@@ -466,34 +492,35 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> {
               ),
             ],
 
-            // 🔄 Chargement / Erreur / Résultats
-            Expanded(
-              child: _isLoading 
-                ? const Center(child: CircularProgressIndicator())
-                : _errorMessage.isNotEmpty && _extractedProfiles.isEmpty
-                  ? Center(
-                      child: Text(
-                        _errorMessage,
-                        style: const TextStyle(color: Colors.red),
-                        textAlign: TextAlign.center,
-                      ),
-                    )
-                  : (_producerResults.isEmpty && _userResults.isEmpty && _extractedProfiles.isEmpty)
+            // 🔄 Chargement / Erreur / Résultats (seulement si le chat n'est pas en plein écran)
+            if (!_isFullScreenChat)
+              Expanded(
+                child: _isLoading 
+                  ? const Center(child: CircularProgressIndicator())
+                  : _errorMessage.isNotEmpty && _extractedProfiles.isEmpty
                     ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.search_off, size: 48, color: Colors.grey[400]),
-                            const SizedBox(height: 16),
-                            Text(
-                              "Posez une question au Copilot AI\nou lancez une recherche classique",
-                              style: TextStyle(color: Colors.grey[600]),
-                              textAlign: TextAlign.center,
-                            ),
-                          ],
+                        child: Text(
+                          _errorMessage,
+                          style: const TextStyle(color: Colors.red),
+                          textAlign: TextAlign.center,
                         ),
                       )
-                    : ListView(
+                    : (_producerResults.isEmpty && _userResults.isEmpty && _extractedProfiles.isEmpty)
+                      ? Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.search_off, size: 48, color: Colors.grey[400]),
+                              const SizedBox(height: 16),
+                              Text(
+                                "Posez une question au Copilot AI\nou lancez une recherche classique",
+                                style: TextStyle(color: Colors.grey[600]),
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ),
+                        )
+                      : ListView(
                         children: [
                           if (_producerResults.isNotEmpty) ...[
                             Container(
@@ -756,9 +783,9 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> {
                       const SizedBox(width: 8),
                     ],
                     
-                    if (profile.price_level != null) ...[
+                    if (profile.priceLevel != null) ...[
                       Text(
-                        '${_getPriceSymbol(profile.price_level!)}',
+                        '${_getPriceSymbol(profile.priceLevel!)}',
                         style: const TextStyle(fontSize: 12),
                       ),
                     ],
