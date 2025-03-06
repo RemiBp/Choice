@@ -11,7 +11,7 @@ dependencies:
     sdk: flutter
   flutter_web_plugins:
     sdk: flutter
-  geolocator: ^10.1.0
+  # Removed geolocator dependency to avoid Android compilation issues
   google_maps_flutter: ^2.5.3
   flutter_plugin_android_lifecycle: ^2.0.17
   flutter_secure_storage: ^9.0.0
@@ -64,15 +64,6 @@ dependencies:
   # Support Web (commenté pour éviter les conflits)
   # webview_flutter_web: ^0.2.2
   # js: ^0.6.7
-
-dependency_overrides:
-  # Définir des versions très spécifiques et compatibles pour geolocator
-  geolocator: 8.2.1
-  geolocator_android: 3.2.1
-  geolocator_apple: 2.2.5
-  geolocator_web: 2.1.6
-  geolocator_windows: 0.1.1
-  geolocator_platform_interface: 4.0.7
 
 dev_dependencies:
   flutter_test:
