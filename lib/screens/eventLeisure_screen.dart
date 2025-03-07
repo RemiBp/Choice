@@ -581,7 +581,7 @@ class _EventLeisureScreenState extends State<EventLeisureScreen> {
         ),
       );
     } catch (e) {
-      print('❌ Erreur lors de l'affichage de la carte: $e');
+      print('❌ Erreur lors de l\'affichage de la carte: $e');
       return const Center(child: Text('Impossible d\'afficher la carte.'));
     }
   }
