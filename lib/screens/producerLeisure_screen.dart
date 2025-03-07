@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'utils_io.dart'; // Use utils_io.dart for getBaseUrl
+import 'utils.dart'; // Uses conditional exports to select the right implementation
 
 import 'eventLeisure_screen.dart'; // Import nécessaire pour afficher les événements
 
