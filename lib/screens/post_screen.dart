@@ -31,7 +31,23 @@ class _PostScreenState extends State<PostScreen> {
 
   /// Effectue la requête HTTP pour récupérer les posts
   Future<List<dynamic>> _getPostsData(String userId) async {
-    final url = Uri.parse('${getBaseUrl()}/api/posts/query/$userId');
+    // Extraire le domaine et le protocole de l'URL complète
+    final baseUrl = getBaseUrl();
+    Uri url;
+    
+    if (baseUrl.startsWith('http://')) {
+      // Si c'est http://
+      final domain = baseUrl.replaceFirst('http://', '');
+      url = Uri.http(domain, '/api/posts/query/$userId');
+    } else if (baseUrl.startsWith('https://')) {
+      // Si c'est https://
+      final domain = baseUrl.replaceFirst('https://', '');
+      url = Uri.https(domain, '/api/posts/query/$userId');
+    } else {
+      // Utiliser Uri.parse comme solution de secours
+      url = Uri.parse('$baseUrl/api/posts/query/$userId');
+    }
+    
     try {
       print('🔍 Requête vers : $url');
       final response = await http.get(url);

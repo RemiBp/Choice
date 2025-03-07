@@ -27,9 +27,26 @@ class _RecoverProducerPageState extends State<RecoverProducerPage> {
   }
 
   Future<void> recoverProducer() async {
+    // Extraire le domaine et le protocole de l'URL complète
+    final baseUrl = getBaseUrl();
+    Uri url;
+    
+    if (baseUrl.startsWith('http://')) {
+      // Si c'est http://
+      final domain = baseUrl.replaceFirst('http://', '');
+      url = Uri.http(domain, '/api/newuser/register-or-recover');
+    } else if (baseUrl.startsWith('https://')) {
+      // Si c'est https://
+      final domain = baseUrl.replaceFirst('https://', '');
+      url = Uri.https(domain, '/api/newuser/register-or-recover');
+    } else {
+      // Utiliser Uri.parse comme solution de secours
+      url = Uri.parse('$baseUrl/api/newuser/register-or-recover');
+    }
+    
     try {
       final response = await http.post(
-        Uri.parse('${getBaseUrl()}/api/newuser/register-or-recover'),
+        url,
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'producerId': producerId}),
       );

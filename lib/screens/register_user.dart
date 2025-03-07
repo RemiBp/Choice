@@ -19,8 +19,22 @@ class _RegisterUserPageState extends State<RegisterUserPage> {
   bool _isLoading = false;
 
   Future<void> registerUser() async {
-    // URL de l'API
-    final String apiUrl = '${getBaseUrl()}/api/newuser/register-or-recover';
+    // Extraire le domaine et le protocole de l'URL complète
+    final baseUrl = getBaseUrl();
+    Uri url;
+    
+    if (baseUrl.startsWith('http://')) {
+      // Si c'est http://
+      final domain = baseUrl.replaceFirst('http://', '');
+      url = Uri.http(domain, '/api/newuser/register-or-recover');
+    } else if (baseUrl.startsWith('https://')) {
+      // Si c'est https://
+      final domain = baseUrl.replaceFirst('https://', '');
+      url = Uri.https(domain, '/api/newuser/register-or-recover');
+    } else {
+      // Utiliser Uri.parse comme solution de secours
+      url = Uri.parse('$baseUrl/api/newuser/register-or-recover');
+    }
 
     try {
       setState(() {
@@ -52,11 +66,12 @@ class _RegisterUserPageState extends State<RegisterUserPage> {
         'liked_tags': [], // Liste vide par défaut
       };
       print('--- DEBUG: Payload envoyé au serveur : $requestPayload');
+      print('--- DEBUG: URL utilisée : $url');
 
       // Effectuer la requête POST avec timeout
       final response = await http
           .post(
-            Uri.parse(apiUrl),
+            url,
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode(requestPayload),
           )

@@ -482,7 +482,24 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
         if (_selectedProducerCategory != null) 'category': _selectedProducerCategory,
       };
 
-      final uri = Uri.http('${getBaseUrl()}', '/api/leisureProducers/nearby', queryParameters);
+      // Extraire le domaine et le protocole de l'URL complète
+      final baseUrl = getBaseUrl();
+      Uri uri;
+      
+      if (baseUrl.startsWith('http://')) {
+        // Si c'est http://
+        final domain = baseUrl.replaceFirst('http://', '');
+        uri = Uri.http(domain, '/api/leisureProducers/nearby', queryParameters);
+      } else if (baseUrl.startsWith('https://')) {
+        // Si c'est https://
+        final domain = baseUrl.replaceFirst('https://', '');
+        uri = Uri.https(domain, '/api/leisureProducers/nearby', queryParameters);
+      } else {
+        // Utiliser Uri.parse comme solution de secours
+        uri = Uri.parse('$baseUrl/api/leisureProducers/nearby').replace(queryParameters: queryParameters);
+      }
+      
+      print("🔍 Requête envoyée : $uri");
 
       final response = await http.get(uri);
 
@@ -535,7 +552,24 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
         'maxPrice': _maxPrice.toString(),
       };
 
-      final uri = Uri.http('${getBaseUrl()}', '/api/events/advanced-search', queryParameters);
+      // Extraire le domaine et le protocole de l'URL complète
+      final baseUrl = getBaseUrl();
+      Uri uri;
+      
+      if (baseUrl.startsWith('http://')) {
+        // Si c'est http://
+        final domain = baseUrl.replaceFirst('http://', '');
+        uri = Uri.http(domain, '/api/events/advanced-search', queryParameters);
+      } else if (baseUrl.startsWith('https://')) {
+        // Si c'est https://
+        final domain = baseUrl.replaceFirst('https://', '');
+        uri = Uri.https(domain, '/api/events/advanced-search', queryParameters);
+      } else {
+        // Utiliser Uri.parse comme solution de secours
+        uri = Uri.parse('$baseUrl/api/events/advanced-search').replace(queryParameters: queryParameters);
+      }
+      
+      print("🔍 Requête événements envoyée : $uri");
 
       final response = await http.get(uri);
 
@@ -631,7 +665,24 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
 
   /// Navigation vers les détails de l'événement
   void _navigateToEventDetails(String eventId) async {
-    final url = Uri.parse('${getBaseUrl()}/api/events/$eventId');
+    // Extraire le domaine et le protocole de l'URL complète
+    final baseUrl = getBaseUrl();
+    Uri url;
+    
+    if (baseUrl.startsWith('http://')) {
+      // Si c'est http://
+      final domain = baseUrl.replaceFirst('http://', '');
+      url = Uri.http(domain, '/api/events/$eventId');
+    } else if (baseUrl.startsWith('https://')) {
+      // Si c'est https://
+      final domain = baseUrl.replaceFirst('https://', '');
+      url = Uri.https(domain, '/api/events/$eventId');
+    } else {
+      // Utiliser Uri.parse comme solution de secours
+      url = Uri.parse('$baseUrl/api/events/$eventId');
+    }
+    
+    print("🔍 Requête détails événement : $url");
 
     try {
       final response = await http.get(url);

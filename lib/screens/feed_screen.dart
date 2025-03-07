@@ -115,7 +115,31 @@ class _FeedScreenState extends State<FeedScreen> {
 
   /// Effectue la requête HTTP pour récupérer les posts
   Future<List<dynamic>> _getFeedData(String userId, int page, int limit) async {
-    final url = Uri.parse('${getBaseUrl()}/api/posts?userId=$userId&page=$page&limit=$limit');
+    // Extraire le domaine et le protocole de l'URL complète
+    final baseUrl = getBaseUrl();
+    Uri url;
+    
+    if (baseUrl.startsWith('http://')) {
+      // Si c'est http://
+      final domain = baseUrl.replaceFirst('http://', '');
+      url = Uri.http(domain, '/api/posts', {
+        'userId': userId,
+        'page': page.toString(),
+        'limit': limit.toString()
+      });
+    } else if (baseUrl.startsWith('https://')) {
+      // Si c'est https://
+      final domain = baseUrl.replaceFirst('https://', '');
+      url = Uri.https(domain, '/api/posts', {
+        'userId': userId,
+        'page': page.toString(),
+        'limit': limit.toString()
+      });
+    } else {
+      // Utiliser Uri.parse comme solution de secours
+      url = Uri.parse('$baseUrl/api/posts?userId=$userId&page=$page&limit=$limit');
+    }
+    
     try {
       print('🔍 Requête vers : $url');
       final response = await http.get(url);
@@ -135,7 +159,23 @@ class _FeedScreenState extends State<FeedScreen> {
 
   /// Récupère les informations d'un auteur (producteur ou utilisateur)
   Future<Map<String, dynamic>?> _fetchUserProfile(String userId) async {
-    final url = Uri.parse('${getBaseUrl()}/api/users/$userId');
+    // Extraire le domaine et le protocole de l'URL complète
+    final baseUrl = getBaseUrl();
+    Uri url;
+    
+    if (baseUrl.startsWith('http://')) {
+      // Si c'est http://
+      final domain = baseUrl.replaceFirst('http://', '');
+      url = Uri.http(domain, '/api/users/$userId');
+    } else if (baseUrl.startsWith('https://')) {
+      // Si c'est https://
+      final domain = baseUrl.replaceFirst('https://', '');
+      url = Uri.https(domain, '/api/users/$userId');
+    } else {
+      // Utiliser Uri.parse comme solution de secours
+      url = Uri.parse('$baseUrl/api/users/$userId');
+    }
+    
     try {
       print('🔍 Requête utilisateur vers : $url');
       final response = await http.get(url);
@@ -165,7 +205,23 @@ class _FeedScreenState extends State<FeedScreen> {
     }
 
     String endpoint = isLeisureProducer ? 'leisureProducers' : (isProducer ? 'producers' : 'users');
-    Uri url = Uri.parse('${getBaseUrl()}/api/$endpoint/$authorId');
+    
+    // Extraire le domaine et le protocole de l'URL complète
+    final baseUrl = getBaseUrl();
+    Uri url;
+    
+    if (baseUrl.startsWith('http://')) {
+      // Si c'est http://
+      final domain = baseUrl.replaceFirst('http://', '');
+      url = Uri.http(domain, '/api/$endpoint/$authorId');
+    } else if (baseUrl.startsWith('https://')) {
+      // Si c'est https://
+      final domain = baseUrl.replaceFirst('https://', '');
+      url = Uri.https(domain, '/api/$endpoint/$authorId');
+    } else {
+      // Utiliser Uri.parse comme solution de secours
+      url = Uri.parse('$baseUrl/api/$endpoint/$authorId');
+    }
 
     try {
       print('🔍 Requête auteur vers : $url');
@@ -188,7 +244,21 @@ class _FeedScreenState extends State<FeedScreen> {
         if (!isLeisureProducer && isProducer) {
           print('🔄 Tentative de fallback vers leisureProducers...');
           endpoint = 'leisureProducers';
-          url = Uri.parse('${getBaseUrl()}/api/$endpoint/$authorId');
+          
+          // Construire une nouvelle URL pour le fallback
+          if (baseUrl.startsWith('http://')) {
+            // Si c'est http://
+            final domain = baseUrl.replaceFirst('http://', '');
+            url = Uri.http(domain, '/api/$endpoint/$authorId');
+          } else if (baseUrl.startsWith('https://')) {
+            // Si c'est https://
+            final domain = baseUrl.replaceFirst('https://', '');
+            url = Uri.https(domain, '/api/$endpoint/$authorId');
+          } else {
+            // Utiliser Uri.parse comme solution de secours
+            url = Uri.parse('$baseUrl/api/$endpoint/$authorId');
+          }
+          
           final fallbackResponse = await http.get(url);
 
           if (fallbackResponse.statusCode == 200) {
@@ -225,7 +295,23 @@ class _FeedScreenState extends State<FeedScreen> {
 
   /// Like un post
   Future<void> _likePost(String postId, Map<String, dynamic> post) async {
-    final url = Uri.parse('${getBaseUrl()}/api/posts/$postId/like');
+    // Extraire le domaine et le protocole de l'URL complète
+    final baseUrl = getBaseUrl();
+    Uri url;
+    
+    if (baseUrl.startsWith('http://')) {
+      // Si c'est http://
+      final domain = baseUrl.replaceFirst('http://', '');
+      url = Uri.http(domain, '/api/posts/$postId/like');
+    } else if (baseUrl.startsWith('https://')) {
+      // Si c'est https://
+      final domain = baseUrl.replaceFirst('https://', '');
+      url = Uri.https(domain, '/api/posts/$postId/like');
+    } else {
+      // Utiliser Uri.parse comme solution de secours
+      url = Uri.parse('$baseUrl/api/posts/$postId/like');
+    }
+    
     final body = {
       'userId': widget.userId,
     };
@@ -268,7 +354,22 @@ class _FeedScreenState extends State<FeedScreen> {
       post['isLoading'] = true;
     });
 
-    final url = Uri.parse('${getBaseUrl()}/api/choicexinterest/interested');
+    // Extraire le domaine et le protocole de l'URL complète
+    final baseUrl = getBaseUrl();
+    Uri url;
+    
+    if (baseUrl.startsWith('http://')) {
+      // Si c'est http://
+      final domain = baseUrl.replaceFirst('http://', '');
+      url = Uri.http(domain, '/api/choicexinterest/interested');
+    } else if (baseUrl.startsWith('https://')) {
+      // Si c'est https://
+      final domain = baseUrl.replaceFirst('https://', '');
+      url = Uri.https(domain, '/api/choicexinterest/interested');
+    } else {
+      // Utiliser Uri.parse comme solution de secours
+      url = Uri.parse('$baseUrl/api/choicexinterest/interested');
+    }
     
     // Format de données attendu par le backend - simplifié pour correspondre à l'API
     final body = {
@@ -348,7 +449,22 @@ class _FeedScreenState extends State<FeedScreen> {
       post['isLoading'] = true;
     });
     
-    final url = Uri.parse('${getBaseUrl()}/api/choicexinterest/choice');
+    // Extraire le domaine et le protocole de l'URL complète
+    final baseUrl = getBaseUrl();
+    Uri url;
+    
+    if (baseUrl.startsWith('http://')) {
+      // Si c'est http://
+      final domain = baseUrl.replaceFirst('http://', '');
+      url = Uri.http(domain, '/api/choicexinterest/choice');
+    } else if (baseUrl.startsWith('https://')) {
+      // Si c'est https://
+      final domain = baseUrl.replaceFirst('https://', '');
+      url = Uri.https(domain, '/api/choicexinterest/choice');
+    } else {
+      // Utiliser Uri.parse comme solution de secours
+      url = Uri.parse('$baseUrl/api/choicexinterest/choice');
+    }
     
     // Format de données attendu par le backend - simplifié pour correspondre à l'API
     final body = {
@@ -418,7 +534,23 @@ class _FeedScreenState extends State<FeedScreen> {
   Future<void> _updateUserProfile() async {
     try {
       // Récupérer les intérêts et choix mis à jour de l'utilisateur
-      final url = Uri.parse('${getBaseUrl()}/api/users/${widget.userId}');
+      // Extraire le domaine et le protocole de l'URL complète
+      final baseUrl = getBaseUrl();
+      Uri url;
+      
+      if (baseUrl.startsWith('http://')) {
+        // Si c'est http://
+        final domain = baseUrl.replaceFirst('http://', '');
+        url = Uri.http(domain, '/api/users/${widget.userId}');
+      } else if (baseUrl.startsWith('https://')) {
+        // Si c'est https://
+        final domain = baseUrl.replaceFirst('https://', '');
+        url = Uri.https(domain, '/api/users/${widget.userId}');
+      } else {
+        // Utiliser Uri.parse comme solution de secours
+        url = Uri.parse('$baseUrl/api/users/${widget.userId}');
+      }
+      
       final response = await http.get(url);
       
       if (response.statusCode == 200) {
@@ -448,7 +580,23 @@ class _FeedScreenState extends State<FeedScreen> {
 
   /// Récupère les informations d'un événement
   Future<Map<String, dynamic>?> _fetchEventDetails(String eventId) async {
-    final url = Uri.parse('${getBaseUrl()}/api/events/$eventId');
+    // Extraire le domaine et le protocole de l'URL complète
+    final baseUrl = getBaseUrl();
+    Uri url;
+    
+    if (baseUrl.startsWith('http://')) {
+      // Si c'est http://
+      final domain = baseUrl.replaceFirst('http://', '');
+      url = Uri.http(domain, '/api/events/$eventId');
+    } else if (baseUrl.startsWith('https://')) {
+      // Si c'est https://
+      final domain = baseUrl.replaceFirst('https://', '');
+      url = Uri.https(domain, '/api/events/$eventId');
+    } else {
+      // Utiliser Uri.parse comme solution de secours
+      url = Uri.parse('$baseUrl/api/events/$eventId');
+    }
+    
     try {
       print('🔍 Requête événement vers : $url');
       final response = await http.get(url);
@@ -466,7 +614,23 @@ class _FeedScreenState extends State<FeedScreen> {
 
   /// Ajoute un commentaire
   Future<void> _addComment(String postId, String comment) async {
-    final url = Uri.parse('${getBaseUrl()}/api/posts/$postId/comments');
+    // Extraire le domaine et le protocole de l'URL complète
+    final baseUrl = getBaseUrl();
+    Uri url;
+    
+    if (baseUrl.startsWith('http://')) {
+      // Si c'est http://
+      final domain = baseUrl.replaceFirst('http://', '');
+      url = Uri.http(domain, '/api/posts/$postId/comments');
+    } else if (baseUrl.startsWith('https://')) {
+      // Si c'est https://
+      final domain = baseUrl.replaceFirst('https://', '');
+      url = Uri.https(domain, '/api/posts/$postId/comments');
+    } else {
+      // Utiliser Uri.parse comme solution de secours
+      url = Uri.parse('$baseUrl/api/posts/$postId/comments');
+    }
+    
     try {
       final response = await http.post(
         url,
@@ -494,7 +658,23 @@ class _FeedScreenState extends State<FeedScreen> {
 
   /// Like un commentaire
   Future<void> _likeComment(String postId, String commentId) async {
-    final url = Uri.parse('${getBaseUrl()}/api/posts/$postId/comments/$commentId/like');
+    // Extraire le domaine et le protocole de l'URL complète
+    final baseUrl = getBaseUrl();
+    Uri url;
+    
+    if (baseUrl.startsWith('http://')) {
+      // Si c'est http://
+      final domain = baseUrl.replaceFirst('http://', '');
+      url = Uri.http(domain, '/api/posts/$postId/comments/$commentId/like');
+    } else if (baseUrl.startsWith('https://')) {
+      // Si c'est https://
+      final domain = baseUrl.replaceFirst('https://', '');
+      url = Uri.https(domain, '/api/posts/$postId/comments/$commentId/like');
+    } else {
+      // Utiliser Uri.parse comme solution de secours
+      url = Uri.parse('$baseUrl/api/posts/$postId/comments/$commentId/like');
+    }
+    
     try {
       final response = await http.post(url);
       if (response.statusCode == 200) {
@@ -576,7 +756,23 @@ class _FeedScreenState extends State<FeedScreen> {
   // Tente de naviguer vers un restaurant producer
   void _tryNavigateToRestaurantProducer(String id) async {
     try {
-      final url = Uri.parse('${getBaseUrl()}/api/producers/$id');
+      // Extraire le domaine et le protocole de l'URL complète
+      final baseUrl = getBaseUrl();
+      Uri url;
+      
+      if (baseUrl.startsWith('http://')) {
+        // Si c'est http://
+        final domain = baseUrl.replaceFirst('http://', '');
+        url = Uri.http(domain, '/api/producers/$id');
+      } else if (baseUrl.startsWith('https://')) {
+        // Si c'est https://
+        final domain = baseUrl.replaceFirst('https://', '');
+        url = Uri.https(domain, '/api/producers/$id');
+      } else {
+        // Utiliser Uri.parse comme solution de secours
+        url = Uri.parse('$baseUrl/api/producers/$id');
+      }
+      
       final response = await http.get(url);
       
       if (response.statusCode == 200) {
@@ -612,7 +808,23 @@ class _FeedScreenState extends State<FeedScreen> {
   // Tente de naviguer vers un leisure producer
   void _tryNavigateToLeisureProducer(String id) async {
     try {
-      final url = Uri.parse('${getBaseUrl()}/api/leisureProducers/$id');
+      // Extraire le domaine et le protocole de l'URL complète
+      final baseUrl = getBaseUrl();
+      Uri url;
+      
+      if (baseUrl.startsWith('http://')) {
+        // Si c'est http://
+        final domain = baseUrl.replaceFirst('http://', '');
+        url = Uri.http(domain, '/api/leisureProducers/$id');
+      } else if (baseUrl.startsWith('https://')) {
+        // Si c'est https://
+        final domain = baseUrl.replaceFirst('https://', '');
+        url = Uri.https(domain, '/api/leisureProducers/$id');
+      } else {
+        // Utiliser Uri.parse comme solution de secours
+        url = Uri.parse('$baseUrl/api/leisureProducers/$id');
+      }
+      
       final response = await http.get(url);
       
       if (response.statusCode == 200) {
@@ -682,7 +894,23 @@ class _FeedScreenState extends State<FeedScreen> {
   // Rafraîchit les données d'un post spécifique
   Future<void> _refreshPostData(String postId) async {
     try {
-      final url = Uri.parse('${getBaseUrl()}/api/posts/$postId');
+      // Extraire le domaine et le protocole de l'URL complète
+      final baseUrl = getBaseUrl();
+      Uri url;
+      
+      if (baseUrl.startsWith('http://')) {
+        // Si c'est http://
+        final domain = baseUrl.replaceFirst('http://', '');
+        url = Uri.http(domain, '/api/posts/$postId');
+      } else if (baseUrl.startsWith('https://')) {
+        // Si c'est https://
+        final domain = baseUrl.replaceFirst('https://', '');
+        url = Uri.https(domain, '/api/posts/$postId');
+      } else {
+        // Utiliser Uri.parse comme solution de secours
+        url = Uri.parse('$baseUrl/api/posts/$postId');
+      }
+      
       final response = await http.get(url);
       
       if (response.statusCode == 200) {

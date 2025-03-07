@@ -48,7 +48,23 @@ class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> {
 
   Future<void> _fetchProducerDetails() async {
     try {
-      final url = Uri.parse('${getBaseUrl()}/api/leisureProducers/$_producerId');
+      // Extraire le domaine et le protocole de l'URL complète
+      final baseUrl = getBaseUrl();
+      Uri url;
+      
+      if (baseUrl.startsWith('http://')) {
+        // Si c'est http://
+        final domain = baseUrl.replaceFirst('http://', '');
+        url = Uri.http(domain, '/api/leisureProducers/$_producerId');
+      } else if (baseUrl.startsWith('https://')) {
+        // Si c'est https://
+        final domain = baseUrl.replaceFirst('https://', '');
+        url = Uri.https(domain, '/api/leisureProducers/$_producerId');
+      } else {
+        // Utiliser Uri.parse comme solution de secours
+        url = Uri.parse('$baseUrl/api/leisureProducers/$_producerId');
+      }
+
       final response = await http.get(url);
 
       if (response.statusCode == 200) {
@@ -281,8 +297,23 @@ class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> {
     print('🔍 Navigation vers l\'événement avec ID : $id');
 
     try {
-      // URL directement pour les événements
-      final url = Uri.parse('${getBaseUrl()}/api/events/$id');
+      // Extraire le domaine et le protocole de l'URL complète
+      final baseUrl = getBaseUrl();
+      Uri url;
+      
+      if (baseUrl.startsWith('http://')) {
+        // Si c'est http://
+        final domain = baseUrl.replaceFirst('http://', '');
+        url = Uri.http(domain, '/api/events/$id');
+      } else if (baseUrl.startsWith('https://')) {
+        // Si c'est https://
+        final domain = baseUrl.replaceFirst('https://', '');
+        url = Uri.https(domain, '/api/events/$id');
+      } else {
+        // Utiliser Uri.parse comme solution de secours
+        url = Uri.parse('$baseUrl/api/events/$id');
+      }
+      
       final response = await http.get(url);
 
       if (response.statusCode == 200) {

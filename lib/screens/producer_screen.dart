@@ -38,13 +38,40 @@ class _ProducerScreenState extends State<ProducerScreen> {
 
     try {
       print('🔍 Test : appel à /producers/$producerId');
-      final producerUrl = Uri.parse('${getBaseUrl()}/api/producers/$producerId');
+      // Extraire le domaine et le protocole de l'URL complète
+      final baseUrl = getBaseUrl();
+      Uri producerUrl;
+      
+      if (baseUrl.startsWith('http://')) {
+        // Si c'est http://
+        final domain = baseUrl.replaceFirst('http://', '');
+        producerUrl = Uri.http(domain, '/api/producers/$producerId');
+      } else if (baseUrl.startsWith('https://')) {
+        // Si c'est https://
+        final domain = baseUrl.replaceFirst('https://', '');
+        producerUrl = Uri.https(domain, '/api/producers/$producerId');
+      } else {
+        // Utiliser Uri.parse comme solution de secours
+        producerUrl = Uri.parse('$baseUrl/api/producers/$producerId');
+      }
+      
       final producerResponse = await http.get(producerUrl);
       print('Réponse pour /producers : ${producerResponse.statusCode}');
       print('Body : ${producerResponse.body}');
 
       print('🔍 Test : appel à /producers/$producerId/relations');
-      final relationsUrl = Uri.parse('${getBaseUrl()}/api/producers/$producerId/relations');
+      Uri relationsUrl;
+      
+      if (baseUrl.startsWith('http://')) {
+        final domain = baseUrl.replaceFirst('http://', '');
+        relationsUrl = Uri.http(domain, '/api/producers/$producerId/relations');
+      } else if (baseUrl.startsWith('https://')) {
+        final domain = baseUrl.replaceFirst('https://', '');
+        relationsUrl = Uri.https(domain, '/api/producers/$producerId/relations');
+      } else {
+        relationsUrl = Uri.parse('$baseUrl/api/producers/$producerId/relations');
+      }
+      
       final relationsResponse = await http.get(relationsUrl);
       print('Réponse pour /producers/relations : ${relationsResponse.statusCode}');
       print('Body : ${relationsResponse.body}');
@@ -60,8 +87,26 @@ class _ProducerScreenState extends State<ProducerScreen> {
   }
 
   Future<Map<String, dynamic>> _fetchProducerDetails(String producerId) async {
-    final producerUrl = Uri.parse('${getBaseUrl()}/api/producers/$producerId');
-    final relationsUrl = Uri.parse('${getBaseUrl()}/api/producers/$producerId/relations');
+    // Extraire le domaine et le protocole de l'URL complète
+    final baseUrl = getBaseUrl();
+    Uri producerUrl;
+    Uri relationsUrl;
+    
+    if (baseUrl.startsWith('http://')) {
+      // Si c'est http://
+      final domain = baseUrl.replaceFirst('http://', '');
+      producerUrl = Uri.http(domain, '/api/producers/$producerId');
+      relationsUrl = Uri.http(domain, '/api/producers/$producerId/relations');
+    } else if (baseUrl.startsWith('https://')) {
+      // Si c'est https://
+      final domain = baseUrl.replaceFirst('https://', '');
+      producerUrl = Uri.https(domain, '/api/producers/$producerId');
+      relationsUrl = Uri.https(domain, '/api/producers/$producerId/relations');
+    } else {
+      // Utiliser Uri.parse comme solution de secours
+      producerUrl = Uri.parse('$baseUrl/api/producers/$producerId');
+      relationsUrl = Uri.parse('$baseUrl/api/producers/$producerId/relations');
+    }
 
     try {
       final responses = await Future.wait([
@@ -89,7 +134,23 @@ class _ProducerScreenState extends State<ProducerScreen> {
 
   /// Fonction pour récupérer les posts d'un producteur
   Future<List<dynamic>> _fetchProducerPosts(String producerId) async {
-    final url = Uri.parse('${getBaseUrl()}/api/producers/$producerId');
+    // Extraire le domaine et le protocole de l'URL complète
+    final baseUrl = getBaseUrl();
+    Uri url;
+    
+    if (baseUrl.startsWith('http://')) {
+      // Si c'est http://
+      final domain = baseUrl.replaceFirst('http://', '');
+      url = Uri.http(domain, '/api/producers/$producerId');
+    } else if (baseUrl.startsWith('https://')) {
+      // Si c'est https://
+      final domain = baseUrl.replaceFirst('https://', '');
+      url = Uri.https(domain, '/api/producers/$producerId');
+    } else {
+      // Utiliser Uri.parse comme solution de secours
+      url = Uri.parse('$baseUrl/api/producers/$producerId');
+    }
+    
     try {
       final response = await http.get(url);
       if (response.statusCode == 200) {
@@ -103,7 +164,19 @@ class _ProducerScreenState extends State<ProducerScreen> {
         // Récupérer les détails de chaque post à partir des IDs
         final List<dynamic> posts = [];
         for (final postId in postIds) {
-          final postUrl = Uri.parse('${getBaseUrl()}/api/posts/$postId');
+          Uri postUrl;
+          
+          // Construire correctement l'URL pour chaque post
+          if (baseUrl.startsWith('http://')) {
+            final domain = baseUrl.replaceFirst('http://', '');
+            postUrl = Uri.http(domain, '/api/posts/$postId');
+          } else if (baseUrl.startsWith('https://')) {
+            final domain = baseUrl.replaceFirst('https://', '');
+            postUrl = Uri.https(domain, '/api/posts/$postId');
+          } else {
+            postUrl = Uri.parse('$baseUrl/api/posts/$postId');
+          }
+          
           try {
             final postResponse = await http.get(postUrl);
             if (postResponse.statusCode == 200) {
@@ -131,7 +204,22 @@ class _ProducerScreenState extends State<ProducerScreen> {
       post['isLoading'] = true;
     });
 
-    final url = Uri.parse('${getBaseUrl()}/api/choicexinterest/interested');
+    // Extraire le domaine et le protocole de l'URL complète
+    final baseUrl = getBaseUrl();
+    Uri url;
+    
+    if (baseUrl.startsWith('http://')) {
+      // Si c'est http://
+      final domain = baseUrl.replaceFirst('http://', '');
+      url = Uri.http(domain, '/api/choicexinterest/interested');
+    } else if (baseUrl.startsWith('https://')) {
+      // Si c'est https://
+      final domain = baseUrl.replaceFirst('https://', '');
+      url = Uri.https(domain, '/api/choicexinterest/interested');
+    } else {
+      // Utiliser Uri.parse comme solution de secours
+      url = Uri.parse('$baseUrl/api/choicexinterest/interested');
+    }
     
     // Format de données attendu par le backend - simplifié pour correspondre à l'API
     final body = {
@@ -200,7 +288,22 @@ class _ProducerScreenState extends State<ProducerScreen> {
       post['isLoading'] = true;
     });
     
-    final url = Uri.parse('${getBaseUrl()}/api/choicexinterest/choice');
+    // Extraire le domaine et le protocole de l'URL complète
+    final baseUrl = getBaseUrl();
+    Uri url;
+    
+    if (baseUrl.startsWith('http://')) {
+      // Si c'est http://
+      final domain = baseUrl.replaceFirst('http://', '');
+      url = Uri.http(domain, '/api/choicexinterest/choice');
+    } else if (baseUrl.startsWith('https://')) {
+      // Si c'est https://
+      final domain = baseUrl.replaceFirst('https://', '');
+      url = Uri.https(domain, '/api/choicexinterest/choice');
+    } else {
+      // Utiliser Uri.parse comme solution de secours
+      url = Uri.parse('$baseUrl/api/choicexinterest/choice');
+    }
     
     // Format de données attendu par le backend - simplifié pour correspondre à l'API
     final body = {
@@ -272,8 +375,24 @@ class _ProducerScreenState extends State<ProducerScreen> {
       return;
     }
     
+    // Extraire le domaine et le protocole de l'URL complète
+    final baseUrl = getBaseUrl();
+    Uri url;
+    
+    if (baseUrl.startsWith('http://')) {
+      // Si c'est http://
+      final domain = baseUrl.replaceFirst('http://', '');
+      url = Uri.http(domain, '/api/users/${widget.userId}');
+    } else if (baseUrl.startsWith('https://')) {
+      // Si c'est https://
+      final domain = baseUrl.replaceFirst('https://', '');
+      url = Uri.https(domain, '/api/users/${widget.userId}');
+    } else {
+      // Utiliser Uri.parse comme solution de secours
+      url = Uri.parse('$baseUrl/api/users/${widget.userId}');
+    }
+    
     try {
-      final url = Uri.parse('${getBaseUrl()}/api/users/${widget.userId}');
       final response = await http.get(url);
       
       if (response.statusCode == 200) {
@@ -292,9 +411,27 @@ class _ProducerScreenState extends State<ProducerScreen> {
   }
 
   Future<Map<String, dynamic>?> _fetchProfileById(String id) async {
-    final userUrl = Uri.parse('${getBaseUrl()}/api/users/$id');
-    final unifiedUrl = Uri.parse('${getBaseUrl()}/api/unified/$id');
-
+    // Extraire le domaine et le protocole de l'URL complète
+    final baseUrl = getBaseUrl();
+    Uri userUrl;
+    Uri unifiedUrl;
+    
+    if (baseUrl.startsWith('http://')) {
+      // Si c'est http://
+      final domain = baseUrl.replaceFirst('http://', '');
+      userUrl = Uri.http(domain, '/api/users/$id');
+      unifiedUrl = Uri.http(domain, '/api/unified/$id');
+    } else if (baseUrl.startsWith('https://')) {
+      // Si c'est https://
+      final domain = baseUrl.replaceFirst('https://', '');
+      userUrl = Uri.https(domain, '/api/users/$id');
+      unifiedUrl = Uri.https(domain, '/api/unified/$id');
+    } else {
+      // Utiliser Uri.parse comme solution de secours
+      userUrl = Uri.parse('$baseUrl/api/users/$id');
+      unifiedUrl = Uri.parse('$baseUrl/api/unified/$id');
+    }
+    
     // Tenter l'appel vers `/api/users/:id`
     try {
       print('🔍 Tentative avec /api/users/:id pour l\'ID : $id');
@@ -1229,7 +1366,23 @@ class _ProducerPostDetailScreenState extends State<ProducerPostDetailScreen> {
       post['isLoading'] = true;
     });
     
-    final url = Uri.parse('${getBaseUrl()}/api/choicexinterest/interested');
+    // Extraire le domaine et le protocole de l'URL complète
+    final baseUrl = getBaseUrl();
+    Uri url;
+    
+    if (baseUrl.startsWith('http://')) {
+      // Si c'est http://
+      final domain = baseUrl.replaceFirst('http://', '');
+      url = Uri.http(domain, '/api/choicexinterest/interested');
+    } else if (baseUrl.startsWith('https://')) {
+      // Si c'est https://
+      final domain = baseUrl.replaceFirst('https://', '');
+      url = Uri.https(domain, '/api/choicexinterest/interested');
+    } else {
+      // Utiliser Uri.parse comme solution de secours
+      url = Uri.parse('$baseUrl/api/choicexinterest/interested');
+    }
+    
     final body = {'userId': widget.userId, 'targetId': targetId};
 
     try {
@@ -1291,7 +1444,23 @@ class _ProducerPostDetailScreenState extends State<ProducerPostDetailScreen> {
       post['isLoading'] = true;
     });
     
-    final url = Uri.parse('${getBaseUrl()}/api/choicexinterest/choice');
+    // Extraire le domaine et le protocole de l'URL complète
+    final baseUrl = getBaseUrl();
+    Uri url;
+    
+    if (baseUrl.startsWith('http://')) {
+      // Si c'est http://
+      final domain = baseUrl.replaceFirst('http://', '');
+      url = Uri.http(domain, '/api/choicexinterest/choice');
+    } else if (baseUrl.startsWith('https://')) {
+      // Si c'est https://
+      final domain = baseUrl.replaceFirst('https://', '');
+      url = Uri.https(domain, '/api/choicexinterest/choice');
+    } else {
+      // Utiliser Uri.parse comme solution de secours
+      url = Uri.parse('$baseUrl/api/choicexinterest/choice');
+    }
+    
     final body = {'userId': widget.userId, 'targetId': targetId};
 
     try {
@@ -1351,8 +1520,24 @@ class _ProducerPostDetailScreenState extends State<ProducerPostDetailScreen> {
   Future<void> _updateUserProfile() async {
     if (widget.userId == null) return;
     
+    // Extraire le domaine et le protocole de l'URL complète
+    final baseUrl = getBaseUrl();
+    Uri url;
+    
+    if (baseUrl.startsWith('http://')) {
+      // Si c'est http://
+      final domain = baseUrl.replaceFirst('http://', '');
+      url = Uri.http(domain, '/api/users/${widget.userId}');
+    } else if (baseUrl.startsWith('https://')) {
+      // Si c'est https://
+      final domain = baseUrl.replaceFirst('https://', '');
+      url = Uri.https(domain, '/api/users/${widget.userId}');
+    } else {
+      // Utiliser Uri.parse comme solution de secours
+      url = Uri.parse('$baseUrl/api/users/${widget.userId}');
+    }
+    
     try {
-      final url = Uri.parse('${getBaseUrl()}/api/users/${widget.userId}');
       final response = await http.get(url);
       
       if (response.statusCode == 200) {
