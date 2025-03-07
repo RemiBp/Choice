@@ -112,9 +112,37 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
     // Calculer un score de pertinence pour chaque entité
     for (var entity in entities) {
       try {
-        final List coordinates = isProducers
-            ? entity['location']['coordinates']
-            : entity['location']['coordinates'];
+        // Vérification que location et coordinates existent et sont valides
+        if (entity['location'] == null || entity['location']['coordinates'] == null) {
+          print('❌ Coordonnées manquantes pour une entité');
+          continue;
+        }
+        
+        final List? coordinates = entity['location']['coordinates'];
+        
+        // Vérifier que coordinates est une liste avec au moins 2 éléments
+        if (coordinates == null || coordinates.length < 2 || entity['_id'] == null) {
+          print('❌ Coordonnées incomplètes ou ID manquant');
+          continue;
+        }
+        
+        // Vérifier que les coordonnées sont numériques
+        if (coordinates[0] == null || coordinates[1] == null || 
+            !(coordinates[0] is num) || !(coordinates[1] is num)) {
+          print('❌ Coordonnées invalides: valeurs non numériques');
+          continue;
+        }
+        
+        // Convertir en double de manière sécurisée
+        final double lon = coordinates[0].toDouble();
+        final double lat = coordinates[1].toDouble();
+        
+        // Vérifier que les coordonnées sont dans les limites valides
+        if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+          print('❌ Coordonnées invalides: hors limites (lat: $lat, lon: $lon)');
+          continue;
+        }
+        
         final String id = entity['_id'];
         final String name = isProducers
             ? entity['lieu'] ?? 'Sans nom'
@@ -160,7 +188,7 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
         
         Marker marker = Marker(
           markerId: MarkerId(id),
-          position: LatLng(coordinates[1], coordinates[0]),
+          position: LatLng(lat, lon),
           icon: BitmapDescriptor.defaultMarkerWithHue(markerHue),
           onTap: () {
             // Afficher les détails directement sans passer par infoWindow
@@ -428,14 +456,38 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
     
     for (var entity in entities) {
       try {
-        final List coordinates = isProducers
-            ? entity['location']['coordinates']
-            : entity['location']['coordinates'];
+        // Vérification que location et coordinates existent et sont valides
+        if (entity['location'] == null || entity['location']['coordinates'] == null) {
+          continue;
+        }
+        
+        final List? coordinates = entity['location']['coordinates'];
+        
+        // Vérifier que coordinates est une liste avec au moins 2 éléments
+        if (coordinates == null || coordinates.length < 2 || entity['_id'] == null) {
+          continue;
+        }
+        
+        // Vérifier que les coordonnées sont numériques
+        if (coordinates[0] == null || coordinates[1] == null || 
+            !(coordinates[0] is num) || !(coordinates[1] is num)) {
+          continue;
+        }
+        
+        // Convertir en double de manière sécurisée
+        final double lon = coordinates[0].toDouble();
+        final double lat = coordinates[1].toDouble();
+        
+        // Vérifier que les coordonnées sont dans les limites valides
+        if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+          continue;
+        }
+        
         final String id = entity['_id'];
         
         Marker marker = Marker(
           markerId: MarkerId(id),
-          position: LatLng(coordinates[1], coordinates[0]),
+          position: LatLng(lat, lon),
           icon: BitmapDescriptor.defaultMarker,
           infoWindow: InfoWindow(
             title: isProducers
@@ -506,22 +558,60 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
       if (response.statusCode == 200) {
         final List<dynamic> producers = json.decode(response.body);
 
-        setState(() {
-          _markers = producers.map((producer) {
-            final List coordinates = producer['location']['coordinates'];
-            return Marker(
+        Set<Marker> newMarkers = {};
+        
+        for (var producer in producers) {
+          try {
+            // Vérification que location et coordinates existent et sont valides
+            if (producer['location'] == null || producer['location']['coordinates'] == null) {
+              print('❌ Coordonnées manquantes pour un producteur');
+              continue;
+            }
+            
+            final List? coordinates = producer['location']['coordinates'];
+            
+            // Vérifier que coordinates est une liste avec au moins 2 éléments
+            if (coordinates == null || coordinates.length < 2 || producer['_id'] == null) {
+              print('❌ Coordonnées incomplètes ou ID manquant');
+              continue;
+            }
+            
+            // Vérifier que les coordonnées sont numériques
+            if (coordinates[0] == null || coordinates[1] == null || 
+                !(coordinates[0] is num) || !(coordinates[1] is num)) {
+              print('❌ Coordonnées invalides: valeurs non numériques');
+              continue;
+            }
+            
+            // Convertir en double de manière sécurisée
+            final double lon = coordinates[0].toDouble();
+            final double lat = coordinates[1].toDouble();
+            
+            // Vérifier que les coordonnées sont dans les limites valides
+            if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+              print('❌ Coordonnées invalides: hors limites (lat: $lat, lon: $lon)');
+              continue;
+            }
+            
+            newMarkers.add(Marker(
               markerId: MarkerId(producer['_id']),
-              position: LatLng(coordinates[1], coordinates[0]),
+              position: LatLng(lat, lon),
               icon: _customMarkerIcon ?? BitmapDescriptor.defaultMarker,
               infoWindow: InfoWindow(
-                title: producer['lieu'],
+                title: producer['lieu'] ?? 'Sans nom',
                 snippet: producer['description'] ?? 'Pas de description',
                 onTap: () {
                   _navigateToProducerDetails(producer);
                 },
               ),
-            );
-          }).toSet();
+            ));
+          } catch (e) {
+            print("❌ Erreur lors de la création du marqueur: $e");
+          }
+        }
+        
+        setState(() {
+          _markers = newMarkers;
         });
       } else {
         _showSnackBar("Erreur lors de la récupération des producteurs.");

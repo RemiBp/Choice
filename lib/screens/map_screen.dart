@@ -173,8 +173,22 @@ class _MapScreenState extends State<MapScreen> {
           continue;
         }
         
-        double lat = coordinates[1].toDouble();
-        double lon = coordinates[0].toDouble();
+        // Vérifier que les coordonnées sont numériques
+        if (coordinates[0] == null || coordinates[1] == null || 
+            !(coordinates[0] is num) || !(coordinates[1] is num)) {
+          print('❌ Coordonnées invalides pour "${producerName}": valeurs non numériques');
+          continue;
+        }
+        
+        // Convertir en double de manière sécurisée
+        final double lon = coordinates[0].toDouble();
+        final double lat = coordinates[1].toDouble();
+        
+        // Vérifier que les coordonnées sont dans les limites valides
+        if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+          print('❌ Coordonnées invalides pour "${producerName}": hors limites (lat: $lat, lon: $lon)');
+          continue;
+        }
         
         // Récupérer le score pour la couleur (score entre 0 et 1)
         double score = producer['score'] ?? 0.0;
@@ -252,8 +266,22 @@ class _MapScreenState extends State<MapScreen> {
           continue;
         }
         
-        double lat = coordinates[1].toDouble();
-        double lon = coordinates[0].toDouble();
+        // Vérifier que les coordonnées sont numériques
+        if (coordinates[0] == null || coordinates[1] == null || 
+            !(coordinates[0] is num) || !(coordinates[1] is num)) {
+          // En arrière-plan, on ignore silencieusement les erreurs
+          continue;
+        }
+        
+        // Convertir en double de manière sécurisée
+        final double lon = coordinates[0].toDouble();
+        final double lat = coordinates[1].toDouble();
+        
+        // Vérifier que les coordonnées sont dans les limites valides
+        if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+          // En arrière-plan, on ignore silencieusement les erreurs
+          continue;
+        }
         
         // Utiliser directement la teinte (fonction statique nécessaire)
         double normalizedRank = (i / totalProducers).clamp(0.0, 1.0);

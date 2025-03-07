@@ -103,10 +103,39 @@ class PostLocation {
   });
 
   factory PostLocation.fromJson(Map<String, dynamic> json) {
+    List<double> safeCoordinates = [];
+    
+    try {
+      final rawCoordinates = json['coordinates'];
+      
+      // Validate coordinates exist and are a list
+      if (rawCoordinates != null && rawCoordinates is List && rawCoordinates.isNotEmpty) {
+        // Ensure all values are valid numbers and convert to double
+        for (var i = 0; i < rawCoordinates.length; i++) {
+          if (rawCoordinates[i] != null && rawCoordinates[i] is num) {
+            double coord = (rawCoordinates[i] as num).toDouble();
+            
+            // Validate latitude/longitude ranges if this is a standard geo coordinate pair
+            if (i == 0 && coord >= -180 && coord <= 180) {
+              safeCoordinates.add(coord); // Longitude
+            } else if (i == 1 && coord >= -90 && coord <= 90) {
+              safeCoordinates.add(coord); // Latitude
+            } else if (i >= 2) {
+              // Additional coordinates (altitude, etc) if present
+              safeCoordinates.add(coord);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      print('❌ Error parsing coordinates: $e');
+      // Return empty coordinates list on error
+    }
+    
     return PostLocation(
       name: json['name'] ?? 'Localisation inconnue',
       address: json['address'],
-      coordinates: List<double>.from(json['coordinates'] ?? []),
+      coordinates: safeCoordinates,
     );
   }
 }

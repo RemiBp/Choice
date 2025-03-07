@@ -348,8 +348,57 @@ class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> {
   }
 
   Widget _buildMap(List<dynamic> coordinates) {
-    final latLng = LatLng(coordinates[1], coordinates[0]);
-
+    try {
+      // Vérifier que les coordonnées sont valides
+      if (coordinates.length < 2) {
+        print('❌ Coordonnées invalides: longueur insuffisante');
+        return _buildMapErrorWidget('Coordonnées incomplètes');
+      }
+      
+      // Vérifier que les coordonnées sont numériques
+      if (coordinates[0] == null || coordinates[1] == null || 
+          !(coordinates[0] is num) || !(coordinates[1] is num)) {
+        print('❌ Coordonnées invalides: valeurs non numériques');
+        return _buildMapErrorWidget('Coordonnées non numériques');
+      }
+      
+      // Convertir en double de manière sécurisée
+      final double longitude = coordinates[0].toDouble();
+      final double latitude = coordinates[1].toDouble();
+      
+      // Vérifier que les coordonnées sont dans les limites valides
+      if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+        print('❌ Coordonnées invalides: hors limites');
+        return _buildMapErrorWidget('Coordonnées hors limites');
+      }
+      
+      final latLng = LatLng(latitude, longitude);
+      
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Emplacement',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            height: 200,
+            child: GoogleMap(
+              initialCameraPosition: CameraPosition(target: latLng, zoom: 15),
+              markers: {Marker(markerId: const MarkerId('producer'), position: latLng)},
+            ),
+          ),
+        ],
+      );
+    } catch (e) {
+      print('❌ Erreur lors de l\'affichage de la carte: $e');
+      return _buildMapErrorWidget('Impossible d\'afficher la carte');
+    }
+  }
+  
+  // Widget de remplacement en cas d'erreur de carte
+  Widget _buildMapErrorWidget(String message) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -358,11 +407,23 @@ class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> {
           style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 16),
-        SizedBox(
+        Container(
           height: 200,
-          child: GoogleMap(
-            initialCameraPosition: CameraPosition(target: latLng, zoom: 15),
-            markers: {Marker(markerId: MarkerId('producer'), position: latLng)},
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: Colors.grey[200],
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.map_outlined, size: 48, color: Colors.grey),
+              const SizedBox(height: 8),
+              Text(
+                message,
+                style: const TextStyle(color: Colors.grey),
+              ),
+            ],
           ),
         ),
       ],

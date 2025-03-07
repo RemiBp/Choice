@@ -537,30 +537,53 @@ class _EventLeisureScreenState extends State<EventLeisureScreen> {
 
   /// Carte avec position de l'événement
   Widget _buildMap() {
-    final location = _eventData!['location']?['coordinates'];
-    if (location == null || location.length != 2) {
-      return const Center(child: Text('Localisation non disponible.'));
-    }
+    try {
+      // Vérifier si location existe et contient des coordonnées
+      final location = _eventData!['location']?['coordinates'];
+      if (location == null || location.length != 2) {
+        return const Center(child: Text('Localisation non disponible.'));
+      }
+      
+      // Vérifier que les coordonnées sont numériques
+      if (location[0] == null || location[1] == null || 
+          !(location[0] is num) || !(location[1] is num)) {
+        print('❌ Coordonnées invalides: valeurs non numériques');
+        return const Center(child: Text('Coordonnées invalides.'));
+      }
+      
+      // Convertir en double de manière sécurisée
+      final double lon = location[0].toDouble();
+      final double lat = location[1].toDouble();
+      
+      // Vérifier que les coordonnées sont dans les limites valides
+      if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+        print('❌ Coordonnées invalides: hors limites (lat: $lat, lon: $lon)');
+        return const Center(child: Text('Coordonnées hors limites.'));
+      }
 
-    return Container(
-      height: 300,
-      child: GoogleMap(
-        initialCameraPosition: CameraPosition(
-          target: LatLng(location[1], location[0]),
-          zoom: 14.0,
-        ),
-        markers: {
-          Marker(
-            markerId: const MarkerId('event_location'),
-            position: LatLng(location[1], location[0]),
-            infoWindow: InfoWindow(
-              title: _eventData!['intitulé'],
-              snippet: _eventData!['lieu'],
-            ),
+      return Container(
+        height: 300,
+        child: GoogleMap(
+          initialCameraPosition: CameraPosition(
+            target: LatLng(lat, lon),
+            zoom: 14.0,
           ),
-        },
-      ),
-    );
+          markers: {
+            Marker(
+              markerId: const MarkerId('event_location'),
+              position: LatLng(lat, lon),
+              infoWindow: InfoWindow(
+                title: _eventData!['intitulé'] ?? 'Événement',
+                snippet: _eventData!['lieu'] ?? 'Lieu non spécifié',
+              ),
+            ),
+          },
+        ),
+      );
+    } catch (e) {
+      print('❌ Erreur lors de l'affichage de la carte: $e');
+      return const Center(child: Text('Impossible d\'afficher la carte.'));
+    }
   }
 
   /// Bouton pour acheter un billet

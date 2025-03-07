@@ -1225,22 +1225,49 @@ class _ProducerScreenState extends State<ProducerScreen> {
   }
 
   Widget _buildMap(Map<String, dynamic>? coordinates) {
-    if (coordinates == null || coordinates['coordinates'] == null) {
-      return const Text('Coordonnées GPS non disponibles.');
+    try {
+      // Vérification que coordinates et coordinates['coordinates'] existent
+      if (coordinates == null || coordinates['coordinates'] == null) {
+        return const Text('Coordonnées GPS non disponibles.');
+      }
+      
+      // Vérification que coordinates['coordinates'] est une liste avec au moins 2 éléments
+      final List? coords = coordinates['coordinates'];
+      if (coords == null || coords.length < 2) {
+        print('❌ Format de coordonnées invalide');
+        return const Text('Format de coordonnées invalide.');
+      }
+      
+      // Vérification que les coordonnées sont numériques
+      if (coords[0] == null || coords[1] == null || 
+          !(coords[0] is num) || !(coords[1] is num)) {
+        print('❌ Coordonnées invalides: valeurs non numériques');
+        return const Text('Coordonnées invalides: valeurs non numériques.');
+      }
+      
+      // Convertir en double de manière sécurisée
+      final double lon = coords[0].toDouble();
+      final double lat = coords[1].toDouble();
+      
+      // Vérifier que les coordonnées sont dans les limites valides
+      if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+        print('❌ Coordonnées invalides: hors limites (lat: $lat, lon: $lon)');
+        return const Text('Coordonnées invalides: hors limites.');
+      }
+
+      final latLng = LatLng(lat, lon);
+
+      return SizedBox(
+        height: 200,
+        child: GoogleMap(
+          initialCameraPosition: CameraPosition(target: latLng, zoom: 15),
+          markers: {Marker(markerId: const MarkerId('producer'), position: latLng)},
+        ),
+      );
+    } catch (e) {
+      print('❌ Erreur lors du rendu de la carte: $e');
+      return const Text('Erreur lors du chargement de la carte.');
     }
-
-    final latLng = LatLng(
-      coordinates['coordinates'][1],
-      coordinates['coordinates'][0],
-    );
-
-    return SizedBox(
-      height: 200,
-      child: GoogleMap(
-        initialCameraPosition: CameraPosition(target: latLng, zoom: 15),
-        markers: {Marker(markerId: MarkerId('producer'), position: latLng)},
-      ),
-    );
   }
 
   Widget _buildContactDetails(Map<String, dynamic> producer) {
