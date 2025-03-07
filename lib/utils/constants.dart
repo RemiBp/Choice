@@ -10,36 +10,42 @@ const String directUrl = "http://localhost:5000"; // Pour Windows/Web
 const String cloudUrl = "https://api.choiceapp.fr"; // Pour les appareils physiques
 
 String getBaseUrl() {
-  if (kIsWeb || Platform.isWindows) {
-    return directUrl;  // Utilise localhost pour Windows
+  // Solution plus directe pour iOS - toujours utiliser l'URL cloud
+  if (Platform.isIOS) {
+    print("🔗 iOS détecté - Utilisation de l'URL cloud: $cloudUrl");
+    return cloudUrl;
   }
   
-  // Détection d'émulateur vs appareil physique
-  if (isMobile()) {
-    // Vérifier si on est dans un émulateur ou sur un appareil physique
+  // Pour le web et Windows, utiliser localhost
+  if (kIsWeb || Platform.isWindows) {
+    print("🔗 Web/Windows détecté - Utilisation de l'URL directe: $directUrl");
+    return directUrl;
+  }
+  
+  // Pour Android, différencier émulateur et appareil physique
+  if (Platform.isAndroid) {
+    // On considère que c'est un appareil physique par défaut
     bool isEmulator = false;
     
-    // Sur Android, 10.0.2.2 est l'adresse pour accéder au localhost de la machine hôte depuis l'émulateur
-    if (Platform.isAndroid) {
-      try {
-        // Vérification simplifiée pour les émulateurs Android
-        isEmulator = Platform.environment.containsKey('ANDROID_EMULATOR');
-      } catch (e) {
-        // En cas d'erreur, considérer comme appareil physique
-        isEmulator = false;
-      }
+    try {
+      // Vérification d'émulateur Android (approche simple)
+      isEmulator = Platform.environment.containsKey('ANDROID_EMULATOR');
+    } catch (e) {
+      print("⚠️ Erreur lors de la détection d'émulateur: $e");
+      isEmulator = false;
     }
-    
-    // Sur iOS, on peut détecter les simulateurs mais c'est plus complexe
-    // Pour simplifier, on utilise toujours l'URL cloud sur iOS physique
     
     if (isEmulator) {
-      return localUrl;  // Utilise 10.0.2.2 pour émulateur Android
+      print("🔗 Émulateur Android détecté - Utilisation de l'URL locale: $localUrl");
+      return localUrl;
+    } else {
+      print("🔗 Appareil Android physique détecté - Utilisation de l'URL cloud: $cloudUrl");
+      return cloudUrl;
     }
-    
-    return cloudUrl;  // Utilise l'URL cloud pour les appareils physiques
   }
   
+  // Par défaut, utiliser l'URL cloud
+  print("🔗 Plateforme par défaut - Utilisation de l'URL cloud: $cloudUrl");
   return cloudUrl;
 }
 

@@ -4,8 +4,8 @@ import 'package:flutter/widgets.dart'; // Pour utiliser `defaultTargetPlatform`
 import 'dart:io' show Platform;
 // Removed circular import of utils.dart
 
-// ✅ Activer le mode développement local pour les tests
-const bool _useLocalServer = true; // Basculer à false pour utiliser le serveur de production
+// ❌ Désactiver le mode développement local pour la production
+const bool _useLocalServer = false; // Utiliser le serveur de production pour les appareils physiques
 
 String getBaseUrl() {
   // Mode développement activé: retourne toujours l'URL locale
