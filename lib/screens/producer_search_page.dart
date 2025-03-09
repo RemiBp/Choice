@@ -90,7 +90,12 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> {
       final url = Uri.parse('${getBaseUrl()}/api/unified/search?query=$_query');
       print('🔍 Requête vers : $url');
 
-      final response = await http.get(url);
+      final response = await http.get(url).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () {
+          throw Exception("La requête a pris trop de temps. Veuillez réessayer.");
+        },
+      );
 
       if (response.statusCode == 200) {
         final List<dynamic> results = json.decode(response.body);
@@ -139,6 +144,17 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> {
     try {
       print("🔍 Envoi de la requête au service AI: $message");
       
+      // Afficher un indicateur de chargement
+      final loadingMessage = types.TextMessage(
+        author: const types.User(id: 'assistant', firstName: 'Copilot AI'),
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        text: "Recherche en cours...",
+      );
+      
+      setState(() {
+        _messages.insert(0, loadingMessage);
+      });
+      
       // Appel principal au service AI avec plusieurs tentatives
       AIQueryResponse aiResponse;
       try {
@@ -154,6 +170,11 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> {
           throw secondaryError; // Relance l'erreur pour être attrapée par le bloc catch externe
         }
       }
+      
+      // Supprimer le message de chargement
+      setState(() {
+        _messages.removeAt(0);
+      });
       
       // Traitement de la réponse réussie
       print("✅ Réponse AI reçue: ${aiResponse.profiles.length} profils");
@@ -185,13 +206,20 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> {
         },
       );
 
-      Future.delayed(const Duration(seconds: 1), () {
+      Future.delayed(const Duration(milliseconds: 500), () {
         setState(() {
           _messages.insert(0, botMessage);
         });
       });
     } catch (e) {
       print("❌ Erreur lors de l'appel à l'IA: $e");
+      
+      // Supprimer le message de chargement s'il existe
+      if (_messages.isNotEmpty && _messages[0].author.id == 'assistant') {
+        setState(() {
+          _messages.removeAt(0);
+        });
+      }
       
       // Message d'erreur simple en cas d'échec complet
       final botMessage = types.TextMessage(
@@ -200,10 +228,8 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> {
         text: "Désolé, je rencontre des difficultés à me connecter à la base de données. Veuillez réessayer plus tard ou contacter le support si le problème persiste.",
       );
 
-      Future.delayed(const Duration(seconds: 1), () {
-        setState(() {
-          _messages.insert(0, botMessage);
-        });
+      setState(() {
+        _messages.insert(0, botMessage);
       });
     }
   }
@@ -225,27 +251,121 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> {
           );
           break;
         case 'leisureProducer':
-          final url = Uri.parse('${getBaseUrl()}/api/leisureProducers/$id');
-          final response = await http.get(url);
-          if (response.statusCode == 200) {
-            final data = json.decode(response.body);
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => ProducerLeisureScreen(producerData: data),
+          // Afficher un indicateur de chargement
+          showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (BuildContext context) {
+              return const Dialog(
+                child: Padding(
+                  padding: EdgeInsets.all(20.0),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircularProgressIndicator(),
+                      SizedBox(width: 20),
+                      Text("Chargement des informations..."),
+                    ],
+                  ),
+                ),
+              );
+            },
+          );
+          
+          try {
+            final url = Uri.parse('${getBaseUrl()}/api/leisureProducers/$id');
+            final response = await http.get(url).timeout(
+              const Duration(seconds: 10),
+              onTimeout: () {
+                throw Exception("La requête a pris trop de temps. Veuillez réessayer.");
+              },
+            );
+            
+            // Fermer l'indicateur de chargement
+            Navigator.of(context).pop();
+            
+            if (response.statusCode == 200) {
+              final data = json.decode(response.body);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => ProducerLeisureScreen(producerData: data),
+                ),
+              );
+            } else {
+              throw Exception("Erreur ${response.statusCode}: ${response.body}");
+            }
+          } catch (e) {
+            // Fermer l'indicateur de chargement s'il est encore ouvert
+            if (Navigator.canPop(context)) {
+              Navigator.of(context).pop();
+            }
+            
+            // Afficher un message d'erreur
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text("Erreur lors du chargement: $e"),
+                backgroundColor: Colors.red,
               ),
             );
           }
           break;
         case 'event':
-          final url = Uri.parse('${getBaseUrl()}/api/events/$id');
-          final response = await http.get(url);
-          if (response.statusCode == 200) {
-            final data = json.decode(response.body);
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => EventLeisureScreen(eventData: data),
+          // Afficher un indicateur de chargement
+          showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (BuildContext context) {
+              return const Dialog(
+                child: Padding(
+                  padding: EdgeInsets.all(20.0),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircularProgressIndicator(),
+                      SizedBox(width: 20),
+                      Text("Chargement de l'événement..."),
+                    ],
+                  ),
+                ),
+              );
+            },
+          );
+          
+          try {
+            final url = Uri.parse('${getBaseUrl()}/api/events/$id');
+            final response = await http.get(url).timeout(
+              const Duration(seconds: 10),
+              onTimeout: () {
+                throw Exception("La requête a pris trop de temps. Veuillez réessayer.");
+              },
+            );
+            
+            // Fermer l'indicateur de chargement
+            Navigator.of(context).pop();
+            
+            if (response.statusCode == 200) {
+              final data = json.decode(response.body);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => EventLeisureScreen(eventData: data),
+                ),
+              );
+            } else {
+              throw Exception("Erreur ${response.statusCode}: ${response.body}");
+            }
+          } catch (e) {
+            // Fermer l'indicateur de chargement s'il est encore ouvert
+            if (Navigator.canPop(context)) {
+              Navigator.of(context).pop();
+            }
+            
+            // Afficher un message d'erreur
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text("Erreur lors du chargement: $e"),
+                backgroundColor: Colors.red,
               ),
             );
           }
@@ -259,14 +379,20 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> {
           );
           break;
         default:
-          setState(() {
-            _errorMessage = "Type non reconnu.";
-          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("Type non reconnu: $type"),
+              backgroundColor: Colors.orange,
+            ),
+          );
       }
     } catch (e) {
-      setState(() {
-        _errorMessage = "Erreur réseau : $e";
-      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Erreur de navigation: $e"),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
@@ -305,281 +431,316 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> {
         foregroundColor: Colors.black,
         elevation: 1,
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            // 🔍 Barre de recherche
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 16.0),
-              child: TextField(
-                controller: _searchController,
-                decoration: InputDecoration(
-                  labelText: 'Rechercher...',
-                  suffixIcon: const Icon(Icons.search),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: Colors.blueAccent, width: 2),
-                  ),
-                  filled: true,
-                  fillColor: Colors.grey[200],
-                ),
-                onChanged: (value) {
-                  setState(() {
-                    _query = value.trim();
-                  });
-                },
-                onSubmitted: (_) => _searchItems(),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight: MediaQuery.of(context).size.height - 120, // Ajusté pour éviter le débordement
+                maxHeight: double.infinity, // Pas de limite de hauteur max
               ),
-            ),
-
-            const SizedBox(height: 16),
-
-            // 🔥 Suggestions rapides
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Row(
-                children: [
-                  _buildQuickSearchButton("🍽️ Bons plans restaurants", "Quels sont les meilleurs restaurants en promo ?"),
-                  _buildQuickSearchButton("🎭 Spectacle comique ce soir", "Quels spectacles humoristiques voir ce soir ?"),
-                  _buildQuickSearchButton("🎶 Concerts gratuits", "Y a-t-il des concerts gratuits bientôt ?"),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 10),
-
-            // 🤖 Copilot en mode normal ou plein écran selon l'état
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 300),
-              curve: Curves.easeInOut,
-              decoration: BoxDecoration(
-                color: Colors.grey[100],
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.grey.withOpacity(0.3),
-                    spreadRadius: 1,
-                    blurRadius: 3,
-                    offset: const Offset(0, 1),
-                  ),
-                ],
-              ),
-              margin: const EdgeInsets.only(bottom: 16),
-              padding: const EdgeInsets.all(8),
-              height: _isFullScreenChat 
-                ? MediaQuery.of(context).size.height * 0.7 // 70% de la hauteur de l'écran en mode plein écran
-                : 220, // Taille normale légèrement agrandie
               child: Column(
+                mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // En-tête du copilot avec bouton de basculement plein écran
+                  // 🔍 Barre de recherche
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+                    padding: const EdgeInsets.symmetric(vertical: 16.0),
+                    child: TextField(
+                      controller: _searchController,
+                      decoration: InputDecoration(
+                        labelText: 'Rechercher...',
+                        suffixIcon: IconButton(
+                          icon: const Icon(Icons.search),
+                          onPressed: () => _searchItems(),
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: Colors.blueAccent, width: 2),
+                        ),
+                        filled: true,
+                        fillColor: Colors.grey[200],
+                      ),
+                      onChanged: (value) {
+                        setState(() {
+                          _query = value.trim();
+                        });
+                      },
+                      onSubmitted: (_) => _searchItems(),
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  // 🔥 Suggestions rapides
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(vertical: 8),
                     child: Row(
                       children: [
-                        Container(
-                          decoration: BoxDecoration(
-                            color: Colors.blueAccent,
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-                          child: const Row(
-                            mainAxisSize: MainAxisSize.min,
+                        _buildQuickSearchButton("🍽️ Bons plans restaurants", "Quels sont les meilleurs restaurants en promo ?"),
+                        _buildQuickSearchButton("🎭 Spectacle comique ce soir", "Quels spectacles humoristiques voir ce soir ?"),
+                        _buildQuickSearchButton("🎶 Concerts gratuits", "Y a-t-il des concerts gratuits bientôt ?"),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 10),
+
+                  // 🤖 Copilot en mode normal ou plein écran selon l'état
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 300),
+                    curve: Curves.easeInOut,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[100],
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.grey.withOpacity(0.3),
+                          spreadRadius: 1,
+                          blurRadius: 3,
+                          offset: const Offset(0, 1),
+                        ),
+                      ],
+                    ),
+                    margin: const EdgeInsets.only(bottom: 16),
+                    padding: const EdgeInsets.all(8),
+                    height: _isFullScreenChat 
+                      ? MediaQuery.of(context).size.height * 0.6 // 60% de la hauteur de l'écran en mode plein écran
+                      : 220, // Taille normale légèrement agrandie
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // En-tête du copilot avec bouton de basculement plein écran
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.max,
                             children: [
-                              Icon(Icons.smart_toy, color: Colors.white, size: 16),
-                              SizedBox(width: 4),
-                              Text('Copilot AI', 
-                                style: TextStyle(
-                                  color: Colors.white, 
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 14,
+                              Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.blueAccent,
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.smart_toy, color: Colors.white, size: 16),
+                                    SizedBox(width: 4),
+                                    Text('Copilot AI', 
+                                      style: TextStyle(
+                                        color: Colors.white, 
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const Spacer(),
+                              // Bouton pour basculer le mode plein écran
+                              IconButton(
+                                icon: Icon(
+                                  _isFullScreenChat ? Icons.fullscreen_exit : Icons.fullscreen,
+                                  color: Colors.blueAccent,
+                                ),
+                                onPressed: () {
+                                  setState(() {
+                                    _isFullScreenChat = !_isFullScreenChat;
+                                  });
+                                },
+                                tooltip: _isFullScreenChat ? 'Réduire le chat' : 'Agrandir le chat',
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                              ),
+                              const SizedBox(width: 8),
+                              if (!_isFullScreenChat)
+                                Flexible(
+                                  child: Text(
+                                    "Posez vos questions ici",
+                                    style: TextStyle(
+                                      color: Colors.grey[600],
+                                      fontStyle: FontStyle.italic,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                        // Zone de chat améliorée - s'adapte à la hauteur du conteneur
+                        Expanded(
+                          child: Chat(
+                            messages: _messages,
+                            onSendPressed: (partialText) => _handleSendPressed(partialText.text),
+                            user: _user,
+                            scrollController: _chatScrollController,
+                            customMessageBuilder: _buildCustomMessage,
+                            theme: const DefaultChatTheme(
+                              inputBackgroundColor: Colors.white,
+                              inputTextColor: Colors.black87,
+                              inputTextCursorColor: Colors.blueAccent,
+                              primaryColor: Colors.blueAccent,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // 📍 Profils extraits par l'IA (s'il y en a et si le chat n'est pas en plein écran)
+                  if (_extractedProfiles.isNotEmpty && !_isFullScreenChat) ...[
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.blue.withOpacity(0.06),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.blue.withOpacity(0.2)),
+                      ),
+                      margin: const EdgeInsets.only(bottom: 16),
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Row(
+                            mainAxisSize: MainAxisSize.max,
+                            children: [
+                              Icon(Icons.search, color: Colors.blueAccent, size: 18),
+                              SizedBox(width: 6),
+                              Flexible(
+                                child: Text(
+                                  'Suggestions par IA',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold, 
+                                    fontSize: 16,
+                                    color: Colors.blueAccent,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ),
                             ],
                           ),
-                        ),
-                        const Spacer(),
-                        // Bouton pour basculer le mode plein écran
-                        IconButton(
-                          icon: Icon(
-                            _isFullScreenChat ? Icons.fullscreen_exit : Icons.fullscreen,
-                            color: Colors.blueAccent,
-                          ),
-                          onPressed: () {
-                            setState(() {
-                              _isFullScreenChat = !_isFullScreenChat;
-                            });
-                          },
-                          tooltip: _isFullScreenChat ? 'Réduire le chat' : 'Agrandir le chat',
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                        ),
-                        const SizedBox(width: 8),
-                        if (!_isFullScreenChat)
-                          Text(
-                            "Posez vos questions ici",
-                            style: TextStyle(
-                              color: Colors.grey[600],
-                              fontStyle: FontStyle.italic,
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            height: 170,
+                            child: ListView.builder(
+                              scrollDirection: Axis.horizontal,
+                              itemCount: _extractedProfiles.length,
+                              itemBuilder: (context, index) {
+                                final profile = _extractedProfiles[index];
+                                return _buildProfileCard(profile);
+                              },
                             ),
                           ),
-                      ],
-                    ),
-                  ),
-                  // Zone de chat améliorée - s'adapte à la hauteur du conteneur
-                  Expanded(
-                    child: Chat(
-                      messages: _messages,
-                      onSendPressed: (partialText) => _handleSendPressed(partialText.text),
-                      user: _user,
-                      scrollController: _chatScrollController,
-                      customMessageBuilder: _buildCustomMessage,
-                      theme: const DefaultChatTheme(
-                        inputBackgroundColor: Colors.white,
-                        inputTextColor: Colors.black87,
-                        inputTextCursorColor: Colors.blueAccent,
-                        primaryColor: Colors.blueAccent,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // 📍 Profils extraits par l'IA (s'il y en a et si le chat n'est pas en plein écran)
-            if (_extractedProfiles.isNotEmpty && !_isFullScreenChat) ...[
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.blue.withOpacity(0.06),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.blue.withOpacity(0.2)),
-                ),
-                margin: const EdgeInsets.only(bottom: 16),
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Row(
-                      children: [
-                        Icon(Icons.search, color: Colors.blueAccent, size: 18),
-                        SizedBox(width: 6),
-                        Text(
-                          'Suggestions par IA',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold, 
-                            fontSize: 16,
-                            color: Colors.blueAccent,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Container(
-                      height: 170,
-                      child: ListView.builder(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: _extractedProfiles.length,
-                        itemBuilder: (context, index) {
-                          final profile = _extractedProfiles[index];
-                          return _buildProfileCard(profile);
-                        },
+                        ],
                       ),
                     ),
                   ],
-                ),
-              ),
-            ],
 
-            // 🔄 Chargement / Erreur / Résultats (seulement si le chat n'est pas en plein écran)
-            if (!_isFullScreenChat)
-              Expanded(
-                child: _isLoading 
-                  ? const Center(child: CircularProgressIndicator())
-                  : _errorMessage.isNotEmpty && _extractedProfiles.isEmpty
-                    ? Center(
-                        child: Text(
-                          _errorMessage,
-                          style: const TextStyle(color: Colors.red),
-                          textAlign: TextAlign.center,
-                        ),
-                      )
-                    : (_producerResults.isEmpty && _userResults.isEmpty && _extractedProfiles.isEmpty)
-                      ? Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.search_off, size: 48, color: Colors.grey[400]),
-                              const SizedBox(height: 16),
-                              Text(
-                                "Posez une question au Copilot AI\nou lancez une recherche classique",
-                                style: TextStyle(color: Colors.grey[600]),
+                  // 🔄 Chargement / Erreur / Résultats (seulement si le chat n'est pas en plein écran)
+                  if (!_isFullScreenChat)
+                    _isLoading 
+                      ? const Center(child: CircularProgressIndicator())
+                      : _errorMessage.isNotEmpty && _extractedProfiles.isEmpty
+                        ? Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(16.0),
+                              child: Text(
+                                _errorMessage,
+                                style: const TextStyle(color: Colors.red),
                                 textAlign: TextAlign.center,
                               ),
-                            ],
-                          ),
-                        )
-                      : ListView(
-                        children: [
-                          if (_producerResults.isNotEmpty) ...[
-                            Container(
-                              margin: const EdgeInsets.only(bottom: 12),
-                              child: const Text(
-                                'Restaurants et lieux',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold, 
-                                  fontSize: 18,
-                                  color: Colors.black87,
+                            ),
+                          )
+                        : (_producerResults.isEmpty && _userResults.isEmpty && _extractedProfiles.isEmpty)
+                          ? Center(
+                              child: Padding(
+                                padding: const EdgeInsets.all(16.0),
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.search_off, size: 48, color: Colors.grey[400]),
+                                    const SizedBox(height: 16),
+                                    Text(
+                                      "Posez une question au Copilot AI\nou lancez une recherche classique",
+                                      style: TextStyle(color: Colors.grey[600]),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ],
                                 ),
                               ),
+                            )
+                          : Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (_producerResults.isNotEmpty) ...[
+                                  Container(
+                                    margin: const EdgeInsets.only(bottom: 12),
+                                    child: const Text(
+                                      'Restaurants et lieux',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold, 
+                                        fontSize: 18,
+                                        color: Colors.black87,
+                                      ),
+                                    ),
+                                  ),
+                                  ...(_producerResults.map((item) {
+                                    final String type = item['type'] ?? 'unknown';
+                                    return _buildResultCard(
+                                      id: item['_id'],
+                                      type: type,
+                                      title: item['intitulé'] ?? item['name'] ?? 'Nom non spécifié',
+                                      subtitle: item['adresse'] ?? item['address'] ?? 'Adresse non spécifiée',
+                                      imageUrl: item['image'] ?? item['photo'] ?? item['photo_url'] ?? '',
+                                      rating: item['rating'],
+                                      price: item['price_level'],
+                                      categories: item['category'],
+                                    );
+                                  }).toList()),
+                                ],
+                                if (_userResults.isNotEmpty) ...[
+                                  const SizedBox(height: 20),
+                                  Container(
+                                    margin: const EdgeInsets.only(bottom: 12),
+                                    child: const Text(
+                                      'Utilisateurs',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold, 
+                                        fontSize: 18,
+                                        color: Colors.black87,
+                                      ),
+                                    ),
+                                  ),
+                                  ...(_userResults.map((user) {
+                                    return ListTile(
+                                      leading: CircleAvatar(
+                                        backgroundImage: user['photo_url'] != null && user['photo_url'].isNotEmpty 
+                                          ? NetworkImage(user['photo_url'])
+                                          : null,
+                                        backgroundColor: Colors.grey[300],
+                                        child: (user['photo_url'] == null || user['photo_url'] == '') 
+                                          ? const Icon(Icons.person, color: Colors.grey)
+                                          : null,
+                                      ),
+                                      title: Text(user['name'] ?? 'Nom non spécifié'),
+                                      subtitle: Text(user['username'] ?? ''),
+                                      onTap: () => _navigateToDetails(user['_id'], 'user'),
+                                    );
+                                  }).toList()),
+                                ],
+                              ],
                             ),
-                            ...(_producerResults.map((item) {
-                              final String type = item['type'] ?? 'unknown';
-                              return _buildResultCard(
-                                id: item['_id'],
-                                type: type,
-                                title: item['intitulé'] ?? item['name'] ?? 'Nom non spécifié',
-                                subtitle: item['adresse'] ?? item['address'] ?? 'Adresse non spécifiée',
-                                imageUrl: item['image'] ?? item['photo'] ?? item['photo_url'] ?? '',
-                                rating: item['rating'],
-                                price: item['price_level'],
-                                categories: item['category'],
-                              );
-                            }).toList()),
-                          ],
-                          if (_userResults.isNotEmpty) ...[
-                            const SizedBox(height: 20),
-                            Container(
-                              margin: const EdgeInsets.only(bottom: 12),
-                              child: const Text(
-                                'Utilisateurs',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold, 
-                                  fontSize: 18,
-                                  color: Colors.black87,
-                                ),
-                              ),
-                            ),
-                            ...(_userResults.map((user) {
-                              return ListTile(
-                                leading: CircleAvatar(
-                                  backgroundImage: NetworkImage(user['photo_url'] ?? ''),
-                                  backgroundColor: Colors.grey[300],
-                                  child: (user['photo_url'] == null || user['photo_url'] == '') 
-                                    ? const Icon(Icons.person, color: Colors.grey)
-                                    : null,
-                                ),
-                                title: Text(user['name'] ?? 'Nom non spécifié'),
-                                subtitle: Text(user['username'] ?? ''),
-                                onTap: () => _navigateToDetails(user['_id'], 'user'),
-                              );
-                            }).toList()),
-                          ],
-                        ],
-                      ),
+                ],
+              ),
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -634,9 +795,11 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> {
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
           // Afficher l'auteur avec icône
           Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
               Icon(
                 message.author.id == 'assistant' ? Icons.smart_toy : Icons.person,
@@ -644,12 +807,15 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> {
                 color: message.author.id == 'assistant' ? Colors.blueAccent : Colors.grey[700],
               ),
               const SizedBox(width: 6),
-              Text(
-                message.author.firstName ?? (message.author.id == 'assistant' ? 'Assistant' : 'Vous'),
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
-                  color: message.author.id == 'assistant' ? Colors.blueAccent : Colors.grey[700],
+              Flexible(
+                child: Text(
+                  message.author.firstName ?? (message.author.id == 'assistant' ? 'Assistant' : 'Vous'),
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                    color: message.author.id == 'assistant' ? Colors.blueAccent : Colors.grey[700],
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             ],
@@ -657,19 +823,26 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> {
           const SizedBox(height: 8),
           
           // Afficher le texte avec des liens cliquables
-          RichText(
-            text: TextSpan(
-              style: TextStyle(
-                color: Colors.black87,
-                fontSize: 15,
-                height: 1.4, // Améliore l'espacement des lignes
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: messageWidth.toDouble()),
+              child: RichText(
+                overflow: TextOverflow.clip,
+                text: TextSpan(
+                  style: TextStyle(
+                    color: Colors.black87,
+                    fontSize: 15,
+                    height: 1.4, // Améliore l'espacement des lignes
+                  ),
+                  children: hasProfiles
+                    ? AIService.parseMessageWithLinks(
+                        text,
+                        (type, id) => _navigateToProfile(type, id),
+                      )
+                    : [TextSpan(text: text)],
+                ),
               ),
-              children: hasProfiles
-                ? AIService.parseMessageWithLinks(
-                    text,
-                    (type, id) => _navigateToProfile(type, id),
-                  )
-                : [TextSpan(text: text)],
             ),
           ),
         ],
@@ -683,140 +856,156 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> {
     _navigateToDetails(id, type);
   }
   
-  /// 🔹 Construit une carte pour un profil extrait - design amélioré
+  /// 🔹 Construit une carte pour un profil extrait - design amélioré et corrigé
   Widget _buildProfileCard(ProfileData profile) {
+    // Remplacer les URLs placeholder par des URLs fiables
+    String imageUrl = profile.image ?? '';
+    if (imageUrl.contains('placeholder.com') || imageUrl.isEmpty) {
+      switch (profile.type) {
+        case 'restaurant':
+          imageUrl = 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=500&q=80';
+          break;
+        case 'event':
+          imageUrl = 'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=500&q=80';
+          break;
+        case 'leisureProducer':
+          imageUrl = 'https://images.unsplash.com/photo-1471967183320-ee018f6e114a?w=500&q=80';
+          break;
+        default:
+          imageUrl = 'https://images.unsplash.com/photo-1471967183320-ee018f6e114a?w=500&q=80';
+      }
+    }
+    
     return GestureDetector(
       onTap: () => _navigateToProfile(profile.type, profile.id),
       child: Card(
         elevation: 2,
-        margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), // Réduit marge verticale
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
           side: BorderSide(color: Colors.grey.withOpacity(0.2)),
         ),
-        child: Container(
-          width: 180,
-          padding: const EdgeInsets.all(10),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Image du profil - plus grande et mieux gérée
-              ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: profile.image != null && profile.image!.isNotEmpty
-                  ? CachedNetworkImage(
-                      imageUrl: profile.image!,
-                      height: 100,
-                      width: double.infinity,
-                      fit: BoxFit.cover,
-                      placeholder: (context, url) => Container(
-                        height: 100,
-                        color: Colors.grey[200],
-                        child: const Center(
-                          child: SizedBox(
-                            width: 20, 
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2)
+        child: SizedBox(
+          width: 155, // Légèrement réduit pour éviter débordement
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(
+              maxHeight: 155, // Hauteur maximale contrainte
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(6), // Padding réduit
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min, // Utilise minimal space
+                children: [
+                  // Image du profil - hauteur réduite pour éviter débordement
+                  SizedBox(
+                    height: 75, // Hauteur réduite
+                    width: double.infinity,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: CachedNetworkImage(
+                        imageUrl: imageUrl,
+                        fit: BoxFit.cover,
+                        placeholder: (context, url) => Container(
+                          color: Colors.grey[200],
+                          child: const Center(
+                            child: SizedBox(
+                              width: 20, 
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2)
+                            ),
                           ),
                         ),
-                      ),
-                      errorWidget: (context, url, error) => Container(
-                        height: 100,
-                        color: Colors.grey[200],
-                        child: Center(
-                          child: Icon(
-                            _getIconForType(profile.type),
-                            color: Colors.grey[400],
-                            size: 40,
+                        errorWidget: (context, url, error) => Container(
+                          color: Colors.grey[200],
+                          child: Center(
+                            child: Icon(
+                              _getIconForType(profile.type),
+                              color: Colors.grey[400],
+                              size: 28,
+                            ),
                           ),
-                        ),
-                      ),
-                    )
-                  : Container(
-                      height: 100,
-                      color: Colors.grey[200],
-                      width: double.infinity,
-                      child: Center(
-                        child: Icon(
-                          _getIconForType(profile.type),
-                          color: Colors.grey[400],
-                          size: 40,
                         ),
                       ),
                     ),
-              ),
-              
-              const SizedBox(height: 8),
-              
-              // Nom du profil avec style amélioré
-              Text(
-                profile.name,
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              
-              // Adresse si disponible
-              if (profile.address != null && profile.address!.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 2.0),
-                  child: Text(
-                    profile.address!,
-                    style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                  ),
+                  
+                  const SizedBox(height: 4), // Espacement réduit
+                  
+                  // Nom du profil avec style amélioré
+                  Text(
+                    profile.name,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12, // Taille réduite
+                    ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                ),
-              
-              // Note avec étoiles et niveau de prix
-              Padding(
-                padding: const EdgeInsets.only(top: 4.0),
-                child: Row(
-                  children: [
-                    if (profile.rating != null) ...[
-                      const Icon(Icons.star, color: Colors.amber, size: 14),
-                      Text(' ${profile.rating!.toStringAsFixed(1)}',
-                          style: const TextStyle(fontSize: 12)),
-                      const SizedBox(width: 8),
-                    ],
-                    
-                    if (profile.priceLevel != null) ...[
-                      Text(
-                        '${_getPriceSymbol(profile.priceLevel!)}',
-                        style: const TextStyle(fontSize: 12),
+                  
+                  // Adresse si disponible
+                  if (profile.address != null && profile.address!.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 1.0), // Padding réduit
+                      child: Text(
+                        profile.address!,
+                        style: TextStyle(fontSize: 9, color: Colors.grey[600]), // Taille réduite
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                    ],
-                  ],
-                ),
+                    ),
+                  
+                  // Note avec étoiles et niveau de prix
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2.0), // Padding réduit
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (profile.rating != null) ...[
+                          const Icon(Icons.star, color: Colors.amber, size: 10), // Taille réduite
+                          Text(' ${profile.rating!.toStringAsFixed(1)}',
+                              style: const TextStyle(fontSize: 10)), // Taille réduite
+                          const SizedBox(width: 4), // Espacement réduit
+                        ],
+                        
+                        if (profile.priceLevel != null)
+                          Flexible(
+                            child: Text(
+                              _getPriceSymbol(profile.priceLevel!),
+                              style: const TextStyle(fontSize: 10), // Taille réduite
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  
+                  // Catégorie - badge rendu plus compact
+                  if (profile.category.isNotEmpty)
+                    Container(
+                      margin: const EdgeInsets.only(top: 2), // Marge réduite
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1), // Padding réduit
+                      decoration: BoxDecoration(
+                        color: Colors.grey[200],
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        profile.category.first,
+                        style: TextStyle(fontSize: 8, color: Colors.grey[700]), // Taille réduite
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                ],
               ),
-              
-              // Catégorie avec style amélioré
-              if (profile.category.isNotEmpty)
-                Container(
-                  margin: const EdgeInsets.only(top: 4),
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: Colors.grey[200],
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Text(
-                    profile.category.first,
-                    style: TextStyle(fontSize: 10, color: Colors.grey[700]),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-            ],
+            ),
           ),
         ),
       ),
     );
   }
   
-  /// 🔹 Construit une carte de résultat pour la liste principale
+  /// 🔹 Construit une carte de résultat pour la liste principale avec corrections des débordements
   Widget _buildResultCard({
     required String id,
     required String type,
@@ -827,6 +1016,24 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> {
     dynamic price,
     dynamic categories,
   }) {
+    // Utiliser une URL d'image plus fiable si l'URL actuelle contient placeholder.com
+    if (imageUrl.contains('placeholder.com') || imageUrl.isEmpty) {
+      // Utiliser une image de repli en fonction du type
+      switch (type) {
+        case 'restaurant':
+          imageUrl = 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=500&q=80';
+          break;
+        case 'event':
+          imageUrl = 'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=500&q=80';
+          break;
+        case 'leisureProducer':
+          imageUrl = 'https://images.unsplash.com/photo-1471967183320-ee018f6e114a?w=500&q=80';
+          break;
+        default:
+          imageUrl = 'https://images.unsplash.com/photo-1471967183320-ee018f6e114a?w=500&q=80';
+      }
+    }
+
     return GestureDetector(
       onTap: () => _navigateToDetails(id, type),
       child: Card(
@@ -840,30 +1047,38 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Image
-              ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: imageUrl.isNotEmpty
-                  ? CachedNetworkImage(
-                      imageUrl: imageUrl,
-                      width: 80,
-                      height: 80,
-                      fit: BoxFit.cover,
-                      placeholder: (context, url) => Container(
-                        width: 80,
-                        height: 80,
-                        color: Colors.grey[200],
-                        child: const Center(
-                          child: SizedBox(
-                            width: 20, 
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2)
+              // Image avec taille fixe pour éviter les problèmes de layout
+              SizedBox(
+                width: 80,
+                height: 80,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: imageUrl.isNotEmpty
+                    ? CachedNetworkImage(
+                        imageUrl: imageUrl,
+                        fit: BoxFit.cover,
+                        placeholder: (context, url) => Container(
+                          color: Colors.grey[200],
+                          child: const Center(
+                            child: SizedBox(
+                              width: 20, 
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2)
+                            ),
                           ),
                         ),
-                      ),
-                      errorWidget: (context, url, error) => Container(
-                        width: 80,
-                        height: 80,
+                        errorWidget: (context, url, error) => Container(
+                          color: Colors.grey[200],
+                          child: Center(
+                            child: Icon(
+                              _getIconForType(type),
+                              color: Colors.grey[400],
+                              size: 30,
+                            ),
+                          ),
+                        ),
+                      )
+                    : Container(
                         color: Colors.grey[200],
                         child: Center(
                           child: Icon(
@@ -873,27 +1088,16 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> {
                           ),
                         ),
                       ),
-                    )
-                  : Container(
-                      width: 80,
-                      height: 80,
-                      color: Colors.grey[200],
-                      child: Center(
-                        child: Icon(
-                          _getIconForType(type),
-                          color: Colors.grey[400],
-                          size: 30,
-                        ),
-                      ),
-                    ),
+                ),
               ),
               
               const SizedBox(width: 12),
               
-              // Informations
+              // Informations - utilisation d'Expanded pour éviter les débordements
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     // Titre
                     Text(
@@ -917,56 +1121,71 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> {
                       ),
                     ),
                     
-                    // Évaluation et prix
+                    // Évaluation et prix - réorganisés pour éviter les débordements
                     Padding(
                       padding: const EdgeInsets.only(top: 6.0),
                       child: Row(
                         children: [
-                          // Note avec étoiles
-                          if (rating != null) ...[
-                            const Icon(Icons.star, color: Colors.amber, size: 16),
-                            Text(' ${rating is double ? rating.toStringAsFixed(1) : rating}',
-                                style: const TextStyle(fontSize: 13)),
-                            const SizedBox(width: 12),
-                          ],
-                          
-                          // Niveau de prix
-                          if (price != null && price is num && price > 0) ...[
-                            Text(
-                              _getPriceSymbol(price),
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: Colors.grey[700],
-                              ),
+                          // Section gauche (notes et prix) avec Expanded
+                          Expanded(
+                            flex: 3,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (rating != null) ...[
+                                  const Icon(Icons.star, color: Colors.amber, size: 14),
+                                  const SizedBox(width: 2),
+                                  Flexible(
+                                    child: Text(
+                                      rating is double 
+                                          ? rating.toStringAsFixed(1)
+                                          : rating.toString(),
+                                      style: const TextStyle(fontSize: 12),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                ],
+                                
+                                if (price != null && price is num && price > 0)
+                                  Text(
+                                    _getPriceSymbol(price),
+                                    style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                                  ),
+                              ],
                             ),
-                          ],
+                          ),
                           
-                          const Spacer(),
-                          
-                          // Type d'établissement
+                          // Badge de type à droite - avec contraintes de taille
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            constraints: const BoxConstraints(maxWidth: 70),
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                             decoration: BoxDecoration(
                               color: _getColorForType(type),
-                              borderRadius: BorderRadius.circular(12),
+                              borderRadius: BorderRadius.circular(10),
                             ),
                             child: Text(
                               _getLabelForType(type),
                               style: const TextStyle(
                                 color: Colors.white,
-                                fontSize: 11,
+                                fontSize: 10,
                                 fontWeight: FontWeight.w500,
                               ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                         ],
                       ),
                     ),
                     
-                    // Catégories si disponibles
+                    // Catégories avec scroll horizontal pour éviter les débordements
                     if (categories != null) ...[
                       const SizedBox(height: 6),
-                      _buildCategoriesChips(categories),
+                      SizedBox(
+                        height: 22, // Hauteur fixe
+                        child: _buildCategoriesChips(categories),
+                      ),
                     ],
                   ],
                 ),
@@ -978,7 +1197,7 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> {
     );
   }
 
-  // Fonction helper pour afficher les catégories
+  // Fonction helper optimisée pour afficher les catégories
   Widget _buildCategoriesChips(dynamic categories) {
     List<String> categoryList = [];
     
@@ -990,26 +1209,28 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> {
     
     if (categoryList.isEmpty) return const SizedBox.shrink();
     
-    return SizedBox(
-      height: 22,
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        itemCount: categoryList.length > 3 ? 3 : categoryList.length,
-        itemBuilder: (context, index) {
-          return Container(
-            margin: const EdgeInsets.only(right: 5),
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-            decoration: BoxDecoration(
-              color: Colors.grey[200],
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Text(
-              categoryList[index],
-              style: TextStyle(fontSize: 10, color: Colors.grey[700]),
-            ),
-          );
-        },
-      ),
+    return ListView.builder(
+      scrollDirection: Axis.horizontal,
+      physics: const AlwaysScrollableScrollPhysics(), // Permet toujours le défilement
+      itemCount: categoryList.length > 3 ? 3 : categoryList.length,
+      itemBuilder: (context, index) {
+        final category = categoryList[index];
+        return Container(
+          margin: const EdgeInsets.only(right: 5),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          decoration: BoxDecoration(
+            color: Colors.grey[200],
+            borderRadius: BorderRadius.circular(10),
+          ),
+          constraints: const BoxConstraints(maxWidth: 80), // Limite la largeur max des puces
+          child: Text(
+            category,
+            style: TextStyle(fontSize: 10, color: Colors.grey[700]),
+            overflow: TextOverflow.ellipsis,
+            maxLines: 1,
+          ),
+        );
+      },
     );
   }
   

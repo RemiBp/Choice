@@ -194,344 +194,1553 @@ class _EventLeisureScreenState extends State<EventLeisureScreen> {
             _buildMap(),
 
             const SizedBox(height: 16),
+            
+            // Lineup (si disponible)
+            if (_eventData!['lineup'] != null && _eventData!['lineup'] is List && (_eventData!['lineup'] as List).isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                child: _buildLineup(),
+              ),
+
+            const SizedBox(height: 24),
           ],
         ),
       ),
     );
   }
 
-  /// Header avec image, note et cœur
-  
-  Widget _buildHeader() {
-    return Stack(
-      children: [
-        if (_eventData!['image'] != null)
-          Image.network(
-            _eventData!['image'],
-            height: 250,
-            width: double.infinity,
-            fit: BoxFit.cover,
-            loadingBuilder: (context, child, loadingProgress) {
-              if (loadingProgress == null) return child;
-              return const Center(child: CircularProgressIndicator());
-            },
-            errorBuilder: (context, error, stackTrace) => const Icon(
-              Icons.broken_image,
-              size: 100,
-            ),
-          ),
-        if (_eventData!['note'] != null && _eventData!['note'] is num)
-          Positioned(
-            bottom: 16,
-            right: 16,
-            child: Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.black54,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.star, color: Colors.yellow, size: 20),
-                  const SizedBox(width: 4),
-                  Text(
-                    '${double.parse(_eventData!['note'].toString()).toStringAsFixed(1)}',
-                    style: const TextStyle(color: Colors.white, fontSize: 16),
-                  ),
-                ],
-              ),
-            ),
-          )
-        else
-          Positioned(
-            bottom: 16,
-            right: 16,
-            child: Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.black54,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.star, color: Colors.grey, size: 20),
-                  const SizedBox(width: 4),
-                  const Text(
-                    'Note non disponible',
-                    style: TextStyle(color: Colors.white, fontSize: 16),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        Positioned(
-          top: 16,
-          left: 16,
-          child: Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: Colors.redAccent,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.favorite, color: Colors.white, size: 20),
-                const SizedBox(width: 4),
-                Text(
-                  '0', // Statique pour l'instant
-                  style: const TextStyle(color: Colors.white, fontSize: 16),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  /// Détails principaux (intitulé, description, catégorie, lieu)
-  Widget _buildMainDetails(BuildContext context) {
+  /// Affiche le lineup de l'événement avec style amélioré
+  Widget _buildLineup() {
+    final lineup = _eventData!['lineup'] as List;
+    
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Titre de l'événement
-        Text(
-          _eventData!['intitulé'] ?? 'Nom non spécifié',
-          style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 8),
-
-        // Description de l'événement
-        Text(
-          _eventData!['détail'] ?? 'Description non spécifiée',
-          style: const TextStyle(fontSize: 16, color: Colors.black54, height: 1.5),
-        ),
-        const SizedBox(height: 16),
-
-        // Catégorie avec navigation vers des événements similaires
-        GestureDetector(
-          onTap: () => _fetchEventsByCategory(context, _eventData!['catégorie']),
+        // Titre de la section avec style amélioré
+        Container(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          decoration: BoxDecoration(
+            border: Border(
+              bottom: BorderSide(color: Colors.teal.withOpacity(0.3), width: 2),
+            ),
+          ),
           child: Row(
             children: [
-              const Icon(Icons.category, color: Colors.grey),
-              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.teal.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.people, color: Colors.teal),
+              ),
+              const SizedBox(width: 12),
               Text(
-                'Catégorie : ${_eventData!['catégorie']?.split('»').last.trim() ?? 'Non spécifiée'}',
+                'Line-up (${lineup.length})',
                 style: const TextStyle(
-                  fontSize: 16,
-                  color: Colors.blue,
-                  decoration: TextDecoration.underline,
+                  fontSize: 22, 
+                  fontWeight: FontWeight.bold,
+                  color: Colors.teal,
+                  letterSpacing: 0.5,
                 ),
               ),
             ],
           ),
         ),
+        
         const SizedBox(height: 16),
-
-        // Lieu avec navigation vers le producteur
-        if (_eventData!['lieu'] != null)
-          GestureDetector(
-            onTap: () => _navigateToProducer(context, _eventData!['lieu']!), // Utilise 'lieu' au lieu de '_id'
-            child: Row(
-              children: [
-                const Icon(Icons.place, color: Colors.blue),
-                const SizedBox(width: 8),
-                Text(
-                  'Lieu : ${_eventData!['lieu']}',
-                  style: const TextStyle(
-                    fontSize: 16,
-                    color: Colors.blue,
-                    decoration: TextDecoration.underline,
+        
+        // Liste des artistes avec style amélioré
+        ListView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: lineup.length,
+          itemBuilder: (context, index) {
+            final artist = lineup[index];
+            final String artistName = artist['nom'] ?? 'Artiste';
+            final String? artistImage = artist['image'];
+            
+            // Générer une URL d'avatar si l'image est null, vide ou provient de placeholder.com
+            final String imageUrl = (artistImage != null && 
+                               artistImage.isNotEmpty && 
+                               !artistImage.contains('placeholder.com')) 
+                               ? artistImage 
+                               : 'https://ui-avatars.com/api/?name=${Uri.encodeComponent(artistName)}&background=random&size=200';
+            
+            return InkWell(
+              onTap: () => _searchEventsByArtist(context, artistName),
+              child: Card(
+                elevation: 3,
+                margin: const EdgeInsets.only(bottom: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Colors.white,
+                        Colors.teal.withOpacity(0.05),
+                      ],
+                    ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Row(
+                      children: [
+                        // Photo de l'artiste avec effet
+                        Container(
+                          width: 90,
+                          height: 90,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(12),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.teal.withOpacity(0.2),
+                                blurRadius: 8,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: Image.network(
+                              imageUrl,
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, error, stackTrace) => 
+                                Container(
+                                  color: Colors.grey[200],
+                                  child: const Center(
+                                    child: Icon(Icons.person, size: 40, color: Colors.grey),
+                                  ),
+                                ),
+                            ),
+                          ),
+                        ),
+                        
+                        const SizedBox(width: 16),
+                        
+                        // Informations de l'artiste avec style amélioré
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                artistName,
+                                style: const TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 0.3,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: Colors.teal.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(color: Colors.teal.withOpacity(0.3)),
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.event, size: 14, color: Colors.teal),
+                                    SizedBox(width: 6),
+                                    Text(
+                                      'Voir tous les événements',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.teal,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        
+                        // Flèche pour indiquer la navigation
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.teal.withOpacity(0.1),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.arrow_forward_ios, color: Colors.teal, size: 16),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ],
-            ),
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  /// Recherche tous les événements d'un artiste avec meilleure gestion d'erreurs
+  Future<void> _searchEventsByArtist(BuildContext context, String artistName) async {
+    // Afficher une boîte de dialogue de chargement améliorée
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        child: Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.2),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
           ),
-        const SizedBox(height: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const CircularProgressIndicator(color: Colors.teal),
+              const SizedBox(height: 16),
+              Text(
+                'Recherche d\'événements pour $artistName...',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 14),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    
+    try {
+      // Construire l'URL pour la recherche
+      final baseUrl = getBaseUrl();
+      Uri url;
+      
+      if (baseUrl.startsWith('http://')) {
+        final domain = baseUrl.replaceFirst('http://', '');
+        url = Uri.http(domain, '/api/events/search-by-artist', {'artistName': artistName});
+      } else if (baseUrl.startsWith('https://')) {
+        final domain = baseUrl.replaceFirst('https://', '');
+        url = Uri.https(domain, '/api/events/search-by-artist', {'artistName': artistName});
+      } else {
+        url = Uri.parse('$baseUrl/api/events/search-by-artist?artistName=$artistName');
+      }
+      
+      // Log pour debugging
+      print('🔍 Recherche d\'événements pour l\'artiste: $artistName');
+      print('🔗 URL: $url');
+      
+      // Ajouter un timeout pour éviter que la requête ne reste bloquée
+      final response = await http.get(url).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () {
+          print('⏱️ Timeout lors de la requête vers $url');
+          return http.Response('{"error": "timeout"}', 408);
+        },
+      );
+      
+      // Fermer la boîte de dialogue de chargement
+      Navigator.of(context).pop();
+      
+      // Log de la réponse pour debugging
+      print('📊 Statut de la réponse: ${response.statusCode}');
+      
+      if (response.statusCode == 200) {
+        try {
+          final List<dynamic> events = json.decode(response.body);
+          print('✅ Événements trouvés: ${events.length}');
+          
+          if (events.isEmpty) {
+            _showInfo(context, 'Aucun événement trouvé', 'Aucun événement trouvé pour $artistName');
+            return;
+          }
+          
+          // Afficher la liste des événements
+          _showArtistEventsSheet(context, events, artistName);
+        } catch (jsonError) {
+          print('❌ Erreur lors du décodage JSON: $jsonError');
+          _showError(context, 'Erreur lors du traitement des données. Veuillez réessayer.');
+        }
+      } else if (response.statusCode == 408) {
+        _showError(context, 'La requête a pris trop de temps. Veuillez réessayer.');
+      } else {
+        print('❌ Erreur HTTP: ${response.statusCode}');
+        print('❌ Corps de la réponse: ${response.body}');
+        _showError(context, 'Erreur lors de la recherche des événements (${response.statusCode})');
+      }
+    } catch (e) {
+      print('❌ Exception: $e');
+      // Fermer la boîte de dialogue de chargement en cas d'erreur
+      Navigator.of(context).pop();
+      _showError(context, 'Impossible de se connecter au serveur. Veuillez vérifier votre connexion et réessayer.');
+    }
+  }
 
-        // Dates et horaires
-        if (_eventData!['date_debut'] != null && _eventData!['date_fin'] != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Affichage des dates
-                Text(
-                  'Dates :',
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-                Text(
-                  '${_eventData!['date_debut']} - ${_eventData!['date_fin']}',
-                  style: const TextStyle(fontSize: 16, color: Colors.black54),
-                ),
-                const SizedBox(height: 8),
-
-                // Affichage des horaires
-                if (_eventData!['horaires'] != null && _eventData!['horaires'] is List)
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Horaires :',
-                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                      ),
-                      ..._eventData!['horaires'].map<Widget>((horaire) {
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 4.0),
+  /// Afficher un message d'information
+  void _showInfo(BuildContext context, String title, String message) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  /// Affiche la liste des événements d'un artiste
+  void _showArtistEventsSheet(BuildContext context, List<dynamic> events, String artistName) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.7,
+          minChildSize: 0.5,
+          maxChildSize: 0.95,
+          builder: (context, scrollController) {
+            return Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.2),
+                    blurRadius: 10,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+              child: Column(
+                children: [
+                  // Handle pour faire glisser
+                  Container(
+                    margin: const EdgeInsets.symmetric(vertical: 8),
+                    width: 40,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  
+                  // Titre avec icône
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.person, color: Colors.teal),
+                        const SizedBox(width: 8),
+                        Expanded(
                           child: Text(
-                            '${horaire['jour']} : ${horaire['heure']}',
-                            style: const TextStyle(fontSize: 16, color: Colors.black54),
+                            'Événements avec $artistName',
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.teal,
+                            ),
+                            textAlign: TextAlign.center,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  
+                  // Liste des événements
+                  Expanded(
+                    child: ListView.builder(
+                      controller: scrollController,
+                      itemCount: events.length,
+                      itemBuilder: (context, index) {
+                        final event = events[index];
+                        return Card(
+                          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          elevation: 2,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: InkWell(
+                            onTap: () {
+                              // Fermer la bottom sheet
+                              Navigator.pop(context);
+                              
+                              // Naviguer vers l'événement si ce n'est pas l'événement actuel
+                              if (event['_id'] != _eventId) {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => EventLeisureScreen(
+                                      eventId: event['_id'],
+                                    ),
+                                  ),
+                                );
+                              }
+                            },
+                            child: Row(
+                              children: [
+                                // Image de l'événement
+                                ClipRRect(
+                                  borderRadius: const BorderRadius.only(
+                                    topLeft: Radius.circular(12),
+                                    bottomLeft: Radius.circular(12),
+                                  ),
+                                  child: event['image'] != null
+                                    ? Image.network(
+                                        event['image'],
+                                        width: 100,
+                                        height: 100,
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (context, error, stackTrace) => const SizedBox(
+                                          width: 100,
+                                          height: 100,
+                                          child: Icon(Icons.broken_image, size: 40),
+                                        ),
+                                      )
+                                    : Container(
+                                        width: 100,
+                                        height: 100,
+                                        color: Colors.grey[300],
+                                        child: const Icon(Icons.event, size: 40),
+                                      ),
+                                ),
+                                
+                                // Détails de l'événement
+                                Expanded(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(12.0),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          event['intitulé'] ?? 'Événement sans titre',
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 16,
+                                          ),
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        const SizedBox(height: 4),
+                                        if (event['lieu'] != null) Row(
+                                          children: [
+                                            const Icon(Icons.location_on, size: 14, color: Colors.grey),
+                                            const SizedBox(width: 4),
+                                            Expanded(
+                                              child: Text(
+                                                event['lieu'],
+                                                style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 4),
+                                        if (event['prochaines_dates'] != null) Row(
+                                          children: [
+                                            const Icon(Icons.calendar_today, size: 14, color: Colors.grey),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              event['prochaines_dates'],
+                                              style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                
+                                // Marqueur si c'est l'événement actuel
+                                if (event['_id'] == _eventId) Container(
+                                  width: 4,
+                                  height: 100,
+                                  color: Colors.teal,
+                                ),
+                              ],
+                            ),
                           ),
                         );
-                      }).toList(),
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  /// Header avec image, note et cœur - design amélioré et moderne
+  Widget _buildHeader() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.black,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.2),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Stack(
+        children: [
+          // Image principale avec effet de dégradé
+          if (_eventData!['image'] != null)
+            ShaderMask(
+              shaderCallback: (rect) {
+                return LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Colors.black.withOpacity(0.1), Colors.black.withOpacity(0.8)],
+                ).createShader(rect);
+              },
+              blendMode: BlendMode.darken,
+              child: Image.network(
+                _eventData!['image'],
+                height: 280,
+                width: double.infinity,
+                fit: BoxFit.cover,
+                loadingBuilder: (context, child, loadingProgress) {
+                  if (loadingProgress == null) return child;
+                  return Container(
+                    height: 280,
+                    color: Colors.grey[800],
+                    child: const Center(child: CircularProgressIndicator(color: Colors.white)),
+                  );
+                },
+                errorBuilder: (context, error, stackTrace) => Container(
+                  height: 280,
+                  color: Colors.grey[800],
+                  child: const Center(
+                    child: Icon(Icons.broken_image, size: 60, color: Colors.white70),
+                  ),
+                ),
+              ),
+            )
+          else
+            Container(
+              height: 280,
+              color: Colors.grey[800],
+              child: const Center(
+                child: Icon(Icons.image_not_supported, size: 60, color: Colors.white70),
+              ),
+            ),
+          
+          // Information overlay at the bottom
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.bottomCenter,
+                  end: Alignment.topCenter,
+                  colors: [
+                    Colors.black.withOpacity(0.9),
+                    Colors.black.withOpacity(0.1),
+                  ],
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Catégorie et date en chips
+                  Row(
+                    children: [
+                      if (_eventData!['catégorie'] != null)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.teal.withOpacity(0.9),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            _eventData!['catégorie']?.split('»').last.trim() ?? 'Catégorie',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w500,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      const SizedBox(width: 8),
+                      if (_eventData!['prochaines_dates'] != null)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.6),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: Colors.white30),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.calendar_today, size: 12, color: Colors.white),
+                              const SizedBox(width: 4),
+                              Text(
+                                _eventData!['prochaines_dates'],
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                     ],
                   ),
-                const SizedBox(height: 16),
-
-                // Bouton Ajouter à l'agenda
-                ElevatedButton.icon(
-                  onPressed: () {
-                    if (_eventData!['date_debut'] != null && _eventData!['date_fin'] != null) {
-                      _addToCalendar(_eventData!);
-                    }
-                  },
-                  icon: const Icon(Icons.calendar_today),
-                  label: const Text('Ajouter à mon agenda'),
-                  style: ElevatedButton.styleFrom(
-                    textStyle: const TextStyle(fontSize: 14),
-                    padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 12.0),
-                    backgroundColor: Colors.teal,
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
-      ],
-    );
-  }
-
-
-  /// Prix par catégories
-  Widget _buildPriceDetails() {
-    final categoriesPrix = _eventData!['catégories_prix'] ?? [];
-    if (categoriesPrix.isEmpty) {
-      return const Text(
-        'Prix : Non disponible',
-        style: TextStyle(fontSize: 16, color: Colors.grey),
-      );
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Prix par catégories :',
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-        ),
-        ...categoriesPrix.map<Widget>((category) {
-          final prices = category['Prix']?.map((p) => p.toString()).join(', ') ?? 'Non spécifié';
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4.0),
+          
+          // Badge de note
+          if (_eventData!['note'] != null && _eventData!['note'] is num)
+            Positioned(
+              top: 16,
+              right: 16,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.amber,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.3),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.star, color: Colors.white, size: 18),
+                    const SizedBox(width: 4),
+                    Text(
+                      '${double.parse(_eventData!['note'].toString()).toStringAsFixed(1)}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else
+            Positioned(
+              top: 16,
+              right: 16,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.grey[700],
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.3),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.star_outline, color: Colors.white70, size: 16),
+                    SizedBox(width: 4),
+                    Text(
+                      'N/A',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+              
+          // Badge d'interaction (coeur)
+          Positioned(
+            top: 16,
+            left: 16,
             child: Row(
               children: [
-                Expanded(
-                  child: Text(
-                    '${category["Catégorie"]}',
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                // Bouton intérêt
+                Container(
+                  margin: const EdgeInsets.only(right: 8),
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withOpacity(0.8),
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.3),
+                        blurRadius: 4,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.favorite, color: Colors.white, size: 18),
+                      SizedBox(width: 4),
+                      Text(
+                        '0',
+                        style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                      ),
+                    ],
                   ),
                 ),
-                Text(
-                  prices,
-                  style: const TextStyle(fontSize: 16, color: Colors.green),
+                
+                // Bouton Choice
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withOpacity(0.8),
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.3),
+                        blurRadius: 4,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.check_circle, color: Colors.white, size: 18),
+                      SizedBox(width: 4),
+                      Text(
+                        '0',
+                        style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
-          );
-        }).toList(),
-      ],
-    );
-  }
-  /// Notes globales, émotions et appréciation globale
-  Widget _buildGlobalNotes() {
-    final notes = _eventData!['notes_globales'] ?? {};
-    final emotions = _eventData!['emotions'] ?? [];
-    final appreciation = _eventData!['notes_globales']?['appréciation_globale'] ?? '';
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Notes globales :',
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 8),
-        if (notes.isNotEmpty)
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildNoteRow('Mise en scène', notes['mise_en_scene']),
-              _buildNoteRow('Jeu des acteurs', notes['jeu_acteurs']),
-              _buildNoteRow('Scénario', notes['scenario']),
-              const SizedBox(height: 8),
-              const Text('Émotions :', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              Wrap(
-                spacing: 8.0,
-                children: emotions
-                    .map<Widget>((emotion) => Chip(label: Text(emotion)))
-                    .toList(),
-              ),
-              if (appreciation.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8.0),
-                  child: Text(
-                    'Appréciation globale : $appreciation',
-                    style: const TextStyle(fontSize: 16, color: Colors.black54, height: 1.5),
-                  ),
-                ),
-            ],
-          )
-        else
-          const Text('Non disponible', style: TextStyle(fontSize: 16, color: Colors.grey)),
-      ],
-    );
-  }
-
-  /// Afficher une ligne pour une note
-  Widget _buildNoteRow(String label, dynamic value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4.0),
-      child: Row(
-        children: [
-          Text(
-            '$label : ',
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-          ),
-          Text(
-            value != null ? '${double.parse(value.toString()).toStringAsFixed(1)}' : 'Non disponible',
-            style: const TextStyle(fontSize: 16),
           ),
         ],
       ),
     );
   }
 
-  /// Boutons pour afficher les événements similaires et de la même catégorie
+  /// Détails principaux (intitulé, description, catégorie, lieu) avec design amélioré
+  Widget _buildMainDetails(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Titre de l'événement avec style amélioré
+          Text(
+            _eventData!['intitulé'] ?? 'Nom non spécifié',
+            style: const TextStyle(
+              fontSize: 26, 
+              fontWeight: FontWeight.bold,
+              color: Colors.black87,
+              letterSpacing: 0.3,
+            ),
+          ),
+          
+          const SizedBox(height: 16),
+          
+          // Séparateur stylisé
+          Container(
+            height: 3,
+            width: 60,
+            decoration: BoxDecoration(
+              color: Colors.teal,
+              borderRadius: BorderRadius.circular(3),
+            ),
+          ),
+          
+          const SizedBox(height: 16),
+
+          // Description de l'événement avec style amélioré
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.grey.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey.withOpacity(0.1)),
+            ),
+            child: Text(
+              _eventData!['détail'] ?? 'Description non spécifiée',
+              style: const TextStyle(
+                fontSize: 16, 
+                color: Colors.black87, 
+                height: 1.5,
+                letterSpacing: 0.2,
+              ),
+            ),
+          ),
+          
+          const SizedBox(height: 24),
+
+          // Catégorie avec navigation - design amélioré
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: () => _fetchEventsByCategory(context, _eventData!['catégorie']),
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Colors.teal.withOpacity(0.05),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.teal.withOpacity(0.3)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.category, color: Colors.teal, size: 20),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Catégorie : ${_eventData!['catégorie']?.split('»').last.trim() ?? 'Non spécifiée'}',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        color: Colors.teal,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          
+          const SizedBox(height: 16),
+
+          // Lieu avec navigation - design amélioré
+          if (_eventData!['lieu'] != null)
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () => _navigateToProducer(context, _eventData!['lieu']!),
+                borderRadius: BorderRadius.circular(12),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withOpacity(0.05),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.place, color: Colors.blue, size: 20),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Lieu : ${_eventData!['lieu']}',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          color: Colors.blue,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          
+          const SizedBox(height: 24),
+
+          // Dates et horaires avec design amélioré
+          if (_eventData!['date_debut'] != null && _eventData!['date_fin'] != null)
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Colors.teal.withOpacity(0.1),
+                    Colors.blue.withOpacity(0.05),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // En-tête de section
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(8),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.teal.withOpacity(0.2),
+                              blurRadius: 4,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: const Icon(Icons.event, color: Colors.teal),
+                      ),
+                      const SizedBox(width: 12),
+                      const Text(
+                        'Dates et Horaires',
+                        style: TextStyle(
+                          fontSize: 18, 
+                          fontWeight: FontWeight.bold,
+                          color: Colors.teal,
+                        ),
+                      ),
+                    ],
+                  ),
+                  
+                  const SizedBox(height: 16),
+                  
+                  // Dates avec icône
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.date_range, color: Colors.teal, size: 20),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Dates',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.black87,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                '${_eventData!['date_debut']} - ${_eventData!['date_fin']}',
+                                style: const TextStyle(fontSize: 15, color: Colors.black87),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  
+                  const SizedBox(height: 16),
+
+                  // Horaires avec icône
+                  if (_eventData!['horaires'] != null && _eventData!['horaires'] is List)
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.access_time, color: Colors.teal, size: 20),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Horaires',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.black87,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: _eventData!['horaires'].map<Widget>((horaire) {
+                                    return Padding(
+                                      padding: const EdgeInsets.symmetric(vertical: 4.0),
+                                      child: Row(
+                                        children: [
+                                          Container(
+                                            width: 8,
+                                            height: 8,
+                                            decoration: BoxDecoration(
+                                              color: Colors.teal,
+                                              shape: BoxShape.circle,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Expanded(
+                                            child: Text(
+                                              '${horaire['jour']} : ${horaire['heure']}',
+                                              style: const TextStyle(fontSize: 15, color: Colors.black87),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  }).toList(),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  
+                  const SizedBox(height: 20),
+
+                  // Bouton Ajouter à l'agenda avec style amélioré
+                  Center(
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        if (_eventData!['date_debut'] != null && _eventData!['date_fin'] != null) {
+                          _addToCalendar(_eventData!);
+                        }
+                      },
+                      icon: const Icon(Icons.calendar_today, size: 18),
+                      label: const Text('Ajouter à mon agenda'),
+                      style: ElevatedButton.styleFrom(
+                        textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                        padding: const EdgeInsets.symmetric(vertical: 12.0, horizontal: 20.0),
+                        backgroundColor: Colors.teal,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(30),
+                        ),
+                        elevation: 2,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+
+  /// Prix par catégories avec design amélioré
+  Widget _buildPriceDetails() {
+    final categoriesPrix = _eventData!['catégories_prix'] ?? [];
+    if (categoriesPrix.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.grey.withOpacity(0.05),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.grey.withOpacity(0.1)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(8),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: const Icon(Icons.euro, color: Colors.grey),
+            ),
+            const SizedBox(width: 12),
+            const Text(
+              'Prix : Non disponible',
+              style: TextStyle(fontSize: 16, color: Colors.grey),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Titre avec icône
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.green.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.euro, color: Colors.green),
+              ),
+              const SizedBox(width: 12),
+              const Text(
+                'Prix par catégories',
+                style: TextStyle(
+                  fontSize: 18, 
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+            ],
+          ),
+          
+          const SizedBox(height: 16),
+          
+          // Liste des prix
+          ...categoriesPrix.map<Widget>((category) {
+            final prices = category['Prix']?.map((p) => p.toString()).join(', ') ?? 'Non spécifié';
+            return Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.grey.withOpacity(0.05),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.grey.withOpacity(0.1)),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '${category["Catégorie"]}',
+                      style: const TextStyle(
+                        fontSize: 15, 
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
+                      ),
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.green.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: Colors.green.withOpacity(0.3)),
+                    ),
+                    child: Text(
+                      prices,
+                      style: const TextStyle(
+                        fontSize: 15, 
+                        fontWeight: FontWeight.bold,
+                        color: Colors.green,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }).toList(),
+        ],
+      ),
+    );
+  }
+  /// Notes globales, émotions et appréciation globale avec design amélioré
+  Widget _buildGlobalNotes() {
+    final notes = _eventData!['notes_globales'] ?? {};
+    final emotions = _eventData!['emotions'] ?? [];
+    final appreciation = _eventData!['notes_globales']?['appréciation_globale'] ?? '';
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Titre avec icône
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.purple.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.thumbs_up_down, color: Colors.purple),
+              ),
+              const SizedBox(width: 12),
+              const Text(
+                'Notes & Émotions',
+                style: TextStyle(
+                  fontSize: 18, 
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                  letterSpacing: 0.3,
+                ),
+              ),
+            ],
+          ),
+          
+          const SizedBox(height: 16),
+          
+          if (notes.isNotEmpty)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Grille des notes avec style amélioré
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.withOpacity(0.05),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey.withOpacity(0.1)),
+                  ),
+                  child: Column(
+                    children: [
+                      _buildNoteRowImproved('Mise en scène', notes['mise_en_scene']),
+                      _buildNoteRowImproved('Jeu des acteurs', notes['jeu_acteurs']),
+                      _buildNoteRowImproved('Scénario', notes['scenario']),
+                    ],
+                  ),
+                ),
+                
+                const SizedBox(height: 16),
+                
+                // Émotions avec style amélioré
+                if (emotions.isNotEmpty) Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.emoji_emotions, size: 18, color: Colors.orange),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'Émotions',
+                          style: TextStyle(
+                            fontSize: 16, 
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black87,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8.0,
+                      runSpacing: 8.0,
+                      children: emotions.map<Widget>((emotion) => 
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: Colors.orange.withOpacity(0.3)),
+                          ),
+                          child: Text(
+                            emotion,
+                            style: TextStyle(
+                              color: Colors.orange.shade800,
+                              fontWeight: FontWeight.w500,
+                              fontSize: 13,
+                            ),
+                          ),
+                        )
+                      ).toList(),
+                    ),
+                  ],
+                ),
+                
+                // Appréciation globale avec style amélioré
+                if (appreciation.isNotEmpty) Padding(
+                  padding: const EdgeInsets.only(top: 16.0),
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.purple.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.purple.withOpacity(0.2)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Row(
+                          children: [
+                            Icon(Icons.comment, size: 16, color: Colors.purple),
+                            SizedBox(width: 8),
+                            Text(
+                              'Appréciation globale',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.purple,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          appreciation,
+                          style: const TextStyle(
+                            fontSize: 14, 
+                            color: Colors.black87, 
+                            height: 1.5,
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            )
+          else
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.grey.withOpacity(0.05),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.grey.withOpacity(0.1)),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.info_outline, color: Colors.grey),
+                  SizedBox(width: 12),
+                  Text(
+                    'Notes non disponibles',
+                    style: TextStyle(fontSize: 16, color: Colors.grey),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Afficher une ligne pour une note avec design amélioré
+  Widget _buildNoteRowImproved(String label, dynamic value) {
+    // Déterminer la couleur en fonction de la note
+    Color getColorForRating(double rating) {
+      if (rating >= 4.0) return Colors.green;
+      if (rating >= 3.0) return Colors.amber;
+      return Colors.orange;
+    }
+    
+    // Conversion sécurisée de la valeur
+    final double rating = value != null 
+      ? double.tryParse(value.toString()) ?? 0.0 
+      : 0.0;
+      
+    // Couleur basée sur la note
+    final Color ratingColor = getColorForRating(rating);
+    
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6.0),
+      child: Row(
+        children: [
+          Expanded(
+            flex: 3,
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: Colors.black87,
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 4,
+            child: value != null
+            ? Row(
+                children: [
+                  // Note en texte
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: ratingColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: ratingColor.withOpacity(0.3)),
+                    ),
+                    child: Text(
+                      rating.toStringAsFixed(1),
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: ratingColor,
+                      ),
+                    ),
+                  ),
+                  
+                  const SizedBox(width: 8),
+                  
+                  // Barre de progression
+                  Expanded(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(2),
+                      child: LinearProgressIndicator(
+                        value: rating / 5.0,
+                        backgroundColor: Colors.grey.withOpacity(0.2),
+                        valueColor: AlwaysStoppedAnimation<Color>(ratingColor),
+                        minHeight: 8,
+                      ),
+                    ),
+                  ),
+                ],
+              )
+            : const Text(
+                'N/A',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+          ),
+        ],
+      ),
+    );
+  }
+  /// Boutons pour afficher les événements similaires et de la même catégorie avec design amélioré
   Widget _buildSimilarAndCategoryButtons(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: [
-        ElevatedButton.icon(
-          onPressed: () => _fetchSimilarEvents(context),
-          icon: const Icon(Icons.search),
-          label: const Text('Voir événements similaires'),
-        ),
-        ElevatedButton.icon(
-          onPressed: () => _fetchEventsByCategory(context, _eventData!['catégorie']),
-          icon: const Icon(Icons.category),
-          label: const Text('Voir par catégorie'),
-        ),
-      ],
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          // Titre de la section
+          const Padding(
+            padding: EdgeInsets.only(bottom: 16.0, left: 16.0, right: 16.0),
+            child: Text(
+              'Explorer plus d\'événements',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
+          
+          // Les deux boutons avec design amélioré
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              // Bouton Événements similaires
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                  child: ElevatedButton.icon(
+                    onPressed: () => _fetchSimilarEvents(context),
+                    icon: const Icon(Icons.search, size: 18),
+                    label: const Text('Similaires'),
+                    style: ElevatedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      backgroundColor: Colors.deepPurple,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(30),
+                      ),
+                      elevation: 2,
+                    ),
+                  ),
+                ),
+              ),
+              
+              // Bouton Événements par catégorie
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                  child: ElevatedButton.icon(
+                    onPressed: () => _fetchEventsByCategory(context, _eventData!['catégorie']),
+                    icon: const Icon(Icons.category, size: 18),
+                    label: const Text('Par catégorie'),
+                    style: ElevatedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      backgroundColor: Colors.teal,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(30),
+                      ),
+                      elevation: 2,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
@@ -586,14 +1795,31 @@ class _EventLeisureScreenState extends State<EventLeisureScreen> {
     }
   }
 
-  /// Bouton pour acheter un billet
+  /// Bouton pour acheter un billet avec design amélioré
   Widget _buildPurchaseButton(String url) {
-    return ElevatedButton.icon(
-      onPressed: () => _launchURL(url),
-      icon: const Icon(Icons.shopping_cart),
-      label: const Text('Réserver un billet'),
-      style: ElevatedButton.styleFrom(
-        backgroundColor: Colors.teal,
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      child: ElevatedButton.icon(
+        onPressed: () => _launchURL(url),
+        icon: const Icon(Icons.shopping_cart, size: 20),
+        label: const Text(
+          'RÉSERVER UN BILLET',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 1,
+          ),
+        ),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.green,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(30),
+          ),
+          elevation: 3,
+        ),
       ),
     );
   }

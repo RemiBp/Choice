@@ -91,7 +91,7 @@ class _AdaptiveMapWidgetState extends State<AdaptiveMapWidget> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         const Text(
-                          'Filtres',
+                          '🔍 Filtres',
                           style: TextStyle(
                             color: Colors.white,
                             fontSize: 18,
@@ -100,10 +100,16 @@ class _AdaptiveMapWidgetState extends State<AdaptiveMapWidget> {
                         ),
                         IconButton(
                           icon: const Icon(Icons.close, color: Colors.white),
+                          tooltip: 'Fermer les filtres',
                           onPressed: () {
                             setState(() {
                               _isFilterPanelExpanded = false;
                             });
+                            // Informer le parent que le panneau est fermé
+                            if (widget.onTap != null) {
+                              // Appel fictif pour déclencher la mise à jour dans le parent
+                              widget.onTap!(widget.initialPosition);
+                            }
                           },
                         ),
                       ],
@@ -140,10 +146,10 @@ class _AdaptiveMapWidgetState extends State<AdaptiveMapWidget> {
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   child: Row(
                     children: const [
-                      Icon(Icons.tune, color: Colors.white),
+                      Icon(Icons.filter_list, color: Colors.white),
                       SizedBox(width: 8),
                       Text(
-                        'Filtres',
+                        '🔍 Filtres',
                         style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                       ),
                     ],

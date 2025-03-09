@@ -27,8 +27,9 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
   bool _isMapReady = false;
   bool _isComputingMarkers = false;
   bool _hasShownFilterHint = false; // Pour savoir si l'utilisateur a déjà vu l'indicateur
-  bool _shouldShowMarkers = false; // Contrôle l'affichage des marqueurs
+  bool _shouldShowMarkers = true; // Contrôle l'affichage des marqueurs - activé par défaut
   final ReceivePort _receivePort = ReceivePort();
+  String? _lastTappedMarkerId; // Pour gérer le double-tap sur les marqueurs
 
   // Filtres
   double _selectedRadius = 5000; // Rayon (5 km par défaut)
@@ -57,8 +58,12 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
       }
     });
     
-    // Ne pas charger automatiquement pour améliorer la fluidité
-    // L'utilisateur pourra décider quand charger les données
+    // Charger automatiquement les données après un court délai
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (mounted) {
+        _fetchNearbyProducers(_initialPosition.latitude, _initialPosition.longitude);
+      }
+    });
   }
   
   @override
@@ -70,8 +75,9 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
 
   /// Charger une icône personnalisée pour les marqueurs
   Future<void> _loadCustomMarkerIcon() async {
-    // Utiliser les marqueurs avec code couleur basé sur le score
-    _customMarkerIcon = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure);
+    // Utiliser des marqueurs colorés par catégorie pour une meilleure distinction visuelle
+    _customMarkerIcon = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueViolet);
+    print("✅ Icône de marqueur personnalisée chargée avec teinte violette par défaut");
   }
   
   /// Calculer une couleur de marqueur en fonction du score
@@ -183,16 +189,64 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
           }
         }
         
-        // Utiliser le score pour déterminer la couleur du marqueur
-        double markerHue = _getColorBasedOnScore(score);
+        // Définir la couleur en fonction de la catégorie
+        double markerHue = BitmapDescriptor.hueViolet; // Couleur par défaut
         
+        // Attribution des couleurs par catégorie
+        String category = isProducers 
+            ? entity['catégorie']?.toString().toLowerCase() ?? ''
+            : entity['catégorie']?.toString().toLowerCase() ?? '';
+            
+        if (category.contains('théâtre') || category.contains('theatre')) {
+          markerHue = BitmapDescriptor.hueRed;
+        } else if (category.contains('musiqu') || category.contains('concert')) {
+          markerHue = BitmapDescriptor.hueAzure;
+        } else if (category.contains('ciném') || category.contains('cinema')) {
+          markerHue = BitmapDescriptor.hueOrange;
+        } else if (category.contains('danse')) {
+          markerHue = BitmapDescriptor.hueGreen;
+        }
+        
+        BitmapDescriptor markerIcon = BitmapDescriptor.defaultMarkerWithHue(markerHue);
+        
+        // Log pour confirmer création du marqueur avec couleur par catégorie
+        print("✅ Marqueur créé pour: $name avec catégorie: $category (teinte: $markerHue)");
+        
+        // Créer un marqueur avec visibilité et z-index explicites
         Marker marker = Marker(
           markerId: MarkerId(id),
           position: LatLng(lat, lon),
-          icon: BitmapDescriptor.defaultMarkerWithHue(markerHue),
+          icon: markerIcon, // Utiliser un marqueur coloré par catégorie
+          visible: true, // Explicitement marquer comme visible
+          zIndex: 10.0, // S'assurer que le marqueur est au-dessus des autres éléments
           onTap: () {
             // Afficher les détails directement sans passer par infoWindow
             _showEntityQuickView(context, entity, isProducers, id);
+            
+            // Gérer le double-tap pour navigation directe
+            if (_lastTappedMarkerId == id) {
+              // Double tap détecté - naviguer vers la page détaillée
+              if (isProducers) {
+                _navigateToProducerDetails(entity);
+              } else {
+                _navigateToEventDetails(id);
+              }
+              _lastTappedMarkerId = null;
+            } else {
+              // Premier tap - enregistrer l'ID
+              setState(() {
+                _lastTappedMarkerId = id;
+              });
+              
+              // Annuler après un délai si pas de second tap
+              Future.delayed(const Duration(seconds: 3), () {
+                if (mounted && _lastTappedMarkerId == id) {
+                  setState(() {
+                    _lastTappedMarkerId = null;
+                  });
+                }
+              });
+            }
           },
         );
         
@@ -207,12 +261,12 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
   
   /// Afficher une vue rapide des détails de l'entité
   void _showEntityQuickView(BuildContext context, Map<String, dynamic> entity, bool isProducer, String id) {
-    // Obtenir l'image du lieu si disponible
+    // Obtenir l'image du lieu si disponible avec une image de repli fiable
     final String imageUrl = entity['photo'] ?? 
                            entity['image'] ?? 
                            (isProducer 
-                             ? 'https://via.placeholder.com/400x200?text=Lieu+de+Loisir'
-                             : 'https://via.placeholder.com/400x200?text=Événement');
+                             ? 'https://images.unsplash.com/photo-1561089489-f13d5e730d72?w=500&q=80'
+                             : 'https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=500&q=80');
     
     // Couleur thématique selon le type
     final Color themeColor = isProducer ? Colors.purple : Colors.orange;
@@ -485,10 +539,38 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
         
         final String id = entity['_id'];
         
+        // Définir la couleur en fonction de la catégorie
+        double markerHue = BitmapDescriptor.hueViolet; // Couleur par défaut
+        
+        // Attribution des couleurs par catégorie
+        String category = '';
+        if (isProducers) {
+          category = entity['catégorie']?.toString().toLowerCase() ?? '';
+        } else {
+          category = entity['catégorie']?.toString().toLowerCase() ?? '';
+        }
+        
+        if (category.contains('théâtre') || category.contains('theatre')) {
+          markerHue = BitmapDescriptor.hueRed;
+        } else if (category.contains('musiqu') || category.contains('concert')) {
+          markerHue = BitmapDescriptor.hueAzure;
+        } else if (category.contains('ciném') || category.contains('cinema')) {
+          markerHue = BitmapDescriptor.hueOrange;
+        } else if (category.contains('danse')) {
+          markerHue = BitmapDescriptor.hueGreen;
+        }
+        
+        BitmapDescriptor markerIcon = BitmapDescriptor.defaultMarkerWithHue(markerHue);
+        
+        // Log pour confirmer création du marqueur avec couleur par catégorie
+        print("✅ Marqueur créé pour arrière-plan avec catégorie: $category (teinte: $markerHue)");
+        
         Marker marker = Marker(
           markerId: MarkerId(id),
           position: LatLng(lat, lon),
-          icon: BitmapDescriptor.defaultMarker,
+          icon: markerIcon,
+          visible: true, // Explicitement marquer comme visible
+          zIndex: 10.0, // S'assurer que le marqueur est au-dessus des autres éléments
           infoWindow: InfoWindow(
             title: isProducers
                 ? entity['lieu'] ?? 'Sans nom'
@@ -553,18 +635,35 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
       
       print("🔍 Requête envoyée : $uri");
 
-      final response = await http.get(uri);
+      // Ajouter un timeout pour la requête
+      final response = await http.get(uri).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () {
+          print('⏱️ Timeout lors de la requête vers $uri');
+          throw TimeoutException("La requête a pris trop de temps.");
+        },
+      );
 
       if (response.statusCode == 200) {
         final List<dynamic> producers = json.decode(response.body);
+        print("✅ Nombre de producteurs reçus: ${producers.length}");
+
+        if (producers.isEmpty) {
+          _showSnackBar("Aucun lieu trouvé dans cette zone. Essayez d'augmenter le rayon ou de changer de filtres.");
+          setState(() {
+            _isLoading = false;
+          });
+          return;
+        }
 
         Set<Marker> newMarkers = {};
+        int validMarkersCount = 0;
         
         for (var producer in producers) {
           try {
             // Vérification que location et coordinates existent et sont valides
             if (producer['location'] == null || producer['location']['coordinates'] == null) {
-              print('❌ Coordonnées manquantes pour un producteur');
+              print('❌ Coordonnées manquantes pour un producteur: ${producer['_id']}');
               continue;
             }
             
@@ -572,14 +671,14 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
             
             // Vérifier que coordinates est une liste avec au moins 2 éléments
             if (coordinates == null || coordinates.length < 2 || producer['_id'] == null) {
-              print('❌ Coordonnées incomplètes ou ID manquant');
+              print('❌ Coordonnées incomplètes ou ID manquant: ${producer['_id']}');
               continue;
             }
             
             // Vérifier que les coordonnées sont numériques
             if (coordinates[0] == null || coordinates[1] == null || 
                 !(coordinates[0] is num) || !(coordinates[1] is num)) {
-              print('❌ Coordonnées invalides: valeurs non numériques');
+              print('❌ Coordonnées invalides (non numériques): ${producer['_id']}');
               continue;
             }
             
@@ -587,41 +686,135 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
             final double lon = coordinates[0].toDouble();
             final double lat = coordinates[1].toDouble();
             
-            // Vérifier que les coordonnées sont dans les limites valides
+            // Vérification moins stricte des limites (certaines coordonnées peuvent être légèrement hors limites)
             if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
-              print('❌ Coordonnées invalides: hors limites (lat: $lat, lon: $lon)');
-              continue;
+              print('⚠️ Coordonnées hors limites standards mais on continue: (lat: $lat, lon: $lon)');
+              // On continue quand même car certaines coordonnées peuvent être légèrement hors limites
             }
+            
+            // Vérification si le lieu a un nom
+            final String name = producer['lieu'] ?? 'Lieu sans nom';
+            print("✅ Ajout du marqueur: $name (lat: $lat, lon: $lon)");
+            
+            // Définir la couleur en fonction de la catégorie
+            double markerHue = BitmapDescriptor.hueViolet; // Couleur par défaut
+            
+            // Attribution des couleurs par catégorie
+            String category = producer['catégorie']?.toString().toLowerCase() ?? '';
+            if (category.contains('théâtre') || category.contains('theatre')) {
+              markerHue = BitmapDescriptor.hueRed;
+            } else if (category.contains('musiqu') || category.contains('concert')) {
+              markerHue = BitmapDescriptor.hueAzure;
+            } else if (category.contains('ciném') || category.contains('cinema')) {
+              markerHue = BitmapDescriptor.hueOrange;
+            } else if (category.contains('danse')) {
+              markerHue = BitmapDescriptor.hueGreen;
+            }
+            
+            BitmapDescriptor markerIcon = BitmapDescriptor.defaultMarkerWithHue(markerHue);
+            
+            // Log pour confirmer création du marqueur avec couleur par catégorie
+            print("✅ Marqueur créé pour: $name avec catégorie: $category (teinte: $markerHue)");
             
             newMarkers.add(Marker(
               markerId: MarkerId(producer['_id']),
               position: LatLng(lat, lon),
-              icon: _customMarkerIcon ?? BitmapDescriptor.defaultMarker,
-              infoWindow: InfoWindow(
-                title: producer['lieu'] ?? 'Sans nom',
-                snippet: producer['description'] ?? 'Pas de description',
-                onTap: () {
+              icon: markerIcon,
+              visible: true, // Explicitement marquer comme visible
+              zIndex: 10.0, // S'assurer que le marqueur est au-dessus des autres éléments
+              onTap: () {
+                // Afficher une carte de détail au-dessus du marqueur
+                _showEntityQuickView(context, producer, true, producer['_id']);
+                
+                // Gérer le double-tap pour navigation directe
+                if (_lastTappedMarkerId == producer['_id']) {
+                  // Double tap détecté - naviguer vers la page détaillée
                   _navigateToProducerDetails(producer);
-                },
-              ),
+                  setState(() {
+                    _lastTappedMarkerId = null;
+                  });
+                } else {
+                  // Premier tap - enregistrer l'ID
+                  setState(() {
+                    _lastTappedMarkerId = producer['_id'];
+                  });
+                  
+                  // Annuler après un délai si pas de second tap
+                  Future.delayed(const Duration(seconds: 3), () {
+                    if (mounted && _lastTappedMarkerId == producer['_id']) {
+                      setState(() {
+                        _lastTappedMarkerId = null;
+                      });
+                    }
+                  });
+                }
+              },
             ));
+            validMarkersCount++;
           } catch (e) {
             print("❌ Erreur lors de la création du marqueur: $e");
           }
         }
         
+        print("✅ Nombre de marqueurs valides créés: $validMarkersCount");
+        
         setState(() {
           _markers = newMarkers;
         });
+        
+        // Si des marqueurs ont été créés mais ne sont pas visibles sur la carte,
+        // ajuster le niveau de zoom pour les voir tous
+        if (validMarkersCount > 0 && _mapController != null) {
+          _fitMarkersOnMap();
+        }
       } else {
-        _showSnackBar("Erreur lors de la récupération des producteurs.");
+        print("❌ Erreur API (${response.statusCode}): ${response.body}");
+        _showSnackBar("Erreur lors de la récupération des producteurs (${response.statusCode}).");
       }
     } catch (e) {
-      _showSnackBar("Erreur réseau. Veuillez vérifier votre connexion.");
+      print("❌ Exception lors de la requête: $e");
+      _showSnackBar("Erreur réseau: $e. Veuillez vérifier votre connexion.");
     } finally {
       setState(() {
         _isLoading = false;
       });
+    }
+  }
+  
+  /// Adapter la carte pour afficher tous les marqueurs
+  void _fitMarkersOnMap() {
+    if (_markers.isEmpty || _mapController == null) return;
+    
+    try {
+      // Calculer les limites pour inclure tous les marqueurs
+      double minLat = 90;
+      double maxLat = -90;
+      double minLng = 180;
+      double maxLng = -180;
+      
+      for (final marker in _markers) {
+        if (marker.position.latitude < minLat) minLat = marker.position.latitude;
+        if (marker.position.latitude > maxLat) maxLat = marker.position.latitude;
+        if (marker.position.longitude < minLng) minLng = marker.position.longitude;
+        if (marker.position.longitude > maxLng) maxLng = marker.position.longitude;
+      }
+      
+      // Ajouter une marge autour des limites
+      final latPadding = (maxLat - minLat) * 0.2;
+      final lngPadding = (maxLng - minLng) * 0.2;
+      
+      final bounds = LatLngBounds(
+        southwest: LatLng(minLat - latPadding, minLng - lngPadding),
+        northeast: LatLng(maxLat + latPadding, maxLng + lngPadding),
+      );
+      
+      // Animer la caméra pour inclure tous les marqueurs
+      _mapController!.animateCamera(CameraUpdate.newLatLngBounds(bounds, 50));
+      print("✅ Carte ajustée pour afficher tous les marqueurs");
+    } catch (e) {
+      print("❌ Erreur lors de l'ajustement de la carte: $e");
+      // En cas d'erreur, revenir à la position initiale avec un zoom raisonnable
+      _mapController!.animateCamera(CameraUpdate.newLatLngZoom(_initialPosition, 12));
     }
   }
 
@@ -682,23 +875,62 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
             final LatLng position = entry.key;
             final List<dynamic> groupedEvents = entry.value;
 
+            // Définir la couleur en fonction de la catégorie
+            double markerHue = BitmapDescriptor.hueViolet; // Couleur par défaut
+            
+            // Récupérer la catégorie du premier événement du groupe
+            String category = groupedEvents.first['catégorie']?.toString().toLowerCase() ?? '';
+            
+            // Attribution des couleurs par catégorie
+            if (category.contains('théâtre') || category.contains('theatre')) {
+              markerHue = BitmapDescriptor.hueRed;
+            } else if (category.contains('musiqu') || category.contains('concert')) {
+              markerHue = BitmapDescriptor.hueAzure;
+            } else if (category.contains('ciném') || category.contains('cinema')) {
+              markerHue = BitmapDescriptor.hueOrange;
+            } else if (category.contains('danse')) {
+              markerHue = BitmapDescriptor.hueGreen;
+            }
+            
+            BitmapDescriptor markerIcon = BitmapDescriptor.defaultMarkerWithHue(markerHue);
+            
+            // Log pour confirmer création du marqueur avec couleur par catégorie
+            print("✅ Marqueur créé pour événement: ${groupedEvents.first['intitulé']} avec catégorie: $category (teinte: $markerHue)");
+            
             return Marker(
               markerId: MarkerId(groupedEvents.first['_id']),
               position: position,
-              icon: _customMarkerIcon ?? BitmapDescriptor.defaultMarker,
-              infoWindow: InfoWindow(
-                title: "Lieu : ${groupedEvents.first['lieu']}",
-                snippet: groupedEvents.length > 1
-                    ? '${groupedEvents.length} événements disponibles'
-                    : groupedEvents.first['intitulé'],
-                onTap: () {
-                  if (groupedEvents.length == 1) {
+              icon: markerIcon,
+              visible: true, // Explicitement marquer comme visible
+              zIndex: 10.0, // S'assurer que le marqueur est au-dessus des autres éléments
+              onTap: () {
+                // Afficher la vue rapide multi-événements
+                if (groupedEvents.length == 1) {
+                  _showEntityQuickView(context, groupedEvents.first, false, groupedEvents.first['_id']);
+                  
+                  // Gestion double-tap pour un seul événement
+                  if (_lastTappedMarkerId == groupedEvents.first['_id']) {
                     _navigateToEventDetails(groupedEvents.first['_id']);
+                    setState(() {
+                      _lastTappedMarkerId = null;
+                    });
                   } else {
-                    _showEventSelectionDialog(groupedEvents);
+                    setState(() {
+                      _lastTappedMarkerId = groupedEvents.first['_id'];
+                    });
+                    Future.delayed(const Duration(seconds: 3), () {
+                      if (mounted && _lastTappedMarkerId == groupedEvents.first['_id']) {
+                        setState(() {
+                          _lastTappedMarkerId = null;
+                        });
+                      }
+                    });
                   }
-                },
-              ),
+                } else {
+                  // Plusieurs événements au même endroit, montrer la liste
+                  _showEventSelectionDialog(groupedEvents);
+                }
+              },
             );
           }).toSet();
         });
@@ -1110,6 +1342,11 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
                     _showFilterHintTooltip();
                   }
                 });
+                
+                // Charger les marqueurs si ce n'est pas déjà fait
+                if (_markers.isEmpty && _shouldShowMarkers) {
+                  _fetchNearbyProducers(_initialPosition.latitude, _initialPosition.longitude);
+                }
               },
               onTap: (position) {
                 // Fermer le panneau de filtres si ouvert et permettre le déplacement
@@ -1178,7 +1415,7 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
                 ),
               ),
             
-            // Bouton pour afficher les lieux si pas encore chargés
+            // Bouton pour afficher les lieux si pas encore chargés ou si une erreur s'est produite
             if (_markers.isEmpty && !_isLoading && _isMapReady)
               Positioned(
                 bottom: 80,
@@ -1186,8 +1423,8 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
                 right: 0,
                 child: Center(
                   child: ElevatedButton.icon(
-                    icon: const Icon(Icons.place),
-                    label: const Text("Afficher les lieux"),
+                    icon: const Icon(Icons.refresh),
+                    label: const Text("Actualiser les lieux"),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.purple,
                       foregroundColor: Colors.white,
@@ -1198,11 +1435,72 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
                       ),
                     ),
                     onPressed: () {
+                      // Toujours activer l'affichage des marqueurs
                       setState(() {
                         _shouldShowMarkers = true;
                       });
                       _fetchNearbyProducers(_initialPosition.latitude, _initialPosition.longitude);
                     },
+                  ),
+                ),
+              ),
+              
+            // Message de diagnostic si aucun marqueur n'est affiché après chargement
+            if (_markers.isEmpty && !_isLoading && _shouldShowMarkers)
+              Positioned(
+                top: 150,
+                left: 20,
+                right: 20,
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.2),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.info_outline, color: Colors.orange.shade800),
+                          const SizedBox(width: 8),
+                          const Text(
+                            "Aucun lieu trouvé",
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        "Essayez d'augmenter le rayon de recherche ou de modifier les filtres pour voir plus de résultats.",
+                        style: TextStyle(fontSize: 14),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton(
+                            onPressed: () {
+                              setState(() {
+                                _selectedRadius = 10000; // Augmenter le rayon à 10km
+                              });
+                              _fetchNearbyProducers(_initialPosition.latitude, _initialPosition.longitude);
+                            },
+                            child: const Text("AUGMENTER LE RAYON"),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
               ),

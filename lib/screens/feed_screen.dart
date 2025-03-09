@@ -5,6 +5,10 @@ import 'package:expandable_text/expandable_text.dart';
 import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:shimmer/shimmer.dart';
+import 'package:animations/animations.dart';
 
 // Models
 import '../models/post.dart';
@@ -20,6 +24,7 @@ import 'producer_screen.dart';
 import 'profile_screen.dart';
 import 'eventLeisure_screen.dart';
 import 'producerLeisure_screen.dart';
+import 'reels_view_screen.dart';
 
 // Widgets
 import '../widgets/animations/like_animation.dart';
@@ -196,74 +201,101 @@ class _FeedScreenState extends State<FeedScreen> {
   // Cache pour éviter des appels répétés à l'API pour les mêmes auteurs
   final Map<String, Map<String, dynamic>> _authorCache = {};
 
+  // Liste pour suivre les IDs des producers qui ont échoué
+  final Set<String> _failedProducerIds = <String>{};
+  
   Future<Map<String, dynamic>?> _fetchAuthorDetails(String authorId, bool isProducer, {bool isLeisureProducer = false}) async {
     // Vérifier si l'auteur est déjà dans le cache
     final cacheKey = '${isProducer ? (isLeisureProducer ? "leisure" : "producer") : "user"}_$authorId';
     if (_authorCache.containsKey(cacheKey)) {
-      print('📋 Utilisation du cache pour l\'auteur $authorId');
+      // Silencieux pour réduire les logs
       return _authorCache[cacheKey];
     }
-
-    String endpoint = isLeisureProducer ? 'leisureProducers' : (isProducer ? 'producers' : 'users');
+    
+    // URL par défaut fiable pour les placeholders
+    final placeholderUrl = 'https://storage.googleapis.com/choice-app/images/placeholder.jpg';
+    
+    // Si c'est un producer et qu'on a eu des erreurs précédentes, essayer directement en tant que leisure
+    String endpoint;
+    if (isProducer && _failedProducerIds.contains(authorId)) {
+      endpoint = 'leisureProducers';
+      isLeisureProducer = true;
+    } else {
+      endpoint = isLeisureProducer ? 'leisureProducers' : (isProducer ? 'producers' : 'users');
+    }
     
     // Extraire le domaine et le protocole de l'URL complète
     final baseUrl = getBaseUrl();
     Uri url;
     
     if (baseUrl.startsWith('http://')) {
-      // Si c'est http://
       final domain = baseUrl.replaceFirst('http://', '');
       url = Uri.http(domain, '/api/$endpoint/$authorId');
     } else if (baseUrl.startsWith('https://')) {
-      // Si c'est https://
       final domain = baseUrl.replaceFirst('https://', '');
       url = Uri.https(domain, '/api/$endpoint/$authorId');
     } else {
-      // Utiliser Uri.parse comme solution de secours
       url = Uri.parse('$baseUrl/api/$endpoint/$authorId');
     }
 
     try {
-      print('🔍 Requête auteur vers : $url');
       final response = await http.get(url);
 
       if (response.statusCode == 200) {
-        print('📩 Auteur récupéré avec succès depuis $endpoint');
         final Map<String, dynamic> authorData = json.decode(response.body);
+        
+        // S'assurer que les URLs sont valides pour éviter les erreurs de résolution
+        if (authorData.containsKey('photo') && authorData['photo'] == null) {
+          authorData['photo'] = placeholderUrl;
+        }
+        if (authorData.containsKey('photo_url') && authorData['photo_url'] == null) {
+          authorData['photo_url'] = placeholderUrl;
+        }
+        if (authorData.containsKey('image') && authorData['image'] == null) {
+          authorData['image'] = placeholderUrl;
+        }
         
         // Ajouter un indicateur du type de producteur dans les données retournées
         authorData['_producerType'] = endpoint;
         
         // Stocker dans le cache pour éviter des appels répétés
         _authorCache[cacheKey] = authorData;
+        
         return authorData;
       } else {
-        print('❌ Erreur lors de la récupération des détails de l\'auteur depuis $endpoint : ${response.body}');
-
         // Fallback : si la requête sur "producers" échoue, essaye "leisureProducers"
-        if (!isLeisureProducer && isProducer) {
-          print('🔄 Tentative de fallback vers leisureProducers...');
+        if (!isLeisureProducer && isProducer && endpoint != 'leisureProducers') {
+          // Ajouter l'ID à la liste des producers qui ont échoué
+          _failedProducerIds.add(authorId);
+          
           endpoint = 'leisureProducers';
           
           // Construire une nouvelle URL pour le fallback
           if (baseUrl.startsWith('http://')) {
-            // Si c'est http://
             final domain = baseUrl.replaceFirst('http://', '');
             url = Uri.http(domain, '/api/$endpoint/$authorId');
           } else if (baseUrl.startsWith('https://')) {
-            // Si c'est https://
             final domain = baseUrl.replaceFirst('https://', '');
             url = Uri.https(domain, '/api/$endpoint/$authorId');
           } else {
-            // Utiliser Uri.parse comme solution de secours
             url = Uri.parse('$baseUrl/api/$endpoint/$authorId');
           }
           
           final fallbackResponse = await http.get(url);
 
           if (fallbackResponse.statusCode == 200) {
-            print('📩 Auteur récupéré avec succès depuis $endpoint');
             final Map<String, dynamic> authorData = json.decode(fallbackResponse.body);
+            
+            // S'assurer que les URLs sont valides
+            if (authorData.containsKey('photo') && authorData['photo'] == null) {
+              authorData['photo'] = placeholderUrl;
+            }
+            if (authorData.containsKey('photo_url') && authorData['photo_url'] == null) {
+              authorData['photo_url'] = placeholderUrl;
+            }
+            if (authorData.containsKey('image') && authorData['image'] == null) {
+              authorData['image'] = placeholderUrl;
+            }
             
             // Marquer ce producteur comme un leisure producer
             authorData['_producerType'] = 'leisureProducers';
@@ -274,23 +306,39 @@ class _FeedScreenState extends State<FeedScreen> {
               setState(() {
                 _posts[postIndex]['is_leisure_producer'] = true;
               });
-              print('🔄 Post mis à jour pour refléter que c\'est un leisure producer');
             }
             
             // Stocker dans le cache avec le bon type
-            _authorCache['leisure_$authorId'] = authorData;
+            _authorCache[cacheKey] = authorData;
             return authorData;
-          } else {
-            print('❌ Erreur également sur $endpoint : ${fallbackResponse.body}');
           }
         }
       }
     } catch (e) {
-      print('❌ Erreur réseau pour l\'auteur : $e');
+      // En cas d'erreur, retourner un objet minimal pour éviter les crashs
+      Map<String, dynamic> fallbackData = {
+        'name': isProducer ? 'Producteur' : 'Utilisateur',
+        'photo': placeholderUrl,
+        'photo_url': placeholderUrl,
+        'image': placeholderUrl,
+        '_producerType': endpoint
+      };
+      
+      _authorCache[cacheKey] = fallbackData;
+      return fallbackData;
     }
 
-    // Retourne null si toutes les tentatives échouent
-    return null;
+    // Retourne un objet minimal si toutes les tentatives échouent
+    Map<String, dynamic> fallbackData = {
+      'name': isProducer ? 'Producteur' : 'Utilisateur',
+      'photo': placeholderUrl,
+      'photo_url': placeholderUrl,
+      'image': placeholderUrl,
+      '_producerType': endpoint
+    };
+    
+    _authorCache[cacheKey] = fallbackData;
+    return fallbackData;
   }
 
   /// Like un post
@@ -941,7 +989,129 @@ class _FeedScreenState extends State<FeedScreen> {
     }
   }
 
-  /// Construit la carte d'un post avec un design amélioré
+  /// Construit un bouton d'interaction style Instagram avec compteur proéminent
+  Widget _buildInteractionButton({
+    required IconData icon,
+    Color? iconColor,
+    required int count,
+    int? showFollowerCount,
+    required VoidCallback onTap,
+    VoidCallback? onLongPress,
+  }) {
+    final bool isActive = iconColor != null;
+    final baseColor = iconColor ?? Colors.grey.shade700;
+    
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: onTap,
+      onLongPress: onLongPress,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
+        decoration: BoxDecoration(
+          color: isActive ? baseColor.withOpacity(0.08) : Colors.transparent,
+          borderRadius: BorderRadius.circular(16),
+          border: isActive ? Border.all(color: baseColor.withOpacity(0.2), width: 0.5) : null,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Icône avec animation avancée
+            TweenAnimationBuilder<double>(
+              tween: Tween<double>(
+                begin: 0.9,
+                end: isActive ? 1.2 : 1.0,
+              ),
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.elasticOut,
+              builder: (_, value, __) {
+                return Transform.scale(
+                  scale: value,
+                  child: Icon(
+                    icon,
+                    color: isActive 
+                      ? baseColor 
+                      : count > 0 
+                        ? Colors.grey.shade700 
+                        : Colors.grey.shade400,
+                    size: 26,
+                  ),
+                );
+              },
+            ),
+            
+            // Compteur principal plus grand et plus visible
+            if (count > 0)
+              GestureDetector(
+                onTap: onLongPress ?? onTap,
+                child: Container(
+                  margin: const EdgeInsets.only(top: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: isActive ? baseColor.withOpacity(0.15) : Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: isActive ? [
+                      BoxShadow(
+                        color: baseColor.withOpacity(0.2),
+                        blurRadius: 4,
+                        spreadRadius: 0,
+                      )
+                    ] : null,
+                  ),
+                  child: Text(
+                    '$count',
+                    style: GoogleFonts.poppins(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: isActive ? baseColor : Colors.grey.shade700,
+                    ),
+                  ),
+                ),
+              ),
+              
+            // Compteur secondaire (followers) amélioré
+            if (showFollowerCount != null && showFollowerCount > 0)
+              GestureDetector(
+                onTap: onLongPress ?? onTap,
+                child: Container(
+                  margin: const EdgeInsets.only(top: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.purple.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: Colors.purple.withOpacity(0.3),
+                      width: 0.5,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      FaIcon(
+                        FontAwesomeIcons.userGroup,
+                        size: 9,
+                        color: Colors.purple.shade700,
+                      ),
+                      const SizedBox(width: 3),
+                      Text(
+                        '$showFollowerCount amis',
+                        style: GoogleFonts.poppins(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.purple.shade700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Construit la carte d'un post avec un design ultra-moderne, style Instagram
   Widget _buildPostCard(Map<String, dynamic> post) {
     final String postId = post['_id']?.toString() ?? '';
     final String content = post['content']?.toString() ?? 'Contenu non disponible';
@@ -970,22 +1140,27 @@ class _FeedScreenState extends State<FeedScreen> {
     final bool isLiked = post['isLiked'] == true;
     final int likesCount = post['likesCount'] ?? 0;
 
-    // Variables d'état local
-    bool isExpanded = false;
-    bool showLikeAnimation = false;
-
     return StatefulBuilder(
-      builder: (context, setState) {
-        return Card(
-          margin: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+      builder: (BuildContext context, StateSetter setState) {
+        // Variables d'état local
+        bool showLikeAnimation = false;
+        return Container(
+          margin: const EdgeInsets.only(bottom: 16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.04),
+                offset: const Offset(0, 2),
+                blurRadius: 10,
+              ),
+            ],
           ),
-          elevation: 4,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Informations sur l'auteur (nom + avatar) avec redirection
+              // Header avec avatar et nom
               if (producerId != null || userId != null)
                 FutureBuilder<Map<String, dynamic>?>(
                   future: isProducer
@@ -993,43 +1168,57 @@ class _FeedScreenState extends State<FeedScreen> {
                       : _fetchUserProfile(userId!),
                   builder: (context, snapshot) {
                     if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const Padding(
-                        padding: EdgeInsets.all(12.0),
+                      return Padding(
+                        padding: const EdgeInsets.all(14.0),
                         child: Row(
                           children: [
-                            CircleAvatar(
-                              radius: 25,
-                              backgroundColor: Colors.grey,
+                            Shimmer.fromColors(
+                              baseColor: Colors.grey[300]!,
+                              highlightColor: Colors.grey[100]!,
+                              child: const CircleAvatar(
+                                radius: 22,
+                                backgroundColor: Colors.white,
+                              ),
                             ),
-                            SizedBox(width: 10),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                SizedBox(
-                                  width: 120,
-                                  height: 14,
-                                  child: LinearProgressIndicator(
-                                    backgroundColor: Colors.grey,
-                                    valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Shimmer.fromColors(
+                                    baseColor: Colors.grey[300]!,
+                                    highlightColor: Colors.grey[100]!,
+                                    child: Container(
+                                      height: 14,
+                                      width: 120,
+                                      decoration: BoxDecoration(
+                                        color: Colors.white,
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                    ),
                                   ),
-                                ),
-                                SizedBox(height: 4),
-                                SizedBox(
-                                  width: 80,
-                                  height: 10,
-                                  child: LinearProgressIndicator(
-                                    backgroundColor: Colors.grey,
-                                    valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
+                                  const SizedBox(height: 4),
+                                  Shimmer.fromColors(
+                                    baseColor: Colors.grey[300]!,
+                                    highlightColor: Colors.grey[100]!,
+                                    child: Container(
+                                      height: 10,
+                                      width: 80,
+                                      decoration: BoxDecoration(
+                                        color: Colors.white,
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                    ),
                                   ),
-                                ),
-                              ],
-                            ),
+                                ],
+                              ),
+                            )
                           ],
                         ),
                       );
                     } else if (snapshot.hasError || snapshot.data == null) {
                       return const Padding(
-                        padding: EdgeInsets.all(8.0),
+                        padding: EdgeInsets.all(12.0),
                         child: Text(
                           'Auteur non disponible',
                           style: TextStyle(color: Colors.red),
@@ -1038,13 +1227,12 @@ class _FeedScreenState extends State<FeedScreen> {
                     }
 
                     final authorData = snapshot.data!;
-                    // Extraction intelligente du nom avec vérification de plusieurs champs possibles
                     final String name = _extractAuthorName(authorData, isProducer, isLeisureProducer);
                     final String avatarUrl = isProducer
-                        ? (authorData['photo'] ?? authorData['image'] ?? authorData['photo_url'] ?? 'https://via.placeholder.com/150')
-                        : (authorData['photo_url'] ?? authorData['photo'] ?? 'https://via.placeholder.com/150');
+                        ? (authorData['photo'] ?? authorData['image'] ?? authorData['photo_url'] ?? 'https://storage.googleapis.com/choice-app/images/placeholder.jpg')
+                        : (authorData['photo_url'] ?? authorData['photo'] ?? 'https://storage.googleapis.com/choice-app/images/placeholder.jpg');
 
-                    return GestureDetector(
+                    return InkWell(
                       onTap: () => isProducer
                           ? _navigateToDetails(producerId!, true, isLeisureProducer: isLeisureProducer)
                           : Navigator.push(
@@ -1054,67 +1242,115 @@ class _FeedScreenState extends State<FeedScreen> {
                               ),
                             ),
                       child: Padding(
-                        padding: const EdgeInsets.all(12.0),
+                        padding: const EdgeInsets.all(14.0),
                         child: Row(
                           children: [
+                            // Avatar avec Animation Hero
                             Hero(
                               tag: 'avatar-${isProducer ? producerId : userId}',
-                              child: CircleAvatar(
-                                backgroundImage: CachedNetworkImageProvider(avatarUrl),
-                                radius: 25,
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: isProducer
+                                        ? Colors.amber.withOpacity(0.5)
+                                        : Colors.blue.withOpacity(0.3),
+                                    width: 2,
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: isProducer
+                                          ? Colors.amber.withOpacity(0.1)
+                                          : Colors.blue.withOpacity(0.1),
+                                      blurRadius: 8,
+                                      spreadRadius: 1,
+                                    ),
+                                  ],
+                                ),
+                                child: CircleAvatar(
+                                  backgroundImage: CachedNetworkImageProvider(avatarUrl),
+                                  radius: 22,
+                                ),
                               ),
                             ),
-                            const SizedBox(width: 10),
+                            const SizedBox(width: 12),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
                                     name,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 16,
+                                    style: GoogleFonts.poppins(
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 15,
                                     ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                   ),
                                   Text(
                                     _formatPostedTime(postedAt),
-                                    style: const TextStyle(
+                                    style: GoogleFonts.poppins(
                                       fontSize: 12,
-                                      color: Colors.grey,
+                                      color: Colors.grey[600],
+                                      fontWeight: FontWeight.w400,
                                     ),
                                   ),
                                 ],
                               ),
                             ),
-                            IconButton(
-                              icon: const Icon(Icons.more_vert),
-                              onPressed: () {
-                                // Show options menu
-                                showModalBottomSheet(
-                                  context: context,
-                                  builder: (context) => Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      ListTile(
-                                        leading: const Icon(Icons.share),
-                                        title: const Text('Partager'),
-                                        onTap: () {
-                                          Navigator.pop(context);
-                                          // Share functionality
-                                        },
-                                      ),
-                                      ListTile(
-                                        leading: const Icon(Icons.report),
-                                        title: const Text('Signaler'),
-                                        onTap: () {
-                                          Navigator.pop(context);
-                                          // Report functionality
-                                        },
-                                      ),
-                                    ],
+                            // Options menu
+                            Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(50),
+                                onTap: () {
+                                  showModalBottomSheet(
+                                    context: context,
+                                    shape: const RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                                    ),
+                                    builder: (context) => Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Container(
+                                          margin: const EdgeInsets.symmetric(vertical: 10),
+                                          width: 40,
+                                          height: 4,
+                                          decoration: BoxDecoration(
+                                            color: Colors.grey[300],
+                                            borderRadius: BorderRadius.circular(10),
+                                          ),
+                                        ),
+                                        ListTile(
+                                          leading: const Icon(FontAwesomeIcons.shareNodes, size: 20),
+                                          title: Text('Partager', style: GoogleFonts.poppins()),
+                                          onTap: () {
+                                            Navigator.pop(context);
+                                            // Logique de partage
+                                          },
+                                        ),
+                                        ListTile(
+                                          leading: const Icon(FontAwesomeIcons.flag, size: 20),
+                                          title: Text('Signaler', style: GoogleFonts.poppins()),
+                                          onTap: () {
+                                            Navigator.pop(context);
+                                            // Logique de signalement
+                                          },
+                                        ),
+                                        const SizedBox(height: 10),
+                                      ],
+                                    ),
+                                  );
+                                },
+                                child: Padding(
+                                  padding: const EdgeInsets.all(8.0),
+                                  child: Icon(
+                                    FontAwesomeIcons.ellipsisVertical,
+                                    size: 20,
+                                    color: Colors.grey[700],
                                   ),
-                                );
-                              },
+                                ),
+                              ),
                             ),
                           ],
                         ),
@@ -1125,21 +1361,32 @@ class _FeedScreenState extends State<FeedScreen> {
 
               // Texte du post avec ExpandableText
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
                 child: ExpandableText(
                   content,
                   expandText: 'voir plus',
                   collapseText: 'voir moins',
                   maxLines: 3,
                   linkColor: Colors.blue,
-                  style: const TextStyle(fontSize: 16, color: Colors.black87),
+                  style: GoogleFonts.poppins(
+                    fontSize: 14.5,
+                    color: Colors.black87,
+                    height: 1.3,
+                  ),
+                  linkStyle: GoogleFonts.poppins(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.blue[600],
+                  ),
+                  animation: true,
+                  animationDuration: const Duration(milliseconds: 200),
                 ),
               ),
 
-              // Affichage vidéo ou image
+              // Media (vidéo ou image)
               if (videoUrl != null)
                 Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 12.0),
+                  padding: const EdgeInsets.only(top: 8.0),
                   child: GestureDetector(
                     onDoubleTap: () {
                       setState(() {
@@ -1159,21 +1406,88 @@ class _FeedScreenState extends State<FeedScreen> {
                       alignment: Alignment.center,
                       children: [
                         ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
+                          borderRadius: BorderRadius.zero, // Instagram-style full width
                           child: FutureBuilder<VideoPlayerController>(
                             future: _initializeVideoController(videoUrl),
                             builder: (context, snapshot) {
                               if (snapshot.connectionState == ConnectionState.done &&
                                   snapshot.hasData) {
                                 final controller = snapshot.data!;
-                                return AspectRatio(
-                                  aspectRatio: controller.value.aspectRatio,
-                                  child: Stack(
-                                    alignment: Alignment.bottomCenter,
-                                    children: [
-                                      VideoPlayer(controller),
-                                      VideoProgressIndicator(controller, allowScrubbing: true),
-                                    ],
+                                return GestureDetector(
+                                  onTap: () => _openMediaInReelsMode(context, videoUrl, true, post),
+                                  child: AspectRatio(
+                                    aspectRatio: controller.value.aspectRatio,
+                                    child: Stack(
+                                      alignment: Alignment.center,
+                                      children: [
+                                        // Video player
+                                        VideoPlayer(controller),
+                                        
+                                        // Video progress
+                                        Positioned(
+                                          bottom: 0,
+                                          left: 0,
+                                          right: 0,
+                                          child: VideoProgressIndicator(
+                                            controller, 
+                                            allowScrubbing: true,
+                                            padding: const EdgeInsets.symmetric(vertical: 2.0, horizontal: 0),
+                                            colors: VideoProgressColors(
+                                              playedColor: Colors.blue[400]!,
+                                              bufferedColor: Colors.grey[300]!,
+                                              backgroundColor: Colors.black.withOpacity(0.2),
+                                            ),
+                                          ),
+                                        ),
+                                        
+                                        // Bouton plein écran
+                                        Container(
+                                          padding: const EdgeInsets.all(12),
+                                          decoration: BoxDecoration(
+                                            gradient: RadialGradient(
+                                              colors: [
+                                                Colors.black.withOpacity(0.4),
+                                                Colors.black.withOpacity(0.0),
+                                              ],
+                                              radius: 0.8,
+                                            ),
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: const FaIcon(
+                                            FontAwesomeIcons.expand,
+                                            color: Colors.white,
+                                            size: 24,
+                                          ),
+                                        ),
+                                        
+                                        // Bouton mute/unmute
+                                        Positioned(
+                                          top: 12,
+                                          right: 12,
+                                          child: GestureDetector(
+                                            onTap: () {
+                                              setState(() {
+                                                controller.setVolume(controller.value.volume > 0 ? 0 : 1.0);
+                                              });
+                                            },
+                                            child: Container(
+                                              padding: const EdgeInsets.all(8),
+                                              decoration: BoxDecoration(
+                                                color: Colors.black.withOpacity(0.5),
+                                                shape: BoxShape.circle,
+                                              ),
+                                              child: FaIcon(
+                                                controller.value.volume > 0 
+                                                  ? FontAwesomeIcons.volumeHigh 
+                                                  : FontAwesomeIcons.volumeXmark,
+                                                color: Colors.white,
+                                                size: 14,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 );
                               } else if (snapshot.hasError) {
@@ -1181,10 +1495,17 @@ class _FeedScreenState extends State<FeedScreen> {
                                   height: 300,
                                   width: double.infinity,
                                   color: Colors.black12,
-                                  child: const Center(
-                                    child: Text(
-                                      'Erreur de chargement de la vidéo',
-                                      style: TextStyle(color: Colors.red),
+                                  child: Center(
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const FaIcon(FontAwesomeIcons.circleExclamation, color: Colors.red),
+                                        const SizedBox(height: 8),
+                                        Text(
+                                          'Erreur de chargement',
+                                          style: GoogleFonts.poppins(color: Colors.red),
+                                        )
+                                      ],
                                     ),
                                   ),
                                 );
@@ -1193,22 +1514,52 @@ class _FeedScreenState extends State<FeedScreen> {
                                   height: 300,
                                   width: double.infinity,
                                   color: Colors.black12,
-                                  child: const Center(
-                                    child: CircularProgressIndicator(),
+                                  child: Center(
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const SizedBox(
+                                          width: 40, 
+                                          height: 40,
+                                          child: CircularProgressIndicator(
+                                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                            strokeWidth: 2,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 12),
+                                        Text(
+                                          'Chargement de la vidéo...',
+                                          style: GoogleFonts.poppins(
+                                            color: Colors.white,
+                                            fontSize: 14,
+                                          ),
+                                        )
+                                      ],
+                                    ),
                                   ),
                                 );
                               }
                             },
                           ),
                         ),
-                        // Like animation overlay
+                        // Animation cœur
                         if (showLikeAnimation)
                           LikeAnimation(
                             isAnimating: showLikeAnimation,
-                            child: const Icon(
-                              Icons.favorite,
-                              color: Colors.white,
-                              size: 100,
+                            child: Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.2),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.favorite,
+                                color: Colors.white,
+                                size: 80,
+                                shadows: [
+                                  Shadow(color: Colors.black45, blurRadius: 25),
+                                ],
+                              ),
                             ),
                             duration: const Duration(milliseconds: 800),
                           ),
@@ -1218,7 +1569,7 @@ class _FeedScreenState extends State<FeedScreen> {
                 )
               else if (mediaUrl != null)
                 Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 12.0),
+                  padding: const EdgeInsets.only(top: 8.0),
                   child: GestureDetector(
                     onDoubleTap: () {
                       setState(() {
@@ -1237,187 +1588,656 @@ class _FeedScreenState extends State<FeedScreen> {
                     child: Stack(
                       alignment: Alignment.center,
                       children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
+                        GestureDetector(
+                          onTap: () => _openMediaInReelsMode(context, mediaUrl, false, post),
                           child: CachedNetworkImage(
                             imageUrl: mediaUrl,
-                            height: 300,
                             width: double.infinity,
                             fit: BoxFit.cover,
                             placeholder: (context, url) => Container(
                               color: Colors.grey[200],
                               height: 300,
                               width: double.infinity,
-                              child: const Center(child: CircularProgressIndicator()),
+                              child: Center(
+                                child: Shimmer.fromColors(
+                                  baseColor: Colors.grey[300]!,
+                                  highlightColor: Colors.grey[100]!,
+                                  child: Container(
+                                    width: double.infinity,
+                                    height: 300,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
                             ),
                             errorWidget: (context, url, error) => Container(
                               color: Colors.grey[200],
                               height: 300,
                               width: double.infinity,
-                              child: const Center(
-                                child: Text('Image invalide', style: TextStyle(color: Colors.red)),
+                              child: Center(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.broken_image, color: Colors.grey[400], size: 40),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      'Image indisponible',
+                                      style: GoogleFonts.poppins(
+                                        color: Colors.grey[500],
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
                           ),
                         ),
-                        // Like animation overlay
+                        // Animation cœur
                         if (showLikeAnimation)
                           LikeAnimation(
                             isAnimating: showLikeAnimation,
-                            child: const Icon(
-                              Icons.favorite,
-                              color: Colors.white,
-                              size: 100,
+                            child: Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.2),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.favorite,
+                                color: Colors.white,
+                                size: 80,
+                                shadows: [
+                                  Shadow(color: Colors.black45, blurRadius: 25),
+                                ],
+                              ),
                             ),
                             duration: const Duration(milliseconds: 800),
                           ),
+                        // Bouton plein écran
+                        Positioned(
+                          bottom: 12,
+                          right: 12,
+                          child: GestureDetector(
+                            onTap: () => _openMediaInReelsMode(context, mediaUrl, false, post),
+                            child: Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withOpacity(0.3),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const FaIcon(
+                                FontAwesomeIcons.expand,
+                                color: Colors.white,
+                                size: 14,
+                              ),
+                            ),
+                          ),
+                        ),
                       ],
                     ),
                   ),
                 ),
 
-              // Likes count
-              Padding(
-                padding: const EdgeInsets.only(left: 16.0, right: 16.0, bottom: 8.0),
-                child: Text(
-                  likesCount > 0 ? '$likesCount j\'aime' : '',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ),
-
-              const Divider(height: 0),
-
-              // Boutons interactifs
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4.0),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Row(
-                      children: [
-                        // Like button
-                        TextButton.icon(
-                          onPressed: () => _likePost(postId, post),
-                          icon: Icon(
-                            isLiked ? Icons.favorite : Icons.favorite_border,
-                            color: isLiked ? Colors.red : Colors.grey,
-                          ),
-                          label: Text(
-                            'J\'aime',
-                            style: TextStyle(
-                              color: isLiked ? Colors.red : Colors.grey,
-                            ),
-                          ),
-                        ),
-                        
-                        // Only show Interest and Choice buttons for producer posts
-                        if (isProducer)
-                          TextButton.icon(
-                            onPressed: () {
-                              _markInterested(targetId, post, isLeisureProducer: isLeisureProducer);
-                            },
-                            icon: AnimatedSwitcher(
-                              duration: const Duration(milliseconds: 300),
-                              transitionBuilder: (child, animation) {
-                                return ScaleTransition(scale: animation, child: child);
-                              },
-                              child: Icon(
-                                Icons.star,
-                                key: ValueKey<bool>(post['interested'] == true),
-                                color: post['interested'] == true ? Colors.amber : Colors.grey,
-                              ),
-                            ),
-                            label: Text(
-                              'Intéressé 👀',
-                              style: TextStyle(
-                                color: post['interested'] == true ? Colors.amber : Colors.grey,
-                              ),
-                            ),
-                          ),
-                        
-                        // Only show Choice button for producer posts
-                        if (isProducer)
-                          TextButton.icon(
-                            onPressed: () {
-                              _markChoice(targetId, post, isLeisureProducer: isLeisureProducer);
-                            },
-                            icon: AnimatedSwitcher(
-                              duration: const Duration(milliseconds: 300),
-                              transitionBuilder: (child, animation) {
-                                return ScaleTransition(scale: animation, child: child);
-                              },
-                              child: Icon(
-                                Icons.check_circle,
-                                key: ValueKey<bool>(post['choice'] == true),
-                                color: post['choice'] == true ? Colors.green : Colors.grey,
-                              ),
-                            ),
-                            label: Text(
-                              'Choix ✅',
-                              style: TextStyle(
-                                color: post['choice'] == true ? Colors.green : Colors.grey,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                    
-                    // Comment button positioned at right
-                    TextButton.icon(
-                      onPressed: () {
-                        _showCommentsSheet(context, post);
-                      },
-                      icon: const Icon(Icons.comment_outlined),
-                      label: const Text('Commenter'),
-                    ),
-                  ],
-                ),
-              ),
-
-              // Preview of first 2 comments if available
-              if (comments.isNotEmpty)
+              // Compteurs d'interactions Instagram-style avec preview des profils
+              if (likesCount > 0 || (isProducer && ((post['follower_interests_count'] ?? 0) > 0 || (post['entity_interests_count'] ?? 0) > 0 || (post['entity_choices_count'] ?? 0) > 0)))
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                  padding: const EdgeInsets.only(left: 16.0, right: 16.0, top: 12.0, bottom: 4.0),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      ...comments.take(2).map((comment) => _buildCommentPreview(comment)),
-                      if (comments.length > 2)
-                        TextButton(
-                          onPressed: () {
-                            _showCommentsSheet(context, post);
-                          },
-                          child: Text('Voir les ${comments.length} commentaires'),
-                          style: TextButton.styleFrom(padding: EdgeInsets.zero, alignment: Alignment.centerLeft),
+                      // Like count avec avatars
+                      if (likesCount > 0)
+                        GestureDetector(
+                          onTap: () => _showInteractionsList(context, postId, 'like', 'post'),
+                          child: Row(
+                            children: [
+                              // Icône animée
+                              TweenAnimationBuilder<double>(
+                                tween: Tween<double>(begin: 0.9, end: isLiked ? 1.1 : 1.0),
+                                duration: const Duration(milliseconds: 300),
+                                curve: Curves.elasticOut,
+                                builder: (_, value, __) {
+                                  return Transform.scale(
+                                    scale: value,
+                                    child: Container(
+                                      padding: const EdgeInsets.all(4),
+                                      decoration: BoxDecoration(
+                                        color: Colors.red.withOpacity(0.1),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const FaIcon(
+                                        FontAwesomeIcons.solidHeart,
+                                        size: 12,
+                                        color: Colors.red,
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                              const SizedBox(width: 8),
+                              // Texte avec nombre de likes cliquable
+                              RichText(
+                                text: TextSpan(
+                                  children: [
+                                    TextSpan(
+                                      text: '$likesCount ',
+                                      style: GoogleFonts.poppins(
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 13,
+                                        color: Colors.black87,
+                                      ),
+                                    ),
+                                    TextSpan(
+                                      text: 'J\'aime${likesCount > 1 ? 's' : ''}',
+                                      style: GoogleFonts.poppins(
+                                        fontWeight: FontWeight.w500,
+                                        fontSize: 13,
+                                        color: Colors.black87,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      
+                      // Séparateur
+                      if (likesCount > 0 && isProducer && 
+                         ((post['follower_interests_count'] ?? 0) > 0 || (post['entity_interests_count'] ?? 0) > 0 || (post['entity_choices_count'] ?? 0) > 0))
+                        const SizedBox(height: 8),
+                      
+                      // Intérêts count avec indication des amis (pour les posts de producteurs)
+                      if (isProducer && ((post['entity_interests_count'] ?? 0) > 0 || (post['follower_interests_count'] ?? 0) > 0))
+                        GestureDetector(
+                          onTap: () => _showInteractionsList(
+                            context, 
+                            targetId, 
+                            'interest', 
+                            isLeisureProducer ? 'event' : 'producer'
+                          ),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 6),
+                            child: Row(
+                              children: [
+                                // Icône animée
+                                TweenAnimationBuilder<double>(
+                                  tween: Tween<double>(begin: 0.9, end: post['interested'] == true ? 1.1 : 1.0),
+                                  duration: const Duration(milliseconds: 300),
+                                  curve: Curves.elasticOut,
+                                  builder: (_, value, __) {
+                                    return Transform.scale(
+                                      scale: value,
+                                      child: Container(
+                                        padding: const EdgeInsets.all(4),
+                                        decoration: BoxDecoration(
+                                          color: Colors.amber.withOpacity(0.1),
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const FaIcon(
+                                          FontAwesomeIcons.solidStar,
+                                          size: 12,
+                                          color: Colors.amber,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                                const SizedBox(width: 8),
+                                // Texte avec détail
+                                Expanded(
+                                  child: RichText(
+                                    text: TextSpan(
+                                      children: [
+                                        TextSpan(
+                                          text: '${post['entity_interests_count'] ?? 0} ',
+                                          style: GoogleFonts.poppins(
+                                            fontWeight: FontWeight.w700,
+                                            fontSize: 13,
+                                            color: Colors.black87,
+                                          ),
+                                        ),
+                                        TextSpan(
+                                          text: 'personne${(post['entity_interests_count'] ?? 0) > 1 ? 's' : ''} intéressée${(post['entity_interests_count'] ?? 0) > 1 ? 's' : ''}',
+                                          style: GoogleFonts.poppins(
+                                            fontWeight: FontWeight.w500,
+                                            fontSize: 13,
+                                            color: Colors.black87,
+                                          ),
+                                        ),
+                                        if ((post['follower_interests_count'] ?? 0) > 0)
+                                          TextSpan(
+                                            text: ' dont ${post['follower_interests_count']} ami${(post['follower_interests_count'] ?? 0) > 1 ? 's' : ''}',
+                                            style: GoogleFonts.poppins(
+                                              fontWeight: FontWeight.w700,
+                                              fontSize: 13,
+                                              color: Colors.purple[700],
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      
+                      // Choices count (pour les posts de producteurs)
+                      if (isProducer && (post['entity_choices_count'] ?? 0) > 0)
+                        GestureDetector(
+                          onTap: () => _showInteractionsList(
+                            context, 
+                            targetId, 
+                            'choice', 
+                            isLeisureProducer ? 'event' : 'producer'
+                          ),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 6),
+                            child: Row(
+                              children: [
+                                // Icône animée
+                                TweenAnimationBuilder<double>(
+                                  tween: Tween<double>(begin: 0.9, end: post['choice'] == true ? 1.1 : 1.0),
+                                  duration: const Duration(milliseconds: 300),
+                                  curve: Curves.elasticOut,
+                                  builder: (_, value, __) {
+                                    return Transform.scale(
+                                      scale: value,
+                                      child: Container(
+                                        padding: const EdgeInsets.all(4),
+                                        decoration: BoxDecoration(
+                                          color: Colors.green.withOpacity(0.1),
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const FaIcon(
+                                          FontAwesomeIcons.solidCircleCheck,
+                                          size: 12,
+                                          color: Colors.green,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                                const SizedBox(width: 8),
+                                // Texte avec détail
+                                RichText(
+                                  text: TextSpan(
+                                    children: [
+                                      TextSpan(
+                                        text: '${post['entity_choices_count'] ?? 0} ',
+                                        style: GoogleFonts.poppins(
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 13,
+                                          color: Colors.black87,
+                                        ),
+                                      ),
+                                      TextSpan(
+                                        text: 'choix',
+                                        style: GoogleFonts.poppins(
+                                          fontWeight: FontWeight.w500,
+                                          fontSize: 13,
+                                          color: Colors.black87,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
                     ],
                   ),
                 ),
+
+              // Barre d'interactions Instagram-style
+              Container(
+                decoration: BoxDecoration(
+                  border: Border(
+                    top: BorderSide(color: Colors.grey.shade200, width: 0.5),
+                  ),
+                ),
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    // Likes - style Instagram
+                    _buildInteractionButton(
+                      icon: isLiked ? Icons.favorite : Icons.favorite_border,
+                      iconColor: isLiked ? Colors.red : null,
+                      count: likesCount,
+                      onTap: () => _likePost(postId, post),
+                      onLongPress: likesCount > 0 
+                        ? () => _showInteractionsList(context, postId, 'like', 'post')
+                        : null,
+                    ),
+                    
+                    // Interests - avec étoile brillante
+                    if (isProducer)
+                      _buildInteractionButton(
+                        icon: post['interested'] == true ? Icons.star : Icons.star_border, 
+                        iconColor: post['interested'] == true ? Colors.amber : null,
+                        count: post['entity_interests_count'] ?? 0,
+                        showFollowerCount: post['follower_interests_count'] ?? 0,
+                        onTap: () => _markInterested(targetId, post, isLeisureProducer: isLeisureProducer),
+                        onLongPress: () => _showInteractionsList(
+                          context, 
+                          targetId, 
+                          'interest', 
+                          isLeisureProducer ? 'event' : 'producer'
+                        ),
+                      ),
+                    
+                    // Choices - coche animée
+                    if (isProducer)
+                      _buildInteractionButton(
+                        icon: post['choice'] == true ? Icons.check_circle : Icons.check_circle_outline,
+                        iconColor: post['choice'] == true ? Colors.green : null,
+                        count: post['entity_choices_count'] ?? 0,
+                        onTap: () => _markChoice(targetId, post, isLeisureProducer: isLeisureProducer),
+                        onLongPress: () => _showInteractionsList(
+                          context, 
+                          targetId, 
+                          'choice', 
+                          isLeisureProducer ? 'event' : 'producer'
+                        ),
+                      ),
+                    
+                    // Commentaires
+                    _buildInteractionButton(
+                      icon: Icons.chat_bubble_outline,
+                      count: comments.length,
+                      onTap: () => _showCommentsSheet(context, post),
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
         );
       },
     );
   }
+
+  /// Affiche la liste des utilisateurs ayant interagi avec un post ou une entité
+  void _showInteractionsList(BuildContext context, String id, String type, String entityType) {
+    // Afficher un dialogue de chargement
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(
+        child: CircularProgressIndicator(),
+      ),
+    );
+    
+    _fetchInteractionsList(context, id, type, entityType);
+  }
+
+  /// Récupère la liste des utilisateurs ayant interagi avec un post ou une entité
+  Future<void> _fetchInteractionsList(BuildContext context, String id, String type, String entityType) async {
+    try {
+      final baseUrl = getBaseUrl();
+      Uri url;
+      
+      if (entityType == 'post') {
+        // Pour les interactions sur des posts (likes)
+        if (baseUrl.startsWith('http://')) {
+          final domain = baseUrl.replaceFirst('http://', '');
+          url = Uri.http(domain, '/api/posts/$id/interactions/$type');
+        } else if (baseUrl.startsWith('https://')) {
+          final domain = baseUrl.replaceFirst('https://', '');
+          url = Uri.https(domain, '/api/posts/$id/interactions/$type');
+        } else {
+          url = Uri.parse('$baseUrl/api/posts/$id/interactions/$type');
+        }
+      } else {
+        // Pour les interactions sur des entités (producer/event)
+        if (baseUrl.startsWith('http://')) {
+          final domain = baseUrl.replaceFirst('http://', '');
+          url = Uri.http(domain, '/api/posts/entity/$entityType/$id/interactions/$type');
+        } else if (baseUrl.startsWith('https://')) {
+          final domain = baseUrl.replaceFirst('https://', '');
+          url = Uri.https(domain, '/api/posts/entity/$entityType/$id/interactions/$type');
+        } else {
+          url = Uri.parse('$baseUrl/api/posts/entity/$entityType/$id/interactions/$type');
+        }
+      }
+      
+      final response = await http.get(
+        url,
+        headers: {'userId': widget.userId},
+      );
+      
+      // Fermer le dialogue de chargement
+      Navigator.pop(context);
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final List<dynamic> allUsers = data['allUsers'] ?? [];
+        final List<dynamic> followedUsers = data['followedUsers'] ?? [];
+        
+        _showUsersListModal(context, allUsers, followedUsers, type);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: ${response.statusCode}')),
+        );
+      }
+    } catch (e) {
+      // Fermer le dialogue de chargement en cas d'erreur
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erreur de connexion: $e')),
+      );
+    }
+  }
   
-  // Preview of a comment (simplified)
-  Widget _buildCommentPreview(Map<String, dynamic> comment) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4.0),
-      child: RichText(
-        text: TextSpan(
-          children: [
-            TextSpan(
-              text: comment['author'] ?? 'Anonyme',
-              style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black),
-            ),
-            TextSpan(
-              text: ' ${comment['content'] ?? ''}',
-              style: const TextStyle(color: Colors.black),
-            ),
-          ],
+  /// Modal pour afficher les utilisateurs ayant interagi
+  void _showUsersListModal(
+    BuildContext context, 
+    List<dynamic> allUsers, 
+    List<dynamic> followedUsers,
+    String interactionType
+  ) {
+    String interactionTitle;
+    Color headerColor;
+    IconData interactionIcon;
+    
+    switch (interactionType) {
+      case 'like':
+        interactionTitle = 'J\'aime';
+        headerColor = Colors.red;
+        interactionIcon = Icons.favorite;
+        break;
+      case 'interest':
+        interactionTitle = 'Intéressés';
+        headerColor = Colors.amber;
+        interactionIcon = Icons.star;
+        break;
+      case 'choice':
+        interactionTitle = 'Choix';
+        headerColor = Colors.green;
+        interactionIcon = Icons.check_circle;
+        break;
+      default:
+        interactionTitle = 'Interactions';
+        headerColor = Colors.blue;
+        interactionIcon = Icons.thumb_up;
+    }
+    
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.7,
+          minChildSize: 0.5,
+          maxChildSize: 0.9,
+          builder: (context, scrollController) {
+            return DefaultTabController(
+              length: 2,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      blurRadius: 10,
+                      spreadRadius: 5,
+                    ),
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    // Handle pour faire glisser
+                    Container(
+                      margin: const EdgeInsets.symmetric(vertical: 8),
+                      width: 40,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    
+                    // Titre avec icône
+                    Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(interactionIcon, color: headerColor),
+                          const SizedBox(width: 8),
+                          Text(
+                            interactionTitle,
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: headerColor,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    
+                    // Tabs
+                    Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 16),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[200],
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: TabBar(
+                        indicator: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(20),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.grey.withOpacity(0.2),
+                              blurRadius: 4,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        labelColor: headerColor,
+                        unselectedLabelColor: Colors.grey,
+                        tabs: [
+                          Tab(text: 'Tous (${allUsers.length})'),
+                          Tab(text: 'Vos contacts (${followedUsers.length})'),
+                        ],
+                      ),
+                    ),
+                    
+                    const SizedBox(height: 16),
+                    
+                    // Contenu des tabs
+                    Expanded(
+                      child: TabBarView(
+                        children: [
+                          // Tab 1: Tous les utilisateurs
+                          allUsers.isEmpty
+                              ? const Center(child: Text('Aucun utilisateur'))
+                              : ListView.builder(
+                                  controller: scrollController,
+                                  itemCount: allUsers.length,
+                                  itemBuilder: (context, index) {
+                                    final user = allUsers[index];
+                                    return _buildUserListItem(user, headerColor);
+                                  },
+                                ),
+                                
+                          // Tab 2: Utilisateurs suivis
+                          followedUsers.isEmpty
+                              ? const Center(child: Text('Aucun de vos contacts'))
+                              : ListView.builder(
+                                  controller: scrollController,
+                                  itemCount: followedUsers.length,
+                                  itemBuilder: (context, index) {
+                                    final user = followedUsers[index];
+                                    return _buildUserListItem(user, headerColor);
+                                  },
+                                ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+  
+  /// Item de la liste des utilisateurs
+  Widget _buildUserListItem(Map<String, dynamic> user, Color accentColor) {
+    final String name = user['name'] ?? 'Utilisateur';
+    final String? avatarUrl = user['photo_url'] ?? user['photo'] ?? 'https://via.placeholder.com/40';
+    final String? userId = user['_id'];
+    
+    return ListTile(
+      leading: Hero(
+        tag: 'user-avatar-${userId ?? 'unknown'}',
+        child: CircleAvatar(
+          backgroundImage: CachedNetworkImageProvider(avatarUrl ?? 'https://via.placeholder.com/40'),
+          radius: 20,
         ),
       ),
+      title: Text(
+        name,
+        style: const TextStyle(fontWeight: FontWeight.bold),
+      ),
+      trailing: userId != null && userId != widget.userId
+          ? OutlinedButton(
+              onPressed: () {
+                // Logique pour suivre/ne plus suivre
+              },
+              style: OutlinedButton.styleFrom(
+                side: BorderSide(color: accentColor),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                ),
+              ),
+              child: const Text('Suivre'),
+            )
+          : null,
+      onTap: userId != null
+          ? () {
+              Navigator.pop(context); // Fermer le modal
+              
+              // Naviguer vers le profil de l'utilisateur
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => ProfileScreen(userId: userId),
+                ),
+              );
+            }
+          : null,
     );
   }
 
@@ -1655,18 +2475,215 @@ class _FeedScreenState extends State<FeedScreen> {
     }
   }
 
+  // Widget réutilisable pour les colonnes d'interactions avec icônes vectorielles
+  Widget _buildInteractionColumn({
+    required String emoji, // Gardé pour compatibilité
+    required int count,
+    int? secondaryCount,
+    required bool isActive,
+    required Color color,
+    required Function() onTap,
+    Function()? onLongPress,
+    IconData? iconData, // Nouvelle option pour utiliser FontAwesome
+  }) {
+    // Détermine l'icône à utiliser pour chaque type d'interaction
+    IconData icon;
+    if (iconData != null) {
+      icon = iconData;
+    } else {
+      // Mapping des emojis vers des icônes FontAwesome
+      switch (emoji) {
+        case '❤️':
+        case '🤍':
+          icon = isActive ? FontAwesomeIcons.solidHeart : FontAwesomeIcons.heart;
+          break;
+        case '⭐':
+        case '☆':
+          icon = isActive ? FontAwesomeIcons.solidStar : FontAwesomeIcons.star;
+          break;
+        case '✅':
+        case '⬜':
+          icon = isActive ? FontAwesomeIcons.solidCircleCheck : FontAwesomeIcons.circleCheck;
+          break;
+        case '💬':
+          icon = FontAwesomeIcons.solidComment;
+          break;
+        default:
+          icon = FontAwesomeIcons.thumbsUp;
+      }
+    }
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: onTap,
+        onLongPress: onLongPress,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Icône FontAwesome avec animation d'échelle
+              TweenAnimationBuilder<double>(
+                tween: Tween<double>(
+                  begin: 0.8,
+                  end: isActive ? 1.1 : 0.9,
+                ),
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.elasticOut,
+                builder: (context, value, child) {
+                  return Transform.scale(
+                    scale: value,
+                    child: FaIcon(
+                      icon,
+                      size: 26,
+                      color: isActive 
+                        ? color
+                        : count > 0 
+                          ? Colors.grey.shade700
+                          : Colors.grey.shade400,
+                    ),
+                  );
+                },
+              ),
+              
+              const SizedBox(height: 4),
+              
+              // Compteur avec effet de pulsation si actif
+              TweenAnimationBuilder<double>(
+                tween: Tween<double>(
+                  begin: 1.0,
+                  end: isActive && count > 0 ? 1.05 : 1.0,
+                ),
+                duration: const Duration(milliseconds: 700),
+                curve: Curves.easeInOut,
+                builder: (context, value, child) {
+                  return Transform.scale(
+                    scale: value,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: isActive 
+                          ? color.withOpacity(0.15) 
+                          : count > 0 
+                            ? Colors.grey.shade200 
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: isActive && count > 0
+                          ? [
+                              BoxShadow(
+                                color: color.withOpacity(0.2),
+                                blurRadius: 4,
+                                spreadRadius: 0,
+                              )
+                            ]
+                          : null,
+                      ),
+                      child: Text(
+                        count.toString(),
+                        style: GoogleFonts.montserrat(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: isActive 
+                            ? color
+                            : count > 0 
+                              ? Colors.grey.shade700
+                              : Colors.grey.shade400,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+              
+              // Compteur secondaire (followers) avec icône utilisateur
+              if (secondaryCount != null && secondaryCount > 0)
+                Container(
+                  margin: const EdgeInsets.only(top: 3),
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.purple.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: Colors.purple.withOpacity(0.2),
+                      width: 0.5,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      FaIcon(
+                        FontAwesomeIcons.userGroup,
+                        size: 8,
+                        color: Colors.purple.shade700,
+                      ),
+                      const SizedBox(width: 3),
+                      Text(
+                        secondaryCount.toString(),
+                        style: GoogleFonts.montserrat(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.purple.shade700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Ouvre une image/vidéo en mode "reels" pour navigation verticale
+  void _openMediaInReelsMode(BuildContext context, String mediaUrl, bool isVideo, Map<String, dynamic> post) {
+    Navigator.of(context).push(
+      PageRouteBuilder(
+        transitionDuration: const Duration(milliseconds: 300),
+        pageBuilder: (context, animation, secondaryAnimation) {
+          final curveTween = CurveTween(curve: Curves.easeOut);
+          final fadeTween = Tween<double>(begin: 0.0, end: 1.0);
+          final fadeAnimation = animation.drive(fadeTween.chain(curveTween));
+          
+          return FadeTransition(
+            opacity: fadeAnimation,
+            child: ReelsViewScreen(
+              initialMediaUrl: mediaUrl, 
+              isVideo: isVideo,
+              postData: post,
+              userId: widget.userId,
+              onLike: _likePost,
+              onInterested: _markInterested,
+              onChoice: _markChoice,
+              onComment: () => _showCommentsSheet(context, post),
+            ),
+          );
+        },
+        opaque: false,
+        barrierColor: Colors.black87,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      // En-tête simplifiée sans les boutons inutiles
       appBar: AppBar(
         elevation: 0,
-        title: const Text('Feed', style: TextStyle(fontWeight: FontWeight.bold)),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.search),
-            onPressed: () {},
+        backgroundColor: Colors.white,
+        title: const Text(
+          'Choice',
+          style: TextStyle(
+            fontWeight: FontWeight.w900,
+            color: Colors.black87,
+            fontSize: 28,
           ),
-        ],
+        ),
+        centerTitle: false,
+        automaticallyImplyLeading: false,
       ),
       body: _posts.isEmpty && _isLoading
           ? const Center(child: CircularProgressIndicator())

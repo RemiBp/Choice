@@ -30,6 +30,11 @@ dependencies:
   cached_network_image: ^3.3.0
   visibility_detector: ^0.4.0+2
   carousel_slider: ^4.2.1
+  font_awesome_flutter: ^10.6.0
+  shimmer: ^3.0.0
+  lottie: ^3.0.0
+  animations: ^2.0.11
+  google_fonts: ^6.1.0
 
   # Média et Vidéo
   video_player: ^2.7.2
