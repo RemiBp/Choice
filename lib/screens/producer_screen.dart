@@ -658,23 +658,9 @@ class _ProducerScreenState extends State<ProducerScreen> with SingleTickerProvid
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Avatar with border
-              Container(
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.orangeAccent, width: 2),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.orangeAccent.withOpacity(0.2),
-                      blurRadius: 8,
-                      offset: const Offset(0, 3),
-                    ),
-                  ],
-                ),
-                child: CircleAvatar(
-                  radius: 40,
-                  backgroundImage: NetworkImage(photoUrl),
-                ),
+              CircleAvatar(
+                radius: 40,
+                backgroundImage: NetworkImage(photoUrl),
               ),
               const SizedBox(width: 16),
               
@@ -956,8 +942,8 @@ class _ProducerScreenState extends State<ProducerScreen> with SingleTickerProvid
                   hint: const Text('Sélectionnez un jour'),
                   underline: Container(), // Supprime la ligne par défaut
                   items: List.generate(
-                  size, 
-                  (index) {
+                    size, 
+                    (index) {
                     var dayData;
                     try {
                       if (popularTimes is List) {
@@ -993,6 +979,7 @@ class _ProducerScreenState extends State<ProducerScreen> with SingleTickerProvid
                     _selectedDay = value!;
                   });
                 },
+              ),
               ),
               const SizedBox(height: 16),
               SizedBox(
@@ -2518,9 +2505,9 @@ class _ProducerScreenState extends State<ProducerScreen> with SingleTickerProvid
                       Marker(
                         markerId: const MarkerId('producer'),
                         position: latLng,
-                        infoWindow: InfoWindow(
-                          title: snapshot.data?['name'] ?? 'Restaurant',
-                          snippet: snapshot.data?['address'] ?? '',
+                        infoWindow: const InfoWindow(
+                          title: 'Restaurant',
+                          snippet: '',
                         ),
                       )
                     },
