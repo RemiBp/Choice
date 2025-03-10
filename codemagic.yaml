@@ -167,7 +167,14 @@ workflows:
 
       - name: Build iOS IPA (No Code Signing)
         script: |
-          flutter build ipa --no-codesign
+          # S'assurer que le build n'utilise pas d'export options ou de provisioning profiles
+          # Le problème signalé montre qu'un profil 'Remi Barbier - Iphone' est utilisé malgré --no-codesign
+          flutter clean
+          flutter pub get
+          # Utiliser explicitement --no-codesign sans autres options
+          flutter build ipa --no-codesign --verbose
+          
+          echo "✅ Build iOS sans signature terminé"
 
     artifacts:
       - build/ios/ipa/*.ipa
