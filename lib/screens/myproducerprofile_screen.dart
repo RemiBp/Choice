@@ -13,6 +13,7 @@ import 'package:flutter/foundation.dart' show kIsWeb; // ⚠️ Pour détecter l
 import '../services/payment_service.dart';
 import 'utils.dart';
 import 'dart:typed_data';
+import 'package:intl/intl.dart';
 
 class MyProducerProfileScreen extends StatefulWidget {
   final String producerId;
@@ -32,6 +33,11 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> {
   String _selectedCarbon = "<3kg";
   String _selectedNutriScore = "A-C";
   double _selectedMaxCalories = 500;
+  
+  // Variables pour la promotion
+  bool _hasActivePromotion = false;
+  DateTime? _promotionEndDate;
+  double _promotionDiscount = 10.0; // Pourcentage de réduction (10% par défaut)
 
   @override
   void initState() {
@@ -39,8 +45,193 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> {
     print('🔍 Initialisation du test des API');
     _testApi(); // Appel à la méthode de test
     _producerFuture = _fetchProducerDetails(widget.producerId);
+    _checkActivePromotion();
   }
-
+  
+  // Vérifier si une promotion est active
+  Future<void> _checkActivePromotion() async {
+    try {
+      final url = Uri.parse('${getBaseUrl()}/api/producers/${widget.producerId}/promotion');
+      final response = await http.get(url);
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['active'] == true && data['endDate'] != null) {
+          setState(() {
+            _hasActivePromotion = true;
+            _promotionEndDate = DateTime.parse(data['endDate']);
+            _promotionDiscount = data['discountPercentage'] ?? 10.0;
+          });
+        }
+      }
+    } catch (e) {
+      print('❌ Erreur lors de la vérification des promotions: $e');
+    }
+  }
+  // Activer une promotion
+  Future<void> _activatePromotion(int durationDays) async {
+    try {
+      final url = Uri.parse('${getBaseUrl()}/api/producers/${widget.producerId}/promotion');
+      
+      // Calculer la date de fin
+      final endDate = DateTime.now().add(Duration(days: durationDays));
+      
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'active': true,
+          'discountPercentage': _promotionDiscount,
+          'endDate': endDate.toIso8601String(),
+        }),
+      );
+      
+      if (response.statusCode == 200) {
+        setState(() {
+          _hasActivePromotion = true;
+          _promotionEndDate = endDate;
+        });
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Promotion de $_promotionDiscount% activée jusqu\'au ${DateFormat('dd/MM/yyyy').format(endDate)}'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        
+        // Rafraîchir les données
+        setState(() {
+          _producerFuture = _fetchProducerDetails(widget.producerId);
+        });
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur lors de l\'activation de la promotion'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      print('❌ Erreur lors de l\'activation de la promotion: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erreur réseau: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+  
+  // Désactiver une promotion
+  Future<void> _deactivatePromotion() async {
+    try {
+      final url = Uri.parse('${getBaseUrl()}/api/producers/${widget.producerId}/promotion');
+      
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'active': false,
+        }),
+      );
+      
+      if (response.statusCode == 200) {
+        setState(() {
+          _hasActivePromotion = false;
+          _promotionEndDate = null;
+        });
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Promotion désactivée'),
+            backgroundColor: Colors.blue,
+          ),
+        );
+        
+        // Rafraîchir les données
+        setState(() {
+          _producerFuture = _fetchProducerDetails(widget.producerId);
+        });
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur lors de la désactivation de la promotion'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      print('❌ Erreur lors de la désactivation de la promotion: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erreur réseau: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+  
+  // Afficher la boîte de dialogue de promotion
+  void _showPromotionDialog() {
+    int selectedDuration = 7; // Valeur par défaut (7 jours)
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Activer une promotion'),
+        content: StatefulBuilder(
+          builder: (context, setState) {
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Appliquer une réduction de $_promotionDiscount% sur tous les plats pendant:',
+                  style: const TextStyle(fontSize: 16),
+                ),
+                const SizedBox(height: 16),
+                // Sélecteur de durée
+                DropdownButton<int>(
+                  value: selectedDuration,
+                  isExpanded: true,
+                  items: const [
+                    DropdownMenuItem(value: 1, child: Text('1 jour')),
+                    DropdownMenuItem(value: 3, child: Text('3 jours')),
+                    DropdownMenuItem(value: 7, child: Text('7 jours')),
+                    DropdownMenuItem(value: 14, child: Text('14 jours')),
+                    DropdownMenuItem(value: 30, child: Text('30 jours')),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) {
+                      setState(() {
+                        selectedDuration = value;
+                      });
+                    }
+                  },
+                ),
+              ],
+            );
+          },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.orangeAccent,
+            ),
+            onPressed: () {
+              Navigator.pop(context);
+              _activatePromotion(selectedDuration);
+            },
+            child: const Text('Activer'),
+          ),
+        ],
+      ),
+    );
+  }
   void _testApi() async {
     final producerId = widget.producerId;
 
@@ -240,12 +431,13 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Détail Producteur'),
+        title: const Text('Tableau de Bord Restaurant'),
         backgroundColor: Colors.orangeAccent,
+        elevation: 0,
         actions: [
           IconButton(
-            icon: const Icon(Icons.post_add), // Icône pour le bouton "Poster"
-            tooltip: 'Créer un post', // Description du bouton
+            icon: const Icon(Icons.post_add),
+            tooltip: 'Créer un post',
             onPressed: () {
               Navigator.push(
                 context,
@@ -257,13 +449,9 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> {
             },
           ),
           IconButton(
-            icon: const Text(
-              '🍽️',
-              style: TextStyle(fontSize: 24), // Ajuster la taille de l'emoji si nécessaire
-            ),
-            tooltip: 'Modifier le menu', // Description pour accessibilité
+            icon: const Icon(Icons.restaurant_menu),
+            tooltip: 'Modifier le menu',
             onPressed: () {
-              // Naviguer vers l'écran de gestion des menus
               Navigator.push(
                 context,
                 MaterialPageRoute(
@@ -273,15 +461,76 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> {
               );
             },
           ),
+          // Bouton Promotion
+          IconButton(
+            icon: _hasActivePromotion 
+                ? const Icon(Icons.discount, color: Colors.yellow)
+                : const Icon(Icons.discount_outlined),
+            tooltip: _hasActivePromotion ? 'Promotion active' : 'Créer une promotion',
+            onPressed: () {
+              if (_hasActivePromotion) {
+                // Afficher la boîte de dialogue pour désactiver la promotion
+                showDialog(
+                  context: context,
+                  builder: (context) => AlertDialog(
+                    title: const Text('Promotion active'),
+                    content: _promotionEndDate != null
+                        ? Text(
+                            'Une promotion de $_promotionDiscount% est active jusqu\'au ${DateFormat('dd/MM/yyyy').format(_promotionEndDate!)}. Voulez-vous la désactiver?')
+                        : const Text('Une promotion est active. Voulez-vous la désactiver?'),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('Annuler'),
+                      ),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red,
+                        ),
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _deactivatePromotion();
+                        },
+                        child: const Text('Désactiver'),
+                      ),
+                    ],
+                  ),
+                );
+              } else {
+                // Afficher la boîte de dialogue pour activer une promotion
+                _showPromotionDialog();
+              }
+            },
+          ),
         ],
       ),
       body: FutureBuilder<Map<String, dynamic>>(
         future: _producerFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
+            return const Center(child: CircularProgressIndicator(color: Colors.orangeAccent));
           } else if (snapshot.hasError) {
-            return Center(child: Text('Erreur : ${snapshot.error}'));
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.error_outline, size: 60, color: Colors.red),
+                  const SizedBox(height: 16),
+                  Text('Erreur : ${snapshot.error}',
+                      style: const TextStyle(fontSize: 16)),
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.orangeAccent),
+                    onPressed: () {
+                      setState(() {
+                        _producerFuture = _fetchProducerDetails(widget.producerId);
+                      });
+                    },
+                    child: const Text('Réessayer'),
+                  ),
+                ],
+              ),
+            );
           }
 
           final producer = snapshot.data!;
@@ -289,6 +538,9 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Bannière de promotion si active
+                if (_hasActivePromotion) _buildPromotionBanner(),
+                
                 _buildHeader(producer),
                 _buildProfileActions(producer),
                 const Divider(height: 20, thickness: 2),
@@ -310,61 +562,448 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> {
       ),
     );
   }
-
-  Widget _buildHeader(Map<String, dynamic> data) {
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
+  
+  // Bannière de promotion active
+  Widget _buildPromotionBanner() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.orangeAccent, Colors.orange.shade700],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
       child: Row(
         children: [
-          CircleAvatar(
-            radius: 50,
-            backgroundImage: NetworkImage(
-              data['photo'] ?? 'https://via.placeholder.com/100',
-            ),
-          ),
-          const SizedBox(width: 16),
+          const Icon(Icons.local_offer, color: Colors.white),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  data['name'] ?? 'Nom non spécifié',
-                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black),
+                const Text(
+                  'Promotion active!',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  'Note moyenne : ${data['rating'] ?? 'N/A'}',
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.orangeAccent),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  data['description'] ?? 'Description non spécifiée',
-                  style: const TextStyle(fontSize: 14, color: Colors.grey),
-                ),
+                if (_promotionEndDate != null)
+                  Text(
+                    'Réduction de $_promotionDiscount% sur tous les plats jusqu\'au ${DateFormat('dd/MM/yyyy').format(_promotionEndDate!)}',
+                    style: const TextStyle(color: Colors.white),
+                  ),
               ],
             ),
           ),
-          // Bouton d'abonnement pour les producteurs
-          ElevatedButton(
+          IconButton(
+            icon: const Icon(Icons.close, color: Colors.white),
             onPressed: () {
-              print("🔍 Navigation vers SubscriptionScreen avec producerId: ${data['id']}");
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => SubscriptionScreen(producerId: widget.producerId),
+              showDialog(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('Désactiver la promotion?'),
+                  content: const Text('Voulez-vous vraiment désactiver la promotion en cours?'),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Annuler'),
+                    ),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                      onPressed: () {
+                        Navigator.pop(context);
+                        _deactivatePromotion();
+                      },
+                      child: const Text('Désactiver'),
+                    ),
+                  ],
                 ),
               );
             },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.orangeAccent, // Couleur d'accent
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHeader(Map<String, dynamic> data) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 24.0, horizontal: 16.0),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.white, Colors.orange.shade50],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ),
+        borderRadius: const BorderRadius.only(
+          bottomLeft: Radius.circular(30),
+          bottomRight: Radius.circular(30),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Photo de profil améliorée
+              Container(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.2),
+                      blurRadius: 8,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: CircleAvatar(
+                  radius: 50,
+                  backgroundImage: NetworkImage(
+                    data['photo'] ?? 'https://via.placeholder.com/100',
+                  ),
+                ),
               ),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              const SizedBox(width: 16),
+              
+              // Informations principales
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      data['name'] ?? 'Nom non spécifié',
+                      style: const TextStyle(
+                        fontSize: 24, 
+                        fontWeight: FontWeight.bold, 
+                        color: Colors.black87,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    
+                    // Note avec étoiles
+                    Row(
+                      children: [
+                        const Icon(Icons.star, color: Colors.amber, size: 20),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${data['rating'] ?? 'N/A'}',
+                          style: const TextStyle(
+                            fontSize: 16, 
+                            fontWeight: FontWeight.bold, 
+                            color: Colors.amber,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '(${data['reviews_count'] ?? 0} avis)',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    
+                    // Description
+                    Text(
+                      data['description'] ?? 'Description non spécifiée',
+                      style: TextStyle(
+                        fontSize: 14, 
+                        color: Colors.grey[700],
+                        height: 1.4,
+                      ),
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          
+          const SizedBox(height: 16),
+          
+          // Boutons d'action améliorés
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _buildActionButton(
+                icon: Icons.edit,
+                label: 'Éditer',
+                onTap: () {
+                  // Navigation vers l'écran d'édition du profil
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Fonctionnalité d\'édition en développement')),
+                  );
+                },
+              ),
+              
+              _buildActionButton(
+                icon: Icons.monetization_on_outlined,
+                label: 'Premium',
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => SubscriptionScreen(producerId: widget.producerId),
+                    ),
+                  );
+                },
+                isHighlighted: true,
+              ),
+              
+              _buildActionButton(
+                icon: Icons.analytics_outlined,
+                label: 'Statistiques',
+                onTap: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Fonctionnalité de statistiques en développement')),
+                  );
+                },
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Widget pour les boutons d'action dans le header
+  Widget _buildActionButton({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+    bool isHighlighted = false,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+        decoration: BoxDecoration(
+          color: isHighlighted ? Colors.orangeAccent : Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
             ),
-            child: const Text(
-              '🔓 Premium',
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon, 
+              color: isHighlighted ? Colors.white : Colors.orangeAccent,
+              size: 24,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(
+                color: isHighlighted ? Colors.white : Colors.black87,
+                fontWeight: FontWeight.w500,
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFrequencyGraph(Map<String, dynamic> producer) {
+    final popularTimes = producer['popular_times'] ?? [];
+    if (popularTimes.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(16.0),
+        margin: const EdgeInsets.all(16.0),
+        decoration: BoxDecoration(
+          color: Colors.grey[100],
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.grey[300]!),
+        ),
+        child: const Center(
+          child: Text(
+            'Données de fréquentation non disponibles',
+            style: TextStyle(fontSize: 16, color: Colors.grey),
+          ),
+        ),
+      );
+    }
+
+    final filteredTimes = popularTimes[_selectedDay]['data']?.cast<int>().sublist(8, 24) ?? [];
+
+    return Container(
+      margin: const EdgeInsets.all(16.0),
+      padding: const EdgeInsets.all(16.0),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.people, color: Colors.orangeAccent),
+              ),
+              const SizedBox(width: 12),
+              const Text(
+                'Fréquentation',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          
+          // Sélecteur de jour amélioré
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.grey[100],
+              borderRadius: BorderRadius.circular(30),
+            ),
+            child: DropdownButton<int>(
+              value: _selectedDay,
+              underline: const SizedBox(),
+              isExpanded: true,
+              icon: const Icon(Icons.arrow_drop_down, color: Colors.orangeAccent),
+              items: List.generate(popularTimes.length, (index) {
+                return DropdownMenuItem(
+                  value: index,
+                  child: Text(
+                    popularTimes[index]['name'],
+                    style: const TextStyle(fontSize: 16),
+                  ),
+                );
+              }),
+              onChanged: (value) {
+                setState(() {
+                  _selectedDay = value!;
+                });
+              },
+            ),
+          ),
+          const SizedBox(height: 16),
+          
+          // Légende améliorée
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Heures (8h - Minuit)', 
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                Text('Niveau d\'affluence', 
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          
+          SizedBox(
+            height: 200,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: BarChart(
+                BarChartData(
+                  barGroups: List.generate(filteredTimes.length, (index) {
+                    return BarChartGroupData(
+                      x: index,
+                      barRods: [
+                        BarChartRodData(
+                          toY: filteredTimes[index].toDouble(),
+                          width: 16,
+                          color: Colors.orangeAccent,
+                          borderRadius: const BorderRadius.only(
+                            topLeft: Radius.circular(6),
+                            topRight: Radius.circular(6),
+                          ),
+                          gradient: LinearGradient(
+                            colors: [Colors.orangeAccent, Colors.orange[700]!],
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                          ),
+                        ),
+                      ],
+                    );
+                  }),
+                  titlesData: FlTitlesData(
+                    leftTitles: AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
+                    rightTitles: AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
+                    topTitles: AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
+                    bottomTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        interval: 2,
+                        getTitlesWidget: (value, _) {
+                          int hour = value.toInt() + 8;
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 8.0),
+                            child: Text(
+                              '$hour h',
+                              style: TextStyle(
+                                fontSize: 12, 
+                                color: Colors.grey[700],
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                  gridData: FlGridData(
+                    show: true,
+                    drawVerticalLine: false,
+                    getDrawingHorizontalLine: (value) {
+                      return FlLine(
+                        color: Colors.grey[200]!,
+                        strokeWidth: 1,
+                        dashArray: [5, 5],
+                      );
+                    },
+                  ),
+                  borderData: FlBorderData(show: false),
+                  backgroundColor: Colors.white,
+                ),
+              ),
             ),
           ),
         ],
@@ -372,130 +1011,172 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> {
     );
   }
 
-
-  Widget _buildFrequencyGraph(Map<String, dynamic> producer) {
-    final popularTimes = producer['popular_times'] ?? [];
-    if (popularTimes.isEmpty) {
-      return const Text('Données de fréquentation non disponibles.');
-    }
-
-    final filteredTimes = popularTimes[_selectedDay]['data']?.cast<int>().sublist(8, 24) ?? [];
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 16.0),
-          child: Text(
-            'Fréquentation (8h - Minuit)',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0),
-          child: DropdownButton<int>(
-            value: _selectedDay,
-            items: List.generate(popularTimes.length, (index) {
-              return DropdownMenuItem(
-                value: index,
-                child: Text(popularTimes[index]['name']),
-              );
-            }),
-            onChanged: (value) {
-              setState(() {
-                _selectedDay = value!;
-              });
-            },
-          ),
-        ),
-        SizedBox(
-          height: 200,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0),
-            child: BarChart(
-              BarChartData(
-                barGroups: List.generate(filteredTimes.length, (index) {
-                  return BarChartGroupData(
-                    x: index,
-                    barRods: [
-                      BarChartRodData(
-                        toY: filteredTimes[index].toDouble(),
-                        width: 12,
-                        color: Colors.orange,
-                      ),
-                    ],
-                  );
-                }),
-                titlesData: FlTitlesData(
-                  leftTitles: AxisTitles(
-                    sideTitles: SideTitles(showTitles: false),
-                  ),
-                  bottomTitles: AxisTitles(
-                    sideTitles: SideTitles(
-                      showTitles: true,
-                      interval: 2,
-                      getTitlesWidget: (value, _) {
-                        int hour = value.toInt() + 8;
-                        return Text('$hour h');
-                      },
-                    ),
-                  ),
-                ),
-                borderData: FlBorderData(show: false),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
   Widget _buildFilterOptions() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+    return Container(
+      margin: const EdgeInsets.all(16.0),
+      padding: const EdgeInsets.all(16.0),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Filtres',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 8),
-          DropdownButton<String>(
-            value: _selectedCarbon,
-            items: const [
-              DropdownMenuItem(value: "<3kg", child: Text("Bilan Carbone : <3kg")),
-              DropdownMenuItem(value: "<5kg", child: Text("Bilan Carbone : <5kg")),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.green.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.filter_alt, color: Colors.green),
+              ),
+              const SizedBox(width: 12),
+              const Text(
+                'Filtres nutritionnels',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
+              ),
             ],
-            onChanged: (value) {
-              setState(() {
-                _selectedCarbon = value!;
-              });
-            },
           ),
-          DropdownButton<String>(
-            value: _selectedNutriScore,
-            items: const [
-              DropdownMenuItem(value: "A-C", child: Text("NutriScore : A-C")),
-              DropdownMenuItem(value: "A-B", child: Text("NutriScore : A-B")),
+          const SizedBox(height: 16),
+          
+          // Filtre Bilan Carbone
+          Container(
+            margin: const EdgeInsets.only(bottom: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.grey[100],
+              borderRadius: BorderRadius.circular(30),
+              border: Border.all(color: Colors.grey[300]!),
+            ),
+            child: DropdownButton<String>(
+              value: _selectedCarbon,
+              isExpanded: true,
+              underline: const SizedBox(),
+              icon: const Icon(Icons.arrow_drop_down, color: Colors.green),
+              items: const [
+                DropdownMenuItem(
+                  value: "<3kg", 
+                  child: Row(
+                    children: [
+                      Icon(Icons.eco, color: Colors.green, size: 18),
+                      SizedBox(width: 8),
+                      Text("Bilan Carbone : <3kg"),
+                    ],
+                  ),
+                ),
+                DropdownMenuItem(
+                  value: "<5kg", 
+                  child: Row(
+                    children: [
+                      Icon(Icons.eco, color: Colors.amber, size: 18),
+                      SizedBox(width: 8),
+                      Text("Bilan Carbone : <5kg"),
+                    ],
+                  ),
+                ),
+              ],
+              onChanged: (value) {
+                setState(() {
+                  _selectedCarbon = value!;
+                });
+              },
+            ),
+          ),
+          
+          // Filtre NutriScore
+          Container(
+            margin: const EdgeInsets.only(bottom: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.grey[100],
+              borderRadius: BorderRadius.circular(30),
+              border: Border.all(color: Colors.grey[300]!),
+            ),
+            child: DropdownButton<String>(
+              value: _selectedNutriScore,
+              isExpanded: true,
+              underline: const SizedBox(),
+              icon: const Icon(Icons.arrow_drop_down, color: Colors.blue),
+              items: const [
+                DropdownMenuItem(
+                  value: "A-C", 
+                  child: Row(
+                    children: [
+                      Icon(Icons.health_and_safety, color: Colors.blue, size: 18),
+                      SizedBox(width: 8),
+                      Text("NutriScore : A-C"),
+                    ],
+                  ),
+                ),
+                DropdownMenuItem(
+                  value: "A-B", 
+                  child: Row(
+                    children: [
+                      Icon(Icons.health_and_safety, color: Colors.green, size: 18),
+                      SizedBox(width: 8),
+                      Text("NutriScore : A-B"),
+                    ],
+                  ),
+                ),
+              ],
+              onChanged: (value) {
+                setState(() {
+                  _selectedNutriScore = value!;
+                });
+              },
+            ),
+          ),
+          
+          // Slider de calories
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.local_fire_department, color: Colors.red, size: 18),
+                  const SizedBox(width: 8),
+                  Text(
+                    "Calories maximales: ${_selectedMaxCalories.toInt()} cal",
+                    style: const TextStyle(fontWeight: FontWeight.w500),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  activeTrackColor: Colors.red,
+                  inactiveTrackColor: Colors.red.withOpacity(0.2),
+                  thumbColor: Colors.red,
+                  valueIndicatorColor: Colors.red,
+                  valueIndicatorTextStyle: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  showValueIndicator: ShowValueIndicator.always,
+                ),
+                child: Slider(
+                  value: _selectedMaxCalories,
+                  min: 100,
+                  max: 1000,
+                  divisions: 9,
+                  label: "${_selectedMaxCalories.toInt()} cal",
+                  onChanged: (value) {
+                    setState(() {
+                      _selectedMaxCalories = value;
+                    });
+                  },
+                ),
+              ),
             ],
-            onChanged: (value) {
-              setState(() {
-                _selectedNutriScore = value!;
-              });
-            },
-          ),
-          Slider(
-            value: _selectedMaxCalories,
-            min: 100,
-            max: 1000,
-            divisions: 9,
-            label: "Calories: $_selectedMaxCalories",
-            onChanged: (value) {
-              setState(() {
-                _selectedMaxCalories = value;
-              });
-            },
           ),
         ],
       ),
