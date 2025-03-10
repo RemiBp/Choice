@@ -944,15 +944,18 @@ class _ProducerScreenState extends State<ProducerScreen> with SingleTickerProvid
                 ],
               ),
               const SizedBox(height: 16),
-              DropdownButton<int>(
-                value: _selectedDay,
-                isExpanded: true,
-                hint: const Text('Sélectionnez un jour'),
+              Container(
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(color: Colors.blue.withOpacity(0.3)),
                 ),
-                items: List.generate(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: DropdownButton<int>(
+                  value: _selectedDay,
+                  isExpanded: true,
+                  hint: const Text('Sélectionnez un jour'),
+                  underline: Container(), // Supprime la ligne par défaut
+                  items: List.generate(
                   size, 
                   (index) {
                     var dayData;
@@ -2516,8 +2519,8 @@ class _ProducerScreenState extends State<ProducerScreen> with SingleTickerProvid
                         markerId: const MarkerId('producer'),
                         position: latLng,
                         infoWindow: InfoWindow(
-                          title: producer?['name'] ?? 'Restaurant',
-                          snippet: producer?['address'] ?? '',
+                          title: snapshot.data?['name'] ?? 'Restaurant',
+                          snippet: snapshot.data?['address'] ?? '',
                         ),
                       )
                     },
