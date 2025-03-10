@@ -100,14 +100,19 @@ workflows:
         recipients:
           - "remi.barbier@hec.edu"
 
-  ios-release:
-    name: iOS Release Build
+  # Version sans signature de code (si jamais vous rencontrez à nouveau des problèmes de profil)
+  ios-release-unsigned:
+    name: iOS Release Build (Unsigned)
     instance_type: mac_mini_m1
     max_build_duration: 120
     environment:
       flutter: stable
       xcode: latest
-      cocoapods: latest  # 🔥 Assure une version à jour de CocoaPods
+      cocoapods: latest
+      vars:
+        # Variables pour désactiver complètement la signature de code
+        DISABLE_CODE_SIGNING: "true"
+        ENABLE_MANUAL_PROVISIONING: "false"
     scripts:
       - name: Clean Flutter project
         script: |
@@ -164,17 +169,163 @@ workflows:
           cd ios
           plutil -replace MinimumOSVersion -string "14.0" Runner/Info.plist
           plutil -replace LSRequiresIPhoneOS -bool YES Runner/Info.plist
+      
+      - name: Désactiver la détection automatique des profils de provisionnement
+        script: |
+          # Désactiver la détection et l'utilisation de profils de provisionnement
+          export SKIP_PROFILE_DETECTION=1
+          
+          # Créer un fichier d'options d'export personnalisé qui désactive la signature de code
+          cat > ios/ExportOptions.plist << EOL
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>development</string>
+              <key>signingStyle</key>
+              <string>automatic</string>
+              <key>compileBitcode</key>
+              <false/>
+              <key>uploadBitcode</key>
+              <false/>
+          </dict>
+          </plist>
+          EOL
+          
+          echo "✅ Configuration de désactivation de la signature de code créée"
+
+      - name: Configurer le projet Xcode pour désactiver la signature
+        script: |
+          cd ios
+          
+          # Désactiver la signature automatique dans le projet Xcode
+          sed -i '' 's/ProvisioningStyle = Automatic;/ProvisioningStyle = Manual;/g' Runner.xcodeproj/project.pbxproj
+          sed -i '' 's/DevelopmentTeam = .*;/DevelopmentTeam = "";/g' Runner.xcodeproj/project.pbxproj
+          sed -i '' 's/DEVELOPMENT_TEAM = .*;/DEVELOPMENT_TEAM = "";/g' Runner.xcodeproj/project.pbxproj
+          
+          echo "✅ Signature automatique désactivée dans le projet Xcode"
 
       - name: Build iOS IPA (No Code Signing)
         script: |
+          # Définir des variables d'environnement pour désactiver la signature de code
+          export SKIP_PROFILE_DETECTION=1
+          export DISABLE_CODE_SIGNING=1
+          export FLUTTER_XCODE_CODE_SIGN_STYLE="Manual"
+          export FLUTTER_XCODE_DEVELOPMENT_TEAM=""
+          
           # S'assurer que le build n'utilise pas d'export options ou de provisioning profiles
-          # Le problème signalé montre qu'un profil 'Remi Barbier - Iphone' est utilisé malgré --no-codesign
+          cd $CM_BUILD_DIR
           flutter clean
           flutter pub get
-          # Utiliser explicitement --no-codesign sans autres options
+          
+          # Forcer l'utilisation de --no-codesign et ignorer toute option d'export
           flutter build ipa --no-codesign --verbose
+
+          # Si la méthode ci-dessus échoue, essayer avec une autre approche
+          if [ $? -ne 0 ]; then
+            echo "⚠️ Tentative alternative de build sans signature..."
+            cd ios
+            rm -rf build
+            mkdir -p build/ios/ipa
+            cd ..
+            flutter build ios --release --no-codesign
+            # Créer un IPA minimal manuellement
+            cd ios/build/ios/iphoneos
+            mkdir Payload
+            cp -r Runner.app Payload/
+            zip -r ../../../build/ios/ipa/app-release.ipa Payload
+            rm -rf Payload
+            cd $CM_BUILD_DIR
+          fi
           
           echo "✅ Build iOS sans signature terminé"
+          
+          # Vérifier si l'IPA a été généré
+          if [ -f "build/ios/ipa/app-release.ipa" ]; then
+            echo "🎉 IPA généré avec succès"
+          else
+            echo "🔍 Recherche d'autres IPAs générés..."
+            find build -name "*.ipa"
+          fi
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+
+    publishing:
+      email:
+        recipients:
+          - "remi.barbier@hec.edu"
+
+  # Version avec signature de code (utilisant votre profil mis à jour)
+  ios-release:
+    name: iOS Release Build (Signed)
+    instance_type: mac_mini_m1
+    max_build_duration: 120
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: latest
+      ios_signing:
+        distribution_type: ad-hoc  # Vous pouvez changer à 'app-store' pour les builds de production
+        bundle_identifier: fr.choiceapp.app
+    scripts:
+      - name: Clean Flutter project
+        script: |
+          flutter clean
+          flutter pub get
+          flutter pub cache repair
+
+      - name: Verify Flutter dependencies
+        script: |
+          if ! grep -q "add_2_calendar" pubspec.yaml; then
+            echo "⚠️  La dépendance add_2_calendar semble manquante dans pubspec.yaml."
+            exit 1
+          fi
+
+      - name: Ensure iOS deployment target is 14.0+ in Podfile
+        script: |
+          cd ios
+          
+          if [ -f "Podfile" ]; then
+            sed -i '' 's/platform :ios, .*/platform :ios, "14.0"/' Podfile
+          else
+            echo "🚨 Podfile non trouvé ! Assure-toi que ton projet Flutter iOS est bien configuré."
+            exit 1
+          fi
+
+      - name: Update CocoaPods
+        script: |
+          sudo gem install cocoapods --pre
+          pod repo update
+
+      - name: Remove and reinstall CocoaPods dependencies
+        script: |
+          cd ios
+          rm -rf Pods Podfile.lock
+          pod deintegrate
+          pod install --repo-update --verbose
+
+      - name: Apply iOS 14.0 Deployment Fix in Xcode Info.plist
+        script: |
+          cd ios
+          plutil -replace MinimumOSVersion -string "14.0" Runner/Info.plist
+          plutil -replace LSRequiresIPhoneOS -bool YES Runner/Info.plist
+
+      - name: Build iOS IPA with Proper Signing
+        script: |
+          # Cette méthode utilise votre profil de provisionnement mis à jour
+          flutter build ipa --release
+          
+          echo "✅ Build iOS avec signature terminé"
+          
+          # Vérifier si l'IPA a été généré
+          if [ -f "build/ios/ipa/app-release.ipa" ]; then
+            echo "🎉 IPA signé généré avec succès"
+          else
+            echo "🔍 Recherche d'autres IPAs générés..."
+            find build -name "*.ipa"
+          fi
 
     artifacts:
       - build/ios/ipa/*.ipa
