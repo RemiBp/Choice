@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
-import 'package:choice_app/main.dart'; // Assurez-vous que MainNavigation est bien importé
-import 'utils.dart';
+import 'package:provider/provider.dart';
+import '../services/auth_service.dart';
+import 'register_user.dart';
 
 class LoginUserPage extends StatefulWidget {
   @override
@@ -14,146 +13,277 @@ class _LoginUserPageState extends State<LoginUserPage> {
   String email = '';
   String password = '';
   bool _isLoading = false;
+  bool _obscurePassword = true;
 
   Future<void> loginUser() async {
-    // URL de l'API pour se connecter
-    final String apiUrl = '${getBaseUrl()}/api/newuser/login';
+    if (email.isEmpty || password.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Veuillez remplir tous les champs')),
+      );
+      return;
+    }
+
+    setState(() => _isLoading = true);
 
     try {
-      setState(() {
-        _isLoading = true;
-      });
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final success = await authService.login(email, password);
 
-      print('--- DEBUG: Fonction loginUser() déclenchée ---');
-
-      // Vérification des champs vides
-      if (email.isEmpty || password.isEmpty) {
-        print('--- DEBUG: Champs vides détectés ---');
+      if (success) {
+        // La navigation sera gérée automatiquement par le Provider dans main.dart
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Veuillez remplir tous les champs')),
-        );
-        setState(() {
-          _isLoading = false;
-        });
-        return;
-      }
-
-      print('--- DEBUG: Champs validés ---');
-      print('Email : $email, Mot de passe : $password');
-
-      final requestPayload = {
-        'email': email,
-        'password': password,
-      };
-      print('--- DEBUG: Payload envoyé au serveur : $requestPayload');
-
-      // Effectuer la requête POST avec timeout
-      final response = await http
-          .post(
-            Uri.parse(apiUrl),
-            headers: {'Content-Type': 'application/json'},
-            body: jsonEncode(requestPayload),
-          )
-          .timeout(
-            const Duration(seconds: 10),
-            onTimeout: () {
-              print('--- DEBUG: Timeout de la requête détecté ---');
-              throw Exception('Timeout de la requête');
-            },
-          );
-
-      print('--- DEBUG: Réponse HTTP reçue ---');
-      print('Statut HTTP : ${response.statusCode}');
-      print('Corps de la réponse : ${response.body}');
-
-      // Vérification du statut
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final userId = data['user']['_id']; // Récupération de l'userId
-        print('--- DEBUG: Réponse JSON décodée avec userId : $userId ---');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Bienvenue ${data['user']['name']} !')),
-        );
-
-        // Navigation vers MainNavigation
-        print('--- DEBUG: Navigation vers MainNavigation avec userId : $userId ---');
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) {
-              print('--- DEBUG: Navigation réellement exécutée avec userId : $userId ---');
-              return MainNavigation(userId: userId, accountType: 'user'); // Ajoutez accountType ici
-            },
-          ),
+          const SnackBar(content: Text('Connexion réussie !')),
         );
       } else {
-        final responseJson = jsonDecode(response.body);
-        final error = responseJson['error'] ?? 'Erreur inconnue';
-        print('--- DEBUG: Erreur renvoyée par le serveur : $error');
-        print('--- DEBUG: Réponse complète : $responseJson');
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur : $error')),
+          const SnackBar(content: Text('Email ou mot de passe incorrect')),
         );
       }
     } catch (e) {
-      print('--- DEBUG: Exception attrapée lors de la requête ---');
-      print('Type d\'exception : ${e.runtimeType}');
-      print('Détails de l\'exception : $e');
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur de connexion au serveur : ${e.toString()}')),
+        SnackBar(content: Text('Erreur de connexion : ${e.toString()}')),
       );
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
-      print('--- DEBUG: Fin de la requête ---');
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Se connecter')),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            children: [
-              TextFormField(
-                decoration: const InputDecoration(labelText: 'Email'),
-                keyboardType: TextInputType.emailAddress,
-                onChanged: (value) {
-                  email = value;
-                  print('Email entré : $email');
-                },
-                validator: (value) => value!.isEmpty ? 'Veuillez entrer un email' : null,
-              ),
-              TextFormField(
-                decoration: const InputDecoration(labelText: 'Mot de passe'),
-                obscureText: true,
-                onChanged: (value) {
-                  password = value;
-                  print('Mot de passe entré : $password');
-                },
-                validator: (value) => value!.length < 6 ? 'Mot de passe trop court' : null,
-              ),
-              const SizedBox(height: 20),
-              _isLoading
-                  ? const CircularProgressIndicator()
-                  : ElevatedButton(
-                      onPressed: () {
-                        print('--- DEBUG: Bouton "Se connecter" cliqué ---');
-                        if (_formKey.currentState!.validate()) {
-                          print('--- DEBUG: Validation réussie ---');
-                          loginUser();
-                        } else {
-                          print('--- DEBUG: Validation échouée ---');
-                        }
-                      },
-                      child: const Text('Se connecter'),
+      appBar: AppBar(
+        title: const Text('Connexion'),
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black87,
+        elevation: 0,
+      ),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Header
+                const Text(
+                  'Connectez-vous',
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blue,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Bienvenue ! Entrez vos identifiants pour vous connecter à votre compte.',
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: Colors.grey[600],
+                  ),
+                ),
+                
+                const SizedBox(height: 40),
+                
+                // Login card
+                Card(
+                  elevation: 2,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                  child: Padding(
+                    padding: const EdgeInsets.all(24.0),
+                    child: Form(
+                      key: _formKey,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Email field
+                          TextFormField(
+                            decoration: InputDecoration(
+                              labelText: 'Email',
+                              prefixIcon: const Icon(Icons.email, color: Colors.blue),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: BorderSide(color: Colors.grey[300]!),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: BorderSide(color: Colors.grey[300]!),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: const BorderSide(color: Colors.blue),
+                              ),
+                              filled: true,
+                              fillColor: Colors.grey[100],
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                            ),
+                            keyboardType: TextInputType.emailAddress,
+                            onChanged: (value) => email = value,
+                            validator: (value) => 
+                              value!.isEmpty ? 'Veuillez entrer votre email' : null,
+                          ),
+                          
+                          const SizedBox(height: 20),
+                          
+                          // Password field
+                          TextFormField(
+                            decoration: InputDecoration(
+                              labelText: 'Mot de passe',
+                              prefixIcon: const Icon(Icons.lock, color: Colors.blue),
+                              suffixIcon: IconButton(
+                                icon: Icon(
+                                  _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                                  color: Colors.grey[600],
+                                ),
+                                onPressed: () {
+                                  setState(() {
+                                    _obscurePassword = !_obscurePassword;
+                                  });
+                                },
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: BorderSide(color: Colors.grey[300]!),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: BorderSide(color: Colors.grey[300]!),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: const BorderSide(color: Colors.blue),
+                              ),
+                              filled: true,
+                              fillColor: Colors.grey[100],
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                            ),
+                            obscureText: _obscurePassword,
+                            onChanged: (value) => password = value,
+                            validator: (value) => 
+                              value!.isEmpty ? 'Veuillez entrer votre mot de passe' : 
+                              value.length < 6 ? 'Le mot de passe doit contenir au moins 6 caractères' : null,
+                          ),
+                          
+                          // Forgot password link
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton(
+                              onPressed: () {
+                                // This would be implemented in the future
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('Fonctionnalité en développement')),
+                                );
+                              },
+                              style: TextButton.styleFrom(
+                                foregroundColor: Colors.blue,
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                              ),
+                              child: const Text('Mot de passe oublié ?'),
+                            ),
+                          ),
+                          
+                          const SizedBox(height: 24),
+                          
+                          // Login button
+                          SizedBox(
+                            width: double.infinity,
+                            child: _isLoading
+                              ? const Center(child: CircularProgressIndicator(color: Colors.blue))
+                              : ElevatedButton(
+                                  onPressed: () {
+                                    if (_formKey.currentState!.validate()) {
+                                      loginUser();
+                                    }
+                                  },
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.blue,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(vertical: 14),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                  ),
+                                  child: const Text(
+                                    'Se connecter',
+                                    style: TextStyle(fontSize: 16),
+                                  ),
+                                ),
+                          ),
+                        ],
+                      ),
                     ),
-            ],
+                  ),
+                ),
+                
+                const SizedBox(height: 20),
+                
+                // Register section
+                Center(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        'Vous n\'avez pas de compte ?',
+                        style: TextStyle(color: Colors.grey[600]),
+                      ),
+                      TextButton(
+                        onPressed: () {
+                          Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(builder: (context) => const RegisterUserPage()),
+                          );
+                        },
+                        child: const Text('Créer un compte'),
+                      ),
+                    ],
+                  ),
+                ),
+                
+                const SizedBox(height: 20),
+                
+                // Divider with "or"
+                Row(
+                  children: [
+                    Expanded(child: Divider(color: Colors.grey[400])),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Text('OU', style: TextStyle(color: Colors.grey[600])),
+                    ),
+                    Expanded(child: Divider(color: Colors.grey[400])),
+                  ],
+                ),
+                
+                const SizedBox(height: 20),
+                
+                // Social login (non-functional for now)
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    icon: Icon(Icons.sailing, color: Colors.grey[700]),
+                    label: Text(
+                      'Continuer comme invité', 
+                      style: TextStyle(color: Colors.grey[700]),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      side: BorderSide(color: Colors.grey[400]!),
+                    ),
+                    onPressed: () {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Fonctionnalité en développement')),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

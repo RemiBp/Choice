@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import 'map_leisure_screen.dart';
 import 'dart:math' as Math;
 import 'eventLeisure_screen.dart'; // Import nécessaire pour afficher les événements
+import '../utils/leisureHelpers.dart';
 
 class ProducerLeisureScreen extends StatefulWidget {
   final String producerId;
@@ -367,47 +368,10 @@ class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> with Sing
     final upcomingEvents = <dynamic>[];
     final pastEvents = <dynamic>[];
     
-    // Current date for comparison
-    final now = DateTime.now();
-    
     for (var event in events) {
       try {
-        // Try to find date information
-        String? dateStr = event['date_fin'];
-        if (dateStr == null || dateStr.isEmpty) {
-          dateStr = event['date_debut'];
-        }
-        if (dateStr == null || dateStr.isEmpty) {
-          dateStr = event['prochaines_dates']?.toString();
-        }
-        
-        // Default to upcoming if can't parse date
-        bool isPast = false;
-        
-        if (dateStr != null && dateStr.isNotEmpty && dateStr != "Dates non disponibles") {
-          try {
-            // Try different date formats
-            DateTime? eventDate;
-            try {
-              // Try DD/MM/YYYY format
-              eventDate = DateFormat('dd/MM/yyyy').parse(dateStr);
-            } catch (e) {
-              try {
-                // Try YYYY-MM-DD format
-                eventDate = DateFormat('yyyy-MM-dd').parse(dateStr);
-              } catch (e) {
-                // Leave as null if can't parse
-              }
-            }
-            
-            if (eventDate != null) {
-              isPast = eventDate.isBefore(now);
-            }
-          } catch (e) {
-            // If parse fails, default to upcoming
-            print('❌ Erreur lors du parsing de la date: $e');
-          }
-        }
+        // Use the helper function to determine if the event is passed
+        final bool isPast = isEventPassed(event);
         
         if (isPast) {
           pastEvents.add(event);
@@ -693,7 +657,7 @@ class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> with Sing
                           ),
                           child: ClipOval(
                             child: Image.network(
-                              data['photo'] ?? 'https://via.placeholder.com/100',
+                              getProducerImageUrl(data),
                               fit: BoxFit.cover,
                               errorBuilder: (context, error, stackTrace) {
                                 return Container(
@@ -1056,11 +1020,8 @@ class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> with Sing
         final event = events[index];
         final eventId = event['lien_evenement']?.split('/').last;
         
-        // Use default image if none provided or handle dynamically
-        String eventImage = 'https://via.placeholder.com/100';
-        if (event['image'] != null && event['image'].toString().isNotEmpty) {
-          eventImage = event['image'];
-        }
+        // Use helper to get consistent image URL
+        String eventImage = getEventImageUrl(event);
         
         // Get category cleaned up
         String category = '';
@@ -1191,33 +1152,32 @@ class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> with Sing
                             ),
                           ),
                         
-                        // Dates with icon
-                        if (event['prochaines_dates'] != null && event['prochaines_dates'] != "Dates non disponibles")
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 8.0),
-                            child: Row(
-                              children: [
-                                Icon(
-                                  isUpcoming ? Icons.calendar_today : Icons.history, 
-                                  size: 14, 
-                                  color: isUpcoming ? Colors.deepPurple : Colors.grey
-                                ),
-                                const SizedBox(width: 6),
-                                Expanded(
-                                  child: Text(
-                                    event['prochaines_dates'],
-                                    style: TextStyle(
-                                      fontSize: 13, 
-                                      color: isUpcoming ? Colors.deepPurple : Colors.grey[600],
-                                      fontWeight: isUpcoming ? FontWeight.w500 : FontWeight.normal,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
+                        // Dates with icon - use formatted date
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8.0),
+                          child: Row(
+                            children: [
+                              Icon(
+                                isUpcoming ? Icons.calendar_today : Icons.history, 
+                                size: 14, 
+                                color: isUpcoming ? Colors.deepPurple : Colors.grey
+                              ),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  formatEventDate(event['date_debut'] ?? event['prochaines_dates']),
+                                  style: TextStyle(
+                                    fontSize: 13, 
+                                    color: isUpcoming ? Colors.deepPurple : Colors.grey[600],
+                                    fontWeight: isUpcoming ? FontWeight.w500 : FontWeight.normal,
                                   ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
-                              ],
-                            ),
+                              ),
+                            ],
                           ),
+                        ),
                           
                         // Price with discount display
                         if (event['prix_reduit'] != null)
@@ -1334,28 +1294,35 @@ class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> with Sing
     );
   }
 
-  Future<void> _navigateToEventDetails(BuildContext context, String id) async {
+  Future<void> _navigateToEventDetails(BuildContext context, String eventId) async {
     setState(() {
       _isLoading = true;
     });
-    print('🔍 Navigation vers l\'événement avec ID : $id');
+    print('🔍 Navigation vers l\'événement avec ID : $eventId');
 
     try {
+      // Nettoyer l'ID de l'événement (supprimer les caractères non-alphanumériques)
+      final cleanId = eventId.replaceAll(RegExp(r'[^\w-]'), '');
+      print('🔍 ID nettoyé : $cleanId');
+      
       // Extraire le domaine et le protocole de l'URL complète
       final baseUrl = getBaseUrl();
       Uri url;
       
+      // Construire l'URL avec le chemin normalisé
+      final apiPath = normalizeCollectionRoute('events', cleanId);
+      
       if (baseUrl.startsWith('http://')) {
         // Si c'est http://
         final domain = baseUrl.replaceFirst('http://', '');
-        url = Uri.http(domain, '/api/events/$id');
+        url = Uri.http(domain, apiPath);
       } else if (baseUrl.startsWith('https://')) {
         // Si c'est https://
         final domain = baseUrl.replaceFirst('https://', '');
-        url = Uri.https(domain, '/api/events/$id');
+        url = Uri.https(domain, apiPath);
       } else {
         // Utiliser Uri.parse comme solution de secours
-        url = Uri.parse('$baseUrl/api/events/$id');
+        url = Uri.parse('$baseUrl$apiPath');
       }
       
       final response = await http.get(url);

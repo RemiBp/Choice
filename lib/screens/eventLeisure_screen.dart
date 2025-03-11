@@ -6,6 +6,8 @@ import 'package:url_launcher/url_launcher.dart';
 import 'producerLeisure_screen.dart';
 import 'package:add_2_calendar/add_2_calendar.dart';
 import 'utils.dart'; // Utilise le mécanisme d'exports conditionnels pour la bonne implémentation selon la plateforme
+import 'package:intl/intl.dart';
+import '../utils/leisureHelpers.dart';
 
 class EventLeisureScreen extends StatefulWidget {
   final String eventId;
@@ -69,8 +71,16 @@ class _EventLeisureScreenState extends State<EventLeisureScreen> {
       final response = await http.get(url);
 
       if (response.statusCode == 200) {
+        final responseData = json.decode(response.body);
+        
+        // Format dates and detect if event is passed
         setState(() {
-          _eventData = json.decode(response.body);
+          _eventData = {
+            ...responseData,
+            'date_formatted': formatEventDate(responseData['date_debut'] ?? responseData['prochaines_dates']),
+            'is_passed': isEventPassed(responseData),
+            'image': getEventImageUrl(responseData),
+          };
           _isLoading = false;
         });
       } else {
@@ -720,7 +730,7 @@ class _EventLeisureScreenState extends State<EventLeisureScreen> {
               },
               blendMode: BlendMode.darken,
               child: Image.network(
-                _eventData!['image'],
+                getEventImageUrl(_eventData!),
                 height: 280,
                 width: double.infinity,
                 fit: BoxFit.cover,
@@ -790,21 +800,29 @@ class _EventLeisureScreenState extends State<EventLeisureScreen> {
                           ),
                         ),
                       const SizedBox(width: 8),
-                      if (_eventData!['prochaines_dates'] != null)
+                      if (_eventData!['date_formatted'] != null)
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                           decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.6),
+                            color: _eventData!['is_passed'] == true 
+                                ? Colors.grey.withOpacity(0.6) 
+                                : Colors.black.withOpacity(0.6),
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(color: Colors.white30),
                           ),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              const Icon(Icons.calendar_today, size: 12, color: Colors.white),
+                              Icon(
+                                _eventData!['is_passed'] == true 
+                                    ? Icons.history 
+                                    : Icons.calendar_today,
+                                size: 12,
+                                color: Colors.white
+                              ),
                               const SizedBox(width: 4),
                               Text(
-                                _eventData!['prochaines_dates'],
+                                _eventData!['date_formatted'],
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 12,

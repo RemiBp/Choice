@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'package:choice_app/main.dart'; // Assurez-vous que MainNavigation est bien importé
+import 'package:choice_app/main.dart';
 import 'utils.dart';
+import 'login_user.dart'; // Pour le lien vers la connexion
 
 class RegisterUserPage extends StatefulWidget {
   const RegisterUserPage({Key? key}) : super(key: key);
@@ -16,7 +17,11 @@ class _RegisterUserPageState extends State<RegisterUserPage> {
   String name = '';
   String email = '';
   String password = '';
+  String confirmPassword = '';
   bool _isLoading = false;
+  bool _obscurePassword = true;
+  bool _obscureConfirmPassword = true;
+  bool _termsAccepted = false;
 
   Future<void> registerUser() async {
     // Extraire le domaine et le protocole de l'URL complète
@@ -41,11 +46,8 @@ class _RegisterUserPageState extends State<RegisterUserPage> {
         _isLoading = true;
       });
 
-      print('--- DEBUG: Fonction registerUser() déclenchée ---');
-
       // Vérification des champs vides
       if (name.isEmpty || email.isEmpty || password.isEmpty) {
-        print('--- DEBUG: Champs vides détectés ---');
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Veuillez remplir tous les champs')),
         );
@@ -55,8 +57,27 @@ class _RegisterUserPageState extends State<RegisterUserPage> {
         return;
       }
 
-      print('--- DEBUG: Champs validés ---');
-      print('Nom : $name, Email : $email, Mot de passe : $password');
+      // Vérification que les mots de passe correspondent
+      if (password != confirmPassword) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Les mots de passe ne correspondent pas')),
+        );
+        setState(() {
+          _isLoading = false;
+        });
+        return;
+      }
+
+      // Vérification des termes et conditions
+      if (!_termsAccepted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Vous devez accepter les termes et conditions')),
+        );
+        setState(() {
+          _isLoading = false;
+        });
+        return;
+      }
 
       final requestPayload = {
         'name': name,
@@ -65,8 +86,6 @@ class _RegisterUserPageState extends State<RegisterUserPage> {
         'gender': 'Non spécifié', // Exemple par défaut
         'liked_tags': [], // Liste vide par défaut
       };
-      print('--- DEBUG: Payload envoyé au serveur : $requestPayload');
-      print('--- DEBUG: URL utilisée : $url');
 
       // Effectuer la requête POST avec timeout
       final response = await http
@@ -78,48 +97,35 @@ class _RegisterUserPageState extends State<RegisterUserPage> {
           .timeout(
             const Duration(seconds: 10),
             onTimeout: () {
-              print('--- DEBUG: Timeout de la requête détecté ---');
               throw Exception('Timeout de la requête');
             },
           );
-
-      print('--- DEBUG: Réponse HTTP reçue ---');
-      print('Statut HTTP : ${response.statusCode}');
-      print('Corps de la réponse : ${response.body}');
 
       // Vérification du statut
       if (response.statusCode == 201) {
         final data = jsonDecode(response.body);
         final userId = data['user']['_id']; // Récupération de l'userId
-        print('--- DEBUG: Réponse JSON décodée avec userId : $userId ---');
+        
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Compte créé pour ${data['user']['name']} !')),
         );
 
         // Navigation vers MainNavigation
-        print('--- DEBUG: Navigation vers MainNavigation avec userId : $userId ---');
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
-            builder: (context) {
-              print('--- DEBUG: Navigation réellement exécutée avec userId : $userId ---');
-              return MainNavigation(userId: userId, accountType: 'user'); // Ajoutez accountType ici
-            },
+            builder: (context) => MainNavigation(userId: userId, accountType: 'user'),
           ),
         );
       } else {
         final responseJson = jsonDecode(response.body);
         final error = responseJson['error'] ?? 'Erreur inconnue';
-        print('--- DEBUG: Erreur renvoyée par le serveur : $error');
-        print('--- DEBUG: Réponse complète : $responseJson');
+        
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Erreur : $error')),
         );
       }
     } catch (e) {
-      print('--- DEBUG: Exception attrapée lors de la requête ---');
-      print('Type d\'exception : ${e.runtimeType}');
-      print('Détails de l\'exception : $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Erreur de connexion au serveur : ${e.toString()}')),
       );
@@ -127,62 +133,297 @@ class _RegisterUserPageState extends State<RegisterUserPage> {
       setState(() {
         _isLoading = false;
       });
-      print('--- DEBUG: Fin de la requête ---');
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Créer un compte utilisateur')),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            children: [
-              TextFormField(
-                decoration: const InputDecoration(labelText: 'Nom'),
-                onChanged: (value) {
-                  name = value;
-                  print('Nom entré : $name');
-                },
-                validator: (value) => value!.isEmpty ? 'Veuillez entrer un nom' : null,
-              ),
-              TextFormField(
-                decoration: const InputDecoration(labelText: 'Email'),
-                keyboardType: TextInputType.emailAddress,
-                onChanged: (value) {
-                  email = value;
-                  print('Email entré : $email');
-                },
-                validator: (value) => value!.isEmpty ? 'Veuillez entrer un email' : null,
-              ),
-              TextFormField(
-                decoration: const InputDecoration(labelText: 'Mot de passe'),
-                obscureText: true,
-                onChanged: (value) {
-                  password = value;
-                  print('Mot de passe entré : $password');
-                },
-                validator: (value) => value!.length < 6 ? 'Mot de passe trop court' : null,
-              ),
-              const SizedBox(height: 20),
-              _isLoading
-                  ? const CircularProgressIndicator()
-                  : ElevatedButton(
-                      onPressed: () {
-                        print('--- DEBUG: Bouton "Créer mon compte" cliqué ---');
-                        if (_formKey.currentState!.validate()) {
-                          print('--- DEBUG: Validation réussie ---');
-                          registerUser();
-                        } else {
-                          print('--- DEBUG: Validation échouée ---');
-                        }
-                      },
-                      child: const Text('S\'inscrire'),
+      appBar: AppBar(
+        title: const Text('Créer un compte'),
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black87,
+        elevation: 0,
+      ),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Header
+                const Text(
+                  'Créez votre compte',
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.green,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Rejoignez notre communauté et découvrez les meilleurs restaurants et loisirs près de chez vous.',
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: Colors.grey[600],
+                  ),
+                ),
+                
+                const SizedBox(height: 32),
+                
+                // Registration card
+                Card(
+                  elevation: 2,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                  child: Padding(
+                    padding: const EdgeInsets.all(24.0),
+                    child: Form(
+                      key: _formKey,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Name field
+                          TextFormField(
+                            decoration: InputDecoration(
+                              labelText: 'Nom complet',
+                              prefixIcon: const Icon(Icons.person, color: Colors.green),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: BorderSide(color: Colors.grey[300]!),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: BorderSide(color: Colors.grey[300]!),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: const BorderSide(color: Colors.green),
+                              ),
+                              filled: true,
+                              fillColor: Colors.grey[100],
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                            ),
+                            onChanged: (value) => name = value,
+                            validator: (value) => 
+                              value!.isEmpty ? 'Veuillez entrer votre nom complet' : null,
+                          ),
+                          
+                          const SizedBox(height: 20),
+                          
+                          // Email field
+                          TextFormField(
+                            decoration: InputDecoration(
+                              labelText: 'Email',
+                              prefixIcon: const Icon(Icons.email, color: Colors.green),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: BorderSide(color: Colors.grey[300]!),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: BorderSide(color: Colors.grey[300]!),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: const BorderSide(color: Colors.green),
+                              ),
+                              filled: true,
+                              fillColor: Colors.grey[100],
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                            ),
+                            keyboardType: TextInputType.emailAddress,
+                            onChanged: (value) => email = value,
+                            validator: (value) => 
+                              value!.isEmpty ? 'Veuillez entrer votre email' : null,
+                          ),
+                          
+                          const SizedBox(height: 20),
+                          
+                          // Password field
+                          TextFormField(
+                            decoration: InputDecoration(
+                              labelText: 'Mot de passe',
+                              prefixIcon: const Icon(Icons.lock, color: Colors.green),
+                              suffixIcon: IconButton(
+                                icon: Icon(
+                                  _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                                  color: Colors.grey[600],
+                                ),
+                                onPressed: () {
+                                  setState(() {
+                                    _obscurePassword = !_obscurePassword;
+                                  });
+                                },
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: BorderSide(color: Colors.grey[300]!),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: BorderSide(color: Colors.grey[300]!),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: const BorderSide(color: Colors.green),
+                              ),
+                              filled: true,
+                              fillColor: Colors.grey[100],
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                            ),
+                            obscureText: _obscurePassword,
+                            onChanged: (value) => password = value,
+                            validator: (value) => 
+                              value!.isEmpty ? 'Veuillez entrer un mot de passe' : 
+                              value.length < 6 ? 'Le mot de passe doit contenir au moins 6 caractères' : null,
+                          ),
+                          
+                          const SizedBox(height: 20),
+                          
+                          // Confirm password field
+                          TextFormField(
+                            decoration: InputDecoration(
+                              labelText: 'Confirmer le mot de passe',
+                              prefixIcon: const Icon(Icons.lock_outline, color: Colors.green),
+                              suffixIcon: IconButton(
+                                icon: Icon(
+                                  _obscureConfirmPassword ? Icons.visibility_off : Icons.visibility,
+                                  color: Colors.grey[600],
+                                ),
+                                onPressed: () {
+                                  setState(() {
+                                    _obscureConfirmPassword = !_obscureConfirmPassword;
+                                  });
+                                },
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: BorderSide(color: Colors.grey[300]!),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: BorderSide(color: Colors.grey[300]!),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: const BorderSide(color: Colors.green),
+                              ),
+                              filled: true,
+                              fillColor: Colors.grey[100],
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                            ),
+                            obscureText: _obscureConfirmPassword,
+                            onChanged: (value) => confirmPassword = value,
+                            validator: (value) => 
+                              value!.isEmpty ? 'Veuillez confirmer votre mot de passe' :
+                              value != password ? 'Les mots de passe ne correspondent pas' : null,
+                          ),
+                          
+                          const SizedBox(height: 20),
+                          
+                          // Terms and conditions checkbox
+                          Row(
+                            children: [
+                              SizedBox(
+                                width: 24,
+                                height: 24,
+                                child: Checkbox(
+                                  value: _termsAccepted,
+                                  onChanged: (value) {
+                                    setState(() {
+                                      _termsAccepted = value ?? false;
+                                    });
+                                  },
+                                  activeColor: Colors.green,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: GestureDetector(
+                                  onTap: () {
+                                    setState(() {
+                                      _termsAccepted = !_termsAccepted;
+                                    });
+                                  },
+                                  child: RichText(
+                                    text: TextSpan(
+                                      text: 'J\'accepte les ',
+                                      style: TextStyle(color: Colors.grey[700]),
+                                      children: [
+                                        TextSpan(
+                                          text: 'termes et conditions',
+                                          style: TextStyle(
+                                            color: Colors.green,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          
+                          const SizedBox(height: 24),
+                          
+                          // Register button
+                          SizedBox(
+                            width: double.infinity,
+                            child: _isLoading
+                              ? const Center(child: CircularProgressIndicator(color: Colors.green))
+                              : ElevatedButton(
+                                  onPressed: () {
+                                    if (_formKey.currentState!.validate()) {
+                                      registerUser();
+                                    }
+                                  },
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.green,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(vertical: 14),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                  ),
+                                  child: const Text(
+                                    'Créer mon compte',
+                                    style: TextStyle(fontSize: 16),
+                                  ),
+                                ),
+                          ),
+                        ],
+                      ),
                     ),
-            ],
+                  ),
+                ),
+                
+                const SizedBox(height: 20),
+                
+                // Login link
+                Center(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        'Vous avez déjà un compte ?',
+                        style: TextStyle(color: Colors.grey[600]),
+                      ),
+                      TextButton(
+                        onPressed: () {
+                          Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(builder: (context) => LoginUserPage()),
+                          );
+                        },
+                        child: const Text('Se connecter'),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
