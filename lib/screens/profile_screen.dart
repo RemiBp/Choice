@@ -1,11 +1,38 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'producer_screen.dart'; // Pour les détails des restaurants
 import 'producerLeisure_screen.dart'; // Pour les producteurs de loisirs
 import 'eventLeisure_screen.dart'; // Pour les événements
 import 'messaging_screen.dart';
 import 'utils.dart';
+
+/// Classe delegate pour TabBar persistant
+class _SliverAppBarDelegate extends SliverPersistentHeaderDelegate {
+  final TabBar _tabBar;
+
+  _SliverAppBarDelegate(this._tabBar);
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return Container(
+      color: Colors.white,
+      child: _tabBar,
+    );
+  }
+
+  @override
+  double get maxExtent => _tabBar.preferredSize.height;
+
+  @override
+  double get minExtent => _tabBar.preferredSize.height;
+
+  @override
+  bool shouldRebuild(covariant _SliverAppBarDelegate oldDelegate) {
+    return false;
+  }
+}
 
 class ProfileScreen extends StatefulWidget {
   final String userId;
@@ -19,33 +46,21 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   late Future<Map<String, dynamic>> _userFuture;
   late Future<List<dynamic>> _postsFuture;
+  bool _isFollowing = false;
 
   @override
   void initState() {
     super.initState();
     _userFuture = _fetchUserProfile(widget.userId);
-    _postsFuture = _fetchUserPosts(widget.userId);
+    _userFuture.then((user) {
+      _postsFuture = _fetchUserPosts(user['posts'] ?? []);
+      _checkFollowStatus();
+    });
   }
 
-  /// Récupère le profil utilisateur
+  /// Récupère le profil de l'utilisateur à afficher
   Future<Map<String, dynamic>> _fetchUserProfile(String userId) async {
-    // Extraire le domaine et le protocole de l'URL complète
-    final baseUrl = getBaseUrl();
-    Uri url;
-    
-    if (baseUrl.startsWith('http://')) {
-      // Si c'est http://
-      final domain = baseUrl.replaceFirst('http://', '');
-      url = Uri.http(domain, '/api/users/$userId');
-    } else if (baseUrl.startsWith('https://')) {
-      // Si c'est https://
-      final domain = baseUrl.replaceFirst('https://', '');
-      url = Uri.https(domain, '/api/users/$userId');
-    } else {
-      // Utiliser Uri.parse comme solution de secours
-      url = Uri.parse('$baseUrl/api/users/$userId');
-    }
-    
+    final url = Uri.parse('${getBaseUrl()}/api/users/$userId');
     final response = await http.get(url);
 
     if (response.statusCode == 200) {
@@ -55,32 +70,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  /// Récupère les posts associés à l'utilisateur
-  Future<List<dynamic>> _fetchUserPosts(String userId) async {
-    final user = await _fetchUserProfile(userId);
-    final postIds = user['posts'] as List<dynamic>? ?? [];
-
+  /// Récupère les posts de l'utilisateur
+  Future<List<dynamic>> _fetchUserPosts(List<dynamic> postIds) async {
     if (postIds.isEmpty) return [];
 
     final List<dynamic> posts = [];
     for (final postId in postIds) {
-      // Extraire le domaine et le protocole de l'URL complète
-      final baseUrl = getBaseUrl();
-      Uri url;
-      
-      if (baseUrl.startsWith('http://')) {
-        // Si c'est http://
-        final domain = baseUrl.replaceFirst('http://', '');
-        url = Uri.http(domain, '/api/posts/$postId');
-      } else if (baseUrl.startsWith('https://')) {
-        // Si c'est https://
-        final domain = baseUrl.replaceFirst('https://', '');
-        url = Uri.https(domain, '/api/posts/$postId');
-      } else {
-        // Utiliser Uri.parse comme solution de secours
-        url = Uri.parse('$baseUrl/api/posts/$postId');
-      }
-      
+      final url = Uri.parse('${getBaseUrl()}/api/posts/$postId');
       try {
         final response = await http.get(url);
         if (response.statusCode == 200) {
@@ -93,6 +89,68 @@ class _ProfileScreenState extends State<ProfileScreen> {
       }
     }
     return posts;
+  }
+
+  /// Vérifie si l'utilisateur connecté suit cet utilisateur
+  void _checkFollowStatus() async {
+    // Implémenter la vérification de statut de suivi
+    setState(() {
+      _isFollowing = false; // Valeur par défaut, à remplacer par une vérification réelle
+    });
+  }
+
+  /// Suivre l'utilisateur
+  Future<void> _followUser(String userId) async {
+    try {
+      final url = Uri.parse('${getBaseUrl()}/api/users/follow');
+      final body = {
+        'follower_id': 'current_user_id', // Remplacer par l'ID de l'utilisateur connecté
+        'following_id': userId,
+      };
+
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode(body),
+      );
+
+      if (response.statusCode == 200) {
+        setState(() {
+          _isFollowing = true;
+        });
+      } else {
+        print('❌ Erreur HTTP : ${response.statusCode}');
+      }
+    } catch (e) {
+      print('❌ Erreur réseau : $e');
+    }
+  }
+
+  /// Arrêter de suivre l'utilisateur
+  Future<void> _unfollowUser(String userId) async {
+    try {
+      final url = Uri.parse('${getBaseUrl()}/api/users/unfollow');
+      final body = {
+        'follower_id': 'current_user_id', // Remplacer par l'ID de l'utilisateur connecté
+        'following_id': userId,
+      };
+
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode(body),
+      );
+
+      if (response.statusCode == 200) {
+        setState(() {
+          _isFollowing = false;
+        });
+      } else {
+        print('❌ Erreur HTTP : ${response.statusCode}');
+      }
+    } catch (e) {
+      print('❌ Erreur réseau : $e');
+    }
   }
 
   /// Navigation vers les détails d'un producteur ou événement
@@ -115,23 +173,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           throw Exception("Type non reconnu pour l'ID : $id");
       }
 
-      // Extraire le domaine et le protocole de l'URL complète
-      final baseUrl = getBaseUrl();
-      Uri url;
-      
-      if (baseUrl.startsWith('http://')) {
-        // Si c'est http://
-        final domain = baseUrl.replaceFirst('http://', '');
-        url = Uri.http(domain, '/api/$endpoint/$id');
-      } else if (baseUrl.startsWith('https://')) {
-        // Si c'est https://
-        final domain = baseUrl.replaceFirst('https://', '');
-        url = Uri.https(domain, '/api/$endpoint/$id');
-      } else {
-        // Utiliser Uri.parse comme solution de secours
-        url = Uri.parse('$baseUrl/api/$endpoint/$id');
-      }
-      
+      final url = Uri.parse('${getBaseUrl()}/api/$endpoint/$id');
       final response = await http.get(url);
 
       if (response.statusCode == 200) {
@@ -167,297 +209,330 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  /// Démarrer une conversation avec cet utilisateur
   Future<void> _startConversation(String recipientId) async {
-    // Vérifier si l'ID de l'utilisateur est le même que celui du destinataire
-    if (widget.userId == recipientId) {
-      print('Les IDs sont identiques ! Impossible de commencer une conversation.');
-      return; // Retourner si l'ID de l'utilisateur et du destinataire sont identiques
-    }
-
+    // Implémenter la fonctionnalité de messagerie
     try {
-      // Extraire le domaine et le protocole de l'URL complète
-      final baseUrl = getBaseUrl();
-      Uri url;
-      
-      if (baseUrl.startsWith('http://')) {
-        // Si c'est http://
-        final domain = baseUrl.replaceFirst('http://', '');
-        url = Uri.http(domain, '/api/conversations/check-or-create');
-      } else if (baseUrl.startsWith('https://')) {
-        // Si c'est https://
-        final domain = baseUrl.replaceFirst('https://', '');
-        url = Uri.https(domain, '/api/conversations/check-or-create');
-      } else {
-        // Utiliser Uri.parse comme solution de secours
-        url = Uri.parse('$baseUrl/api/conversations/check-or-create');
-      }
-      
+      final url = Uri.parse('${getBaseUrl()}/api/conversations/check-or-create');
       final response = await http.post(
         url,
         headers: {'Content-Type': 'application/json'},
         body: json.encode({
-          'senderId': widget.userId,  // ID de l'utilisateur connecté
-          'recipientId': recipientId, // ID du destinataire (l'ID du profil)
+          'senderId': 'current_user_id',  // Remplacer par l'ID de l'utilisateur connecté
+          'recipientId': recipientId,
         }),
       );
 
       if (response.statusCode == 201) {
         final data = json.decode(response.body);
         final conversationId = data['conversationId'];
-        print('Conversation commencée avec succès, ID : $conversationId');
+        print('✅ Conversation commencée avec succès, ID : $conversationId');
 
-        // Navigation vers l'écran de messagerie avec la conversation
         Navigator.push(
           context,
           MaterialPageRoute(
             builder: (context) => ChatScreen(
-              userId: widget.userId,
-              conversationId: data['conversationId'], // Passe l'ID de la conversation ici
-              name: 'Nom du destinataire', // Vous pouvez aussi obtenir le nom du destinataire
-              image: 'URL de l\'image', // Passez l'image du destinataire ici
+              userId: 'current_user_id', // Remplacer par l'ID de l'utilisateur connecté
+              conversationId: conversationId,
+              name: 'Nom du destinataire', // Remplacer par le nom de l'utilisateur de ce profil
+              image: 'URL de l\'image', // Remplacer par l'URL de l'image de l'utilisateur de ce profil
             ),
           ),
         );
       } else {
-        print('Erreur lors de la création de la conversation : ${response.body}');
-      }
-    } catch (e) {
-      print('Erreur réseau : $e');
-    }
-  }
-
-
-  Future<void> _followUser(String targetId) async {
-    // Debugging : affichez le followerId avant d'envoyer la requête
-    print('🟢 Follower ID (connecté) : ${widget.userId}');
-    print('🔵 Target ID (profil visité) : $targetId');
-
-    // Extraire le domaine et le protocole de l'URL complète
-    final baseUrl = getBaseUrl();
-    Uri url;
-    
-    if (baseUrl.startsWith('http://')) {
-      // Si c'est http://
-      final domain = baseUrl.replaceFirst('http://', '');
-      url = Uri.http(domain, '/api/linked/follow');
-    } else if (baseUrl.startsWith('https://')) {
-      // Si c'est https://
-      final domain = baseUrl.replaceFirst('https://', '');
-      url = Uri.https(domain, '/api/linked/follow');
-    } else {
-      // Utiliser Uri.parse comme solution de secours
-      url = Uri.parse('$baseUrl/api/linked/follow');
-    }
-    
-    final body = {
-      'followerId': widget.userId, // Utilisateur connecté
-      'targetId': targetId, // Profil visité
-    };
-
-    try {
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode(body),
-      );
-
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        print('✅ Suivi avec succès.');
-      } else {
-        print('❌ Erreur lors du suivi : ${response.body}');
+        print('❌ Erreur lors de la création de la conversation : ${response.body}');
       }
     } catch (e) {
       print('❌ Erreur réseau : $e');
     }
   }
 
-
-
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.grey[200],
-      appBar: AppBar(
-        title: const Text('Profil', style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        elevation: 0.5,
-      ),
-      body: FutureBuilder<Map<String, dynamic>>(
-        future: _userFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          } else if (snapshot.hasError) {
-            return Center(child: Text('Erreur : ${snapshot.error}'));
-          }
+    return DefaultTabController(
+      length: 3, // Trois onglets : Posts, Interests, Choices
+      child: Scaffold(
+        backgroundColor: Colors.grey[100],
+        body: FutureBuilder<Map<String, dynamic>>(
+          future: _userFuture,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            } else if (snapshot.hasError) {
+              return Center(child: Text('Erreur : ${snapshot.error}'));
+            }
 
-          final user = snapshot.data!;
-          return DefaultTabController(
-            length: 3, // Trois tabs: Posts, Interests, Choices
-            child: Column(
-              children: [
-                _buildProfileHeader(user),
-                const Divider(thickness: 1),
-                _buildStatsSection(user),
-                const Divider(thickness: 1),
-                _buildLikedTags(user),
-                const Divider(thickness: 1),
-                // Barre de navigation avec les tabs
-                TabBar(
-                  tabs: const [
-                    Tab(icon: Icon(Icons.grid_on), text: 'Posts'),
-                    Tab(icon: Icon(Icons.star_border), text: 'Intérêts'),
-                    Tab(icon: Icon(Icons.check_circle_outline), text: 'Choix'),
-                  ],
-                  indicatorColor: Colors.blue,
-                  labelColor: Colors.blue,
-                  unselectedLabelColor: Colors.grey,
-                ),
-                Expanded(
-                  child: TabBarView(
-                    children: [
-                      // Tab 1: Posts
-                      _buildPostsTab(),
-                      // Tab 2: Interests
-                      _buildInterestsTab(user),
-                      // Tab 3: Choices
-                      _buildChoicesTab(user),
-                    ],
+            final user = snapshot.data!;
+
+            return NestedScrollView(
+              headerSliverBuilder: (context, innerBoxIsScrolled) {
+                return [
+                  // AppBar avec profil et actions
+                  SliverAppBar(
+                    expandedHeight: 220.0,
+                    floating: false,
+                    pinned: true,
+                    backgroundColor: Colors.indigo,
+                    leading: IconButton(
+                      icon: const Icon(Icons.arrow_back, color: Colors.white),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                    flexibleSpace: FlexibleSpaceBar(
+                      background: Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.indigo.shade800,
+                              Colors.indigo.shade500,
+                            ],
+                          ),
+                        ),
+                        child: Stack(
+                          children: [
+                            // Background effet
+                            Positioned.fill(
+                              child: Opacity(
+                                opacity: 0.1,
+                                child: Image.network(
+                                  user['photo_url'] ?? 'https://via.placeholder.com/500',
+                                  fit: BoxFit.cover,
+                                ),
+                              ),
+                            ),
+                            // Contenu du header
+                            Positioned(
+                              bottom: 0,
+                              left: 0,
+                              right: 0,
+                              child: Container(
+                                padding: const EdgeInsets.all(20),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                  children: [
+                                    // Photo de profil
+                                    Container(
+                                      width: 100,
+                                      height: 100,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        border: Border.all(color: Colors.white, width: 3),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.black.withOpacity(0.2),
+                                            blurRadius: 8,
+                                            offset: const Offset(0, 3),
+                                          ),
+                                        ],
+                                      ),
+                                      child: ClipRRect(
+                                        borderRadius: BorderRadius.circular(50),
+                                        child: CachedNetworkImage(
+                                          imageUrl: user['photo_url'] ?? 'https://via.placeholder.com/150',
+                                          fit: BoxFit.cover,
+                                          placeholder: (context, url) => Container(
+                                            color: Colors.grey[300],
+                                            child: const Center(child: CircularProgressIndicator()),
+                                          ),
+                                          errorWidget: (context, url, error) => Container(
+                                            color: Colors.grey[300],
+                                            child: const Icon(Icons.person, size: 50, color: Colors.white),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    // Nom de l'utilisateur
+                                    Text(
+                                      user['name'] ?? 'Nom non spécifié',
+                                      style: const TextStyle(
+                                        fontSize: 24,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.white,
+                                        shadows: [
+                                          Shadow(
+                                            offset: Offset(0, 1),
+                                            blurRadius: 3,
+                                            color: Colors.black26,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    // Bio
+                                    Text(
+                                      user['bio'] ?? 'Bio non spécifiée',
+                                      style: const TextStyle(
+                                        fontSize: 14,
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w300,
+                                      ),
+                                      textAlign: TextAlign.center,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
-                ),
-              ],
-            ),
-          );
-        },
+                  
+                  // Stats et boutons d'interaction
+                  SliverToBoxAdapter(
+                    child: Container(
+                      color: Colors.white,
+                      child: Column(
+                        children: [
+                          _buildStatsSection(user),
+                          const Divider(height: 1),
+                          _buildFollowButton(user),
+                          const Divider(height: 1),
+                          _buildLikedTags(user),
+                        ],
+                      ),
+                    ),
+                  ),
+                  
+                  // TabBar
+                  SliverPersistentHeader(
+                    delegate: _SliverAppBarDelegate(
+                      TabBar(
+                        tabs: const [
+                          Tab(text: 'POSTS', icon: Icon(Icons.article_outlined, size: 20)),
+                          Tab(text: 'INTÉRÊTS', icon: Icon(Icons.favorite_border, size: 20)),
+                          Tab(text: 'CHOICES', icon: Icon(Icons.check_circle_outline, size: 20)),
+                        ],
+                        labelColor: Colors.indigo,
+                        unselectedLabelColor: Colors.grey,
+                        indicatorColor: Colors.indigo,
+                        indicatorWeight: 3,
+                      ),
+                    ),
+                    pinned: true,
+                  ),
+                ];
+              },
+              body: TabBarView(
+                children: [
+                  // Section Posts
+                  _buildPostsSection(),
+                  
+                  // Section Interests
+                  _buildInterestsSection(user),
+                  
+                  // Section Choices
+                  _buildChoicesSection(user),
+                ],
+              ),
+            );
+          },
+        ),
       ),
     );
   }
 
-  Widget _buildProfileHeader(Map<String, dynamic> user) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      color: Colors.white,
-      child: Row(
-        children: [
-          CircleAvatar(
-            radius: 50,
-            backgroundImage: NetworkImage(
-              user['photo_url'] ?? 'https://via.placeholder.com/150',
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  user['name'] ?? 'Nom non spécifié',
-                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  user['bio'] ?? 'Bio non spécifiée',
-                  style: const TextStyle(fontSize: 14, color: Colors.grey),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  user['is_star'] ? '🌟 Star Utilisateur' : '',
-                  style: const TextStyle(color: Colors.orange),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  // Removed duplicate _SliverAppBarDelegate class
 
   Widget _buildStatsSection(Map<String, dynamic> user) {
     return Container(
-      color: Colors.white,
-      padding: const EdgeInsets.symmetric(vertical: 16),
+      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
-          _buildFollowButton(user),
-          // Remplacer "Influence" par le bouton "Écrire"
-          _buildMessageButton(user),
+          _buildStatItem('Abonnés', user['followers_count'].toString()),
+          Container(
+            height: 40,
+            width: 1,
+            color: Colors.grey[300],
+          ),
+          _buildStatItem('Abonnements', user['following_count'].toString()),
+          Container(
+            height: 40,
+            width: 1,
+            color: Colors.grey[300],
+          ),
           _buildStatItem('Interactions', user['interaction_metrics']['total_interactions'].toString()),
         ],
       ),
     );
   }
 
-  Widget _buildFollowButton(Map<String, dynamic> user) {
-    // Vérifie si l'utilisateur suit déjà le profil
-    bool _isFollowing = user['followers'] != null && user['followers'].contains(widget.userId);
-
-    return ElevatedButton(
-      onPressed: _isFollowing
-          ? null // Désactiver le bouton si déjà suivi
-          : () async {
-              await _followUser(user['_id']); // Appel API pour suivre
-              setState(() {
-                _isFollowing = true; // Met à jour l'état local
-              });
-            },
-      style: ElevatedButton.styleFrom(
-        backgroundColor: _isFollowing ? Colors.green : Colors.blueAccent, // Différencier les couleurs
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(30),
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 12),
-      ),
-      child: Text(
-        _isFollowing ? 'Suivi' : 'Suivre', // Texte dynamique
-        style: const TextStyle(
-          fontSize: 16,
-          color: Colors.white, // Couleur du texte pour contraste
-        ),
-      ),
-    );
-  }
-
-
-
-  // Remplacer "Influence" par un bouton "Écrire"
-  Widget _buildMessageButton(Map<String, dynamic> user) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 16),
-      color: Colors.white,
-      child: ElevatedButton(
-        onPressed: () {
-          // Démarrer une conversation avec cet utilisateur
-          _startConversation(user['_id']);
-        },
-        child: const Text('Écrire', style: TextStyle(fontSize: 16)),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.blueAccent, // Modifier "primary" par "backgroundColor"
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(30),
-          ),
-          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 40),
-        ),
-      ),
-    );
-  }
-
-
-
   Widget _buildStatItem(String title, String count) {
     return Column(
       children: [
         Text(
           count,
-          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          style: TextStyle(
+            fontSize: 22, 
+            fontWeight: FontWeight.bold,
+            color: Colors.indigo,
+          ),
         ),
         const SizedBox(height: 4),
         Text(
           title,
-          style: const TextStyle(fontSize: 14, color: Colors.grey),
+          style: TextStyle(
+            fontSize: 13, 
+            color: Colors.grey[700],
+            fontWeight: FontWeight.w500,
+          ),
         ),
       ],
+    );
+  }
+
+  Widget _buildFollowButton(Map<String, dynamic> user) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Expanded(
+            child: _isFollowing
+                ? ElevatedButton.icon(
+                    onPressed: () => _unfollowUser(user['_id']),
+                    icon: const Icon(Icons.person_remove),
+                    label: const Text('Ne plus suivre'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.redAccent,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  )
+                : ElevatedButton.icon(
+                    onPressed: () => _followUser(user['_id']),
+                    icon: const Icon(Icons.person_add),
+                    label: const Text('Suivre'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.indigo,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+          ),
+          const SizedBox(width: 12),
+          CircleAvatar(
+            radius: 25,
+            backgroundColor: Colors.indigo.withOpacity(0.1),
+            child: IconButton(
+              icon: Icon(Icons.message, color: Colors.indigo),
+              onPressed: () => _startConversation(user['_id']),
+              tooltip: 'Envoyer un message',
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -465,23 +540,48 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final tags = user['liked_tags'] ?? [];
     return Container(
       color: Colors.white,
-      padding: const EdgeInsets.all(16),
-      child: Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        children: tags.map<Widget>((tag) {
-          return Chip(
-            label: Text(tag),
-            backgroundColor: Colors.blueAccent.withOpacity(0.2),
-            labelStyle: const TextStyle(color: Colors.blueAccent),
-          );
-        }).toList(),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.label, size: 18, color: Colors.indigo.shade700),
+              const SizedBox(width: 8),
+              Text(
+                'Centres d\'intérêt',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.indigo.shade700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: tags.map<Widget>((tag) {
+              return Chip(
+                label: Text(tag),
+                backgroundColor: Colors.indigo.withOpacity(0.1),
+                labelStyle: TextStyle(color: Colors.indigo.shade700, fontSize: 13),
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  side: BorderSide(color: Colors.indigo.withOpacity(0.2)),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 2),
+              );
+            }).toList(),
+          ),
+        ],
       ),
     );
   }
 
-  // Construit la vue des posts de l'utilisateur (TabView 1)
-  Widget _buildPostsTab() {
+  Widget _buildPostsSection() {
     return FutureBuilder<List<dynamic>>(
       future: _postsFuture,
       builder: (context, snapshot) {
@@ -491,12 +591,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
           return Center(child: Text('Erreur : ${snapshot.error}'));
         }
 
-        final posts = snapshot.data!;
+        final posts = snapshot.data ?? [];
         if (posts.isEmpty) {
-          return const Center(child: Text('Aucun post trouvé.'));
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.post_add, size: 60, color: Colors.grey[400]),
+                const SizedBox(height: 16),
+                Text(
+                  'Aucune publication',
+                  style: TextStyle(
+                    fontSize: 18,
+                    color: Colors.grey[600],
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          );
         }
 
         return ListView.builder(
+          padding: const EdgeInsets.all(8),
           itemCount: posts.length,
           itemBuilder: (context, index) {
             final post = posts[index];
@@ -506,733 +623,855 @@ class _ProfileScreenState extends State<ProfileScreen> {
       },
     );
   }
-  // Construit la grille d'intérêts Instagram-style (TabView 2)
-  Widget _buildInterestsTab(Map<String, dynamic> user) {
-    final interests = user['interests'] as List<dynamic>? ?? [];
-    
-    if (interests.isEmpty) {
-      return const Center(child: Text('Aucun intérêt trouvé.'));
-    }
-    
-    return FutureBuilder<List<Map<String, dynamic>>>(
-      future: _fetchInterestsDetails(interests),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        } else if (snapshot.hasError) {
-          return Center(child: Text('Erreur : ${snapshot.error}'));
-        }
-        
-        final interestsDetails = snapshot.data!;
-        
-        return GridView.builder(
-          padding: const EdgeInsets.all(2),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 3,
-            childAspectRatio: 1.0,
-            mainAxisSpacing: 2,
-            crossAxisSpacing: 2,
-          ),
-          itemCount: interestsDetails.length,
-          itemBuilder: (context, index) {
-            final interest = interestsDetails[index];
-            return _buildInterestItem(interest);
-          },
-        );
-      },
-    );
-  }
-  
-  // Construit la grille de choix Instagram-style (TabView 3)
-  Widget _buildChoicesTab(Map<String, dynamic> user) {
-    final choices = user['choices'] as List<dynamic>? ?? [];
-    
-    if (choices.isEmpty) {
-      return const Center(child: Text('Aucun choix trouvé.'));
-    }
-    
-    return FutureBuilder<List<Map<String, dynamic>>>(
-      future: _fetchChoicesDetails(choices),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        } else if (snapshot.hasError) {
-          return Center(child: Text('Erreur : ${snapshot.error}'));
-        }
-        
-        final choicesDetails = snapshot.data!;
-        
-        return GridView.builder(
-          padding: const EdgeInsets.all(2),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 3,
-            childAspectRatio: 1.0,
-            mainAxisSpacing: 2,
-            crossAxisSpacing: 2,
-          ),
-          itemCount: choicesDetails.length,
-          itemBuilder: (context, index) {
-            final choice = choicesDetails[index];
-            return _buildChoiceItem(choice);
-          },
-        );
-      },
-    );
-  }
-  
-  // Récupère les détails de chaque intérêt
-  Future<List<Map<String, dynamic>>> _fetchInterestsDetails(List<dynamic> interestIds) async {
-    final List<Map<String, dynamic>> interestsDetails = [];
-    
-    for (final id in interestIds) {
-      try {
-        // D'abord essayer comme un producer standard
-        var data = await _fetchItemDetails(id, 'producers');
-        if (data != null) {
-          data['_type'] = 'restaurant';
-          interestsDetails.add(data);
-          continue;
-        }
-        
-        // Ensuite essayer comme un leisure producer
-        data = await _fetchItemDetails(id, 'leisureProducers');
-        if (data != null) {
-          data['_type'] = 'leisureProducer';
-          interestsDetails.add(data);
-          continue;
-        }
-        
-        // Enfin essayer comme un événement
-        data = await _fetchItemDetails(id, 'events');
-        if (data != null) {
-          data['_type'] = 'event';
-          interestsDetails.add(data);
-          continue;
-        }
-        
-        print('⚠️ Impossible de trouver les détails pour l\'intérêt: $id');
-      } catch (e) {
-        print('❌ Erreur lors de la récupération des détails de l\'intérêt $id: $e');
-      }
-    }
-    
-    return interestsDetails;
-  }
-  
-  // Récupère les détails de chaque choix
-  Future<List<Map<String, dynamic>>> _fetchChoicesDetails(List<dynamic> choiceIds) async {
-    final List<Map<String, dynamic>> choicesDetails = [];
-    
-    for (final id in choiceIds) {
-      try {
-        // D'abord essayer comme un producer standard
-        var data = await _fetchItemDetails(id, 'producers');
-        if (data != null) {
-          data['_type'] = 'restaurant';
-          choicesDetails.add(data);
-          continue;
-        }
-        
-        // Ensuite essayer comme un leisure producer
-        data = await _fetchItemDetails(id, 'leisureProducers');
-        if (data != null) {
-          data['_type'] = 'leisureProducer';
-          choicesDetails.add(data);
-          continue;
-        }
-        
-        // Enfin essayer comme un événement
-        data = await _fetchItemDetails(id, 'events');
-        if (data != null) {
-          data['_type'] = 'event';
-          choicesDetails.add(data);
-          continue;
-        }
-        
-        print('⚠️ Impossible de trouver les détails pour le choix: $id');
-      } catch (e) {
-        print('❌ Erreur lors de la récupération des détails du choix $id: $e');
-      }
-    }
-    
-    return choicesDetails;
-  }
-  
-  // Récupère les détails d'un item (utilisé pour les intérêts et les choix)
-  Future<Map<String, dynamic>?> _fetchItemDetails(String id, String endpoint) async {
-    // Extraire le domaine et le protocole de l'URL complète
-    final baseUrl = getBaseUrl();
-    Uri url;
-    
-    if (baseUrl.startsWith('http://')) {
-      // Si c'est http://
-      final domain = baseUrl.replaceFirst('http://', '');
-      url = Uri.http(domain, '/api/$endpoint/$id');
-    } else if (baseUrl.startsWith('https://')) {
-      // Si c'est https://
-      final domain = baseUrl.replaceFirst('https://', '');
-      url = Uri.https(domain, '/api/$endpoint/$id');
-    } else {
-      // Utiliser Uri.parse comme solution de secours
-      url = Uri.parse('$baseUrl/api/$endpoint/$id');
-    }
-    
-    try {
-      final response = await http.get(url);
-      if (response.statusCode == 200) {
-        return json.decode(response.body);
-      }
-    } catch (e) {
-      print('❌ Erreur réseau pour l\'endpoint $endpoint: $e');
-    }
-    return null;
-  }
-  
-  // Construit un élément d'intérêt dans la grille
-  Widget _buildInterestItem(Map<String, dynamic> interest) {
-    // Extraire intelligemment le nom et l'image selon le type d'item
-    final String name = _extractItemName(interest);
-    final String imageUrl = _extractItemImage(interest);
-    final String type = interest['_type'] ?? 'unknown';
-    
-    return GestureDetector(
-      onTap: () => _navigateToDetails(interest['_id'], type),
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          // Image de fond
-          Image.network(
-            imageUrl,
-            fit: BoxFit.cover,
-            errorBuilder: (context, error, stackTrace) {
-              return Container(
-                color: Colors.grey[300],
-                child: const Icon(Icons.broken_image, size: 50, color: Colors.grey),
-              );
-            },
-          ),
-          // Overlay foncé pour rendre le texte lisible
-          Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Colors.transparent,
-                  Colors.black.withOpacity(0.7),
-                ],
-              ),
-            ),
-          ),
-          // Indicateur d'intérêt
-          const Positioned(
-            top: 5,
-            right: 5,
-            child: Icon(
-              Icons.star,
-              color: Colors.amber,
-              size: 18,
-            ),
-          ),
-          // Nom en bas
-          Positioned(
-            bottom: 5,
-            left: 5,
-            right: 5,
-            child: Text(
-              name,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 12,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-  
-  // Construit un élément de choix dans la grille
-  Widget _buildChoiceItem(Map<String, dynamic> choice) {
-    // Extraire intelligemment le nom et l'image selon le type d'item
-    final String name = _extractItemName(choice);
-    final String imageUrl = _extractItemImage(choice);
-    final String type = choice['_type'] ?? 'unknown';
-    
-    return GestureDetector(
-      onTap: () => _navigateToDetails(choice['_id'], type),
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          // Image de fond
-          Image.network(
-            imageUrl,
-            fit: BoxFit.cover,
-            errorBuilder: (context, error, stackTrace) {
-              return Container(
-                color: Colors.grey[300],
-                child: const Icon(Icons.broken_image, size: 50, color: Colors.grey),
-              );
-            },
-          ),
-          // Overlay foncé pour rendre le texte lisible
-          Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Colors.transparent,
-                  Colors.black.withOpacity(0.7),
-                ],
-              ),
-            ),
-          ),
-          // Indicateur de choix
-          const Positioned(
-            top: 5,
-            right: 5,
-            child: Icon(
-              Icons.check_circle,
-              color: Colors.green,
-              size: 18,
-            ),
-          ),
-          // Nom en bas
-          Positioned(
-            bottom: 5,
-            left: 5,
-            right: 5,
-            child: Text(
-              name,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 12,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-  
-  // Extrait le nom d'un item selon son type
-  String _extractItemName(Map<String, dynamic> item) {
-    final type = item['_type'];
-    
-    if (type == 'leisureProducer') {
-      return item['nom'] ?? 
-             item['intitulé'] ?? 
-             item['title'] ?? 
-             item['name'] ?? 
-             'Lieu culturel';
-    } else if (type == 'restaurant') {
-      return item['name'] ?? 
-             item['nom'] ?? 
-             item['établissement'] ?? 
-             'Restaurant';
-    } else if (type == 'event') {
-      return item['title'] ?? 
-             item['nom'] ?? 
-             item['name'] ?? 
-             'Événement';
-    }
-    
-    return item['name'] ?? 'Nom non disponible';
-  }
-  
-  // Extrait l'image d'un item selon son type
-  String _extractItemImage(Map<String, dynamic> item) {
-    return item['photo'] ?? 
-           item['photo_url'] ?? 
-           item['image'] ?? 
-           item['banner'] ?? 
-           'https://via.placeholder.com/150';
-  }
+
   Widget _buildPostCard(Map<String, dynamic> post) {
     final mediaUrls = post['media'] as List<dynamic>? ?? [];
-    return GestureDetector(
-      onTap: () => _navigateToPostDetail(post),
-      child: Card(
-        margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 15),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-        elevation: 5,
-        child: Padding(
-          padding: const EdgeInsets.all(12.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  CircleAvatar(
-                    backgroundImage: NetworkImage(
-                      post['photo_url'] ?? 'https://via.placeholder.com/150',
+    final hasLocation = post['location'] != null && post['location']['name'] != null;
+    
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      elevation: 2,
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // En-tête du post
+          Padding(
+            padding: const EdgeInsets.all(12.0),
+            child: Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.indigo.withOpacity(0.3), width: 2),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(20),
+                    child: CachedNetworkImage(
+                      imageUrl: post['photo_url'] ?? 'https://via.placeholder.com/100',
+                      fit: BoxFit.cover,
+                      placeholder: (context, url) => Container(
+                        color: Colors.grey[200],
+                        child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                      ),
+                      errorWidget: (context, url, error) => Container(
+                        color: Colors.grey[200],
+                        child: const Icon(Icons.person, color: Colors.grey),
+                      ),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  Text(
-                    post['author_name'] ?? 'Nom non spécifié',
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Text(
-                post['title'] ?? 'Titre non spécifié',
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 10),
-              Text(post['content'] ?? 'Contenu non disponible'),
-              const SizedBox(height: 10),
-              if (mediaUrls.isNotEmpty)
-                SizedBox(
-                  height: 200,
-                  child: PageView(
-                    children: mediaUrls.map((url) {
-                      return Image.network(url, fit: BoxFit.cover, width: double.infinity);
-                    }).toList(),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        post['author_name'] ?? 'Nom non spécifié',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
+                      if (hasLocation)
+                        Row(
+                          children: [
+                            Icon(Icons.place, size: 12, color: Colors.indigo.shade300),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                post['location']['name'],
+                                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                    ],
                   ),
                 ),
-              const SizedBox(height: 10),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.thumb_up_alt_outlined),
-                    onPressed: () {
-                      // Fonctionnalité Like (à implémenter)
-                    },
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.comment_outlined),
-                    onPressed: () => _navigateToPostDetail(post),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.share),
-                    onPressed: () {
-                      // Fonctionnalité Partage (à implémenter)
-                    },
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _navigateToPostDetail(Map<String, dynamic> post) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => PostDetailScreen(post: post, userId: widget.userId),
-      ),
-    );
-  }
-}
-class PostDetailScreen extends StatefulWidget {
-  final Map<String, dynamic> post;
-  final String userId;
-
-  const PostDetailScreen({Key? key, required this.post, required this.userId}) : super(key: key);
-
-  @override
-  _PostDetailScreenState createState() => _PostDetailScreenState();
-}
-
-
-class _PostDetailScreenState extends State<PostDetailScreen> {
-  final TextEditingController _commentController = TextEditingController();
-  late Map<String, dynamic> post; // Variable pour stocker le post
-  bool _commentsVisible = false;
-
-  @override
-  void initState() {
-    super.initState();
-    post = widget.post; // Initialise le post à partir du widget parent
-  }
-
-  /// Navigation vers les détails du producteur ou événement
-  void _navigateToProducer(String targetId, String type) async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => ProducerScreen(producerId: targetId),
-      ),
-    );
-  }
-
-  /// Fonction pour liker un post
-  Future<void> _likePost(String postId) async {
-    // Extraire le domaine et le protocole de l'URL complète
-    final baseUrl = getBaseUrl();
-    Uri url;
-    
-    if (baseUrl.startsWith('http://')) {
-      // Si c'est http://
-      final domain = baseUrl.replaceFirst('http://', '');
-      url = Uri.http(domain, '/api/posts/$postId/like');
-    } else if (baseUrl.startsWith('https://')) {
-      // Si c'est https://
-      final domain = baseUrl.replaceFirst('https://', '');
-      url = Uri.https(domain, '/api/posts/$postId/like');
-    } else {
-      // Utiliser Uri.parse comme solution de secours
-      url = Uri.parse('$baseUrl/api/posts/$postId/like');
-    }
-    
-    final body = {'user_id': widget.userId};
-
-    try {
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode(body),
-      );
-
-      if (response.statusCode == 200) {
-        final updatedLikes = json.decode(response.body)['likes'];
-        setState(() {
-          post['likes'] = updatedLikes;
-        });
-        print('✅ Post liké avec succès');
-      } else {
-        print('❌ Erreur lors du like : ${response.body}');
-      }
-    } catch (e) {
-      print('❌ Erreur réseau lors du like : $e');
-    }
-  }
-
-  /// Fonction pour ajouter un choix (choice)
-  Future<void> _addChoice(String postId) async {
-    // Extraire le domaine et le protocole de l'URL complète
-    final baseUrl = getBaseUrl();
-    Uri url;
-    
-    if (baseUrl.startsWith('http://')) {
-      // Si c'est http://
-      final domain = baseUrl.replaceFirst('http://', '');
-      url = Uri.http(domain, '/api/posts/$postId/choice');
-    } else if (baseUrl.startsWith('https://')) {
-      // Si c'est https://
-      final domain = baseUrl.replaceFirst('https://', '');
-      url = Uri.https(domain, '/api/posts/$postId/choice');
-    } else {
-      // Utiliser Uri.parse comme solution de secours
-      url = Uri.parse('$baseUrl/api/posts/$postId/choice');
-    }
-    
-    final body = {'user_id': widget.userId};
-
-    try {
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode(body),
-      );
-
-      if (response.statusCode == 200) {
-        final updatedChoices = json.decode(response.body)['choices'];
-        setState(() {
-          post['choices'] = updatedChoices;
-        });
-        print('✅ Choice ajouté avec succès');
-      } else {
-        print('❌ Erreur lors de l\'ajout aux choices : ${response.body}');
-      }
-    } catch (e) {
-      print('❌ Erreur réseau lors de l\'ajout aux choices : $e');
-    }
-  }
-
-  /// Fonction pour ajouter un commentaire
-  Future<void> _addComment(String postId, String content) async {
-    // Extraire le domaine et le protocole de l'URL complète
-    final baseUrl = getBaseUrl();
-    Uri url;
-    
-    if (baseUrl.startsWith('http://')) {
-      // Si c'est http://
-      final domain = baseUrl.replaceFirst('http://', '');
-      url = Uri.http(domain, '/api/posts/$postId/comments');
-    } else if (baseUrl.startsWith('https://')) {
-      // Si c'est https://
-      final domain = baseUrl.replaceFirst('https://', '');
-      url = Uri.https(domain, '/api/posts/$postId/comments');
-    } else {
-      // Utiliser Uri.parse comme solution de secours
-      url = Uri.parse('$baseUrl/api/posts/$postId/comments');
-    }
-    
-    final body = {
-      'user_id': widget.userId,
-      'content': content,
-    };
-
-    try {
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode(body),
-      );
-
-      if (response.statusCode == 201) {
-        final newComment = json.decode(response.body);
-        setState(() {
-          post['comments'].add(newComment);
-        });
-        print('✅ Commentaire ajouté avec succès');
-      } else {
-        print('❌ Erreur lors de l\'ajout du commentaire : ${response.body}');
-      }
-    } catch (e) {
-      print('❌ Erreur réseau pour l\'ajout du commentaire : $e');
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final mediaUrls = post['media'] as List<dynamic>? ?? [];
-    final producerName = post['location']?['name'] ?? 'Producteur inconnu';
-
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(post['title'] ?? 'Détails du post'),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header du post
-            Row(
-              children: [
-                CircleAvatar(
-                  backgroundImage: NetworkImage(
-                    post['user_photo'] ?? 'https://via.placeholder.com/150',
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  post['author_name'] ?? 'Utilisateur inconnu',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                IconButton(
+                  icon: const Icon(Icons.more_vert, color: Colors.grey),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  onPressed: () {
+                    // Options supplémentaires
+                  },
                 ),
               ],
             ),
-            const SizedBox(height: 16),
-            // Titre et contenu
-            Text(
-              post['title'] ?? 'Titre non spécifié',
-              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              post['content'] ?? 'Contenu non disponible',
-              style: const TextStyle(fontSize: 16),
-            ),
-            const SizedBox(height: 20),
-
-            // Médias associés
-            if (mediaUrls.isNotEmpty)
-              SizedBox(
-                height: 300,
-                child: PageView(
-                  children: mediaUrls.map((url) {
-                    return Image.network(
-                      url,
-                      fit: BoxFit.cover,
-                      width: double.infinity,
-                    );
-                  }).toList(),
-                ),
-              ),
-            const SizedBox(height: 20),
-
-            // Lien vers le producteur
-            InkWell(
-              onTap: () => print('Naviguer vers le producteur $producerName'),
+          ),
+          
+          // Titre et contenu
+          if (post['title'] != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12.0),
               child: Text(
-                producerName,
-                style: const TextStyle(
-                  color: Colors.blue,
+                post['title'],
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ),
+            
+          if (post['content'] != null) 
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+              child: Text(
+                post['content'],
+                style: const TextStyle(fontSize: 14),
+              ),
+            ),
+          
+          // Média
+          if (mediaUrls.isNotEmpty)
+            SizedBox(
+              height: 250,
+              child: PageView.builder(
+                itemCount: mediaUrls.length,
+                itemBuilder: (context, index) {
+                  return CachedNetworkImage(
+                    imageUrl: mediaUrls[index],
+                    fit: BoxFit.cover,
+                    placeholder: (context, url) => Container(
+                      color: Colors.grey[200],
+                      child: const Center(child: CircularProgressIndicator()),
+                    ),
+                    errorWidget: (context, url, error) => Container(
+                      color: Colors.grey[200],
+                      child: const Center(child: Icon(Icons.broken_image, size: 50)),
+                    ),
+                  );
+                },
+              ),
+            ),
+          
+          // Boutons d'action
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _buildActionButton(
+                  icon: Icons.thumb_up_outlined,
+                  label: post['likes']?.length.toString() ?? '0',
+                  onPressed: () {
+                    // Like functionality
+                  },
+                ),
+                _buildActionButton(
+                  icon: Icons.mode_comment_outlined,
+                  label: post['comments']?.length.toString() ?? '0',
+                  onPressed: () {
+                    // Comment functionality
+                  },
+                ),
+                _buildActionButton(
+                  icon: Icons.check_circle_outline,
+                  label: 'Choice',
+                  onPressed: () {
+                    _showChoiceDialog(context, post);
+                  },
+                  color: Colors.indigo,
+                ),
+                _buildActionButton(
+                  icon: Icons.share_outlined,
+                  label: 'Partager',
+                  onPressed: () {
+                    // Share functionality
+                  },
+                ),
+              ],
+            ),
+          ),
+          
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionButton({
+    required IconData icon,
+    required String label,
+    required VoidCallback onPressed,
+    Color? color,
+  }) {
+    return TextButton.icon(
+      onPressed: onPressed,
+      icon: Icon(icon, size: 18, color: color ?? Colors.grey[700]),
+      label: Text(
+        label,
+        style: TextStyle(
+          fontSize: 12,
+          color: color ?? Colors.grey[700],
+        ),
+      ),
+      style: TextButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        minimumSize: Size.zero,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+    );
+  }
+
+  void _showChoiceDialog(BuildContext context, Map<String, dynamic> post) {
+    if (post['location'] == null || post['location']['_id'] == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Ce post n\'est pas associé à un lieu')),
+      );
+      return;
+    }
+
+    final String locationId = post['location']['_id'];
+    final String locationType = post['location']['type'] ?? 'unknown';
+    final String locationName = post['location']['name'] ?? 'Lieu inconnu';
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return DraggableScrollableSheet(
+              initialChildSize: 0.85,
+              minChildSize: 0.5,
+              maxChildSize: 0.95,
+              builder: (_, scrollController) {
+                return Container(
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.only(
+                      topLeft: Radius.circular(20),
+                      topRight: Radius.circular(20),
+                    ),
+                  ),
+                  child: _buildChoiceForm(context, locationId, locationType, locationName),
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildChoiceForm(BuildContext context, String locationId, String locationType, String locationName) {
+    double qualiteGenerale = 5.0;
+    double interet = 5.0;
+    double originalite = 5.0;
+    String appreciationGlobale = '';
+    
+    return StatefulBuilder(
+      builder: (context, setState) {
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // En-tête
+              Row(
+                children: [
+                  CircleAvatar(
+                    backgroundColor: Colors.indigo,
+                    child: Icon(
+                      locationType == 'restaurant' ? Icons.restaurant : Icons.event,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Ajouter un Choice',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          locationName,
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: Colors.grey[700],
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+              
+              const Divider(height: 30),
+              
+              // Qualité générale
+              const Text(
+                'Qualité générale',
+                style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
                 ),
               ),
-            ),
-            const SizedBox(height: 20),
-
-            // Actions sur le post (like, choice, partage)
-            Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.thumb_up_alt_outlined),
-                  onPressed: () => _likePost(post['_id']),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: Slider(
+                      value: qualiteGenerale,
+                      min: 0.0,
+                      max: 10.0,
+                      divisions: 10,
+                      activeColor: Colors.indigo,
+                      label: qualiteGenerale.round().toString(),
+                      onChanged: (value) {
+                        setState(() {
+                          qualiteGenerale = value;
+                        });
+                      },
+                    ),
+                  ),
+                  Container(
+                    width: 40,
+                    alignment: Alignment.center,
+                    child: Text(
+                      qualiteGenerale.round().toString(),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              
+              const SizedBox(height: 16),
+              
+              // Intérêt
+              const Text(
+                'Intérêt',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
                 ),
-                IconButton(
-                  icon: const Icon(Icons.favorite_border),
-                  onPressed: () => _addChoice(post['_id']),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: Slider(
+                      value: interet,
+                      min: 0.0,
+                      max: 10.0,
+                      divisions: 10,
+                      activeColor: Colors.indigo,
+                      label: interet.round().toString(),
+                      onChanged: (value) {
+                        setState(() {
+                          interet = value;
+                        });
+                      },
+                    ),
+                  ),
+                  Container(
+                    width: 40,
+                    alignment: Alignment.center,
+                    child: Text(
+                      interet.round().toString(),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              
+              const SizedBox(height: 16),
+              
+              // Originalité
+              const Text(
+                'Originalité',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
                 ),
-                IconButton(
-                  icon: const Icon(Icons.share),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: Slider(
+                      value: originalite,
+                      min: 0.0,
+                      max: 10.0,
+                      divisions: 10,
+                      activeColor: Colors.indigo,
+                      label: originalite.round().toString(),
+                      onChanged: (value) {
+                        setState(() {
+                          originalite = value;
+                        });
+                      },
+                    ),
+                  ),
+                  Container(
+                    width: 40,
+                    alignment: Alignment.center,
+                    child: Text(
+                      originalite.round().toString(),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              
+              const SizedBox(height: 20),
+              
+              // Appréciation globale
+              const Text(
+                'Appréciation globale',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                maxLines: 3,
+                decoration: InputDecoration(
+                  hintText: 'Partagez votre expérience...',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: Colors.grey.shade300),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Colors.indigo, width: 2),
+                  ),
+                ),
+                onChanged: (value) {
+                  appreciationGlobale = value;
+                },
+              ),
+              
+              const SizedBox(height: 30),
+              
+              // Bouton de soumission
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
                   onPressed: () {
-                    // Fonctionnalité Partage (à implémenter)
+                    // Soumettre le Choice
+                    _submitChoice(
+                      context,
+                      locationId,
+                      locationType,
+                      qualiteGenerale.round(),
+                      interet.round(),
+                      originalite.round(),
+                      appreciationGlobale,
+                    );
                   },
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-
-            // Section des commentaires
-            const Text(
-              'Commentaires',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 10),
-            if (post['comments'] != null && post['comments'].isNotEmpty)
-              ...post['comments'].map<Widget>((comment) {
-                return ListTile(
-                  title: Text(comment['user_id']['name'] ?? 'Utilisateur inconnu'),
-                  subtitle: Text(comment['content'] ?? ''),
-                );
-              }).toList(),
-            const Divider(),
-
-            // Ajouter un commentaire
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _commentController,
-                    decoration: const InputDecoration(
-                      labelText: 'Ajouter un commentaire...',
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.indigo,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                  ),
+                  child: const Text(
+                    'SOUMETTRE MON CHOICE',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.send),
-                  onPressed: () {
-                    if (_commentController.text.isNotEmpty) {
-                      _addComment(post['_id'], _commentController.text);
-                      _commentController.clear();
-                    }
-                  },
-                ),
-              ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _submitChoice(
+    BuildContext context,
+    String locationId,
+    String locationType,
+    int qualiteGenerale,
+    int interet,
+    int originalite,
+    String appreciationGlobale,
+  ) async {
+    try {
+      final url = Uri.parse('${getBaseUrl()}/api/choices');
+      
+      final payload = {
+        'userId': 'current_user_id', // Remplacer par l'ID de l'utilisateur connecté
+        'targetId': locationId,
+        'targetType': locationType,
+        'aspects': {
+          'qualité générale': qualiteGenerale,
+          'intérêt': interet,
+          'originalité': originalite,
+        },
+        'appréciation_globale': appreciationGlobale,
+      };
+      
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode(payload),
+      );
+      
+      if (response.statusCode == 201) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Votre Choice a été ajouté avec succès!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        throw Exception('Failed to submit choice: ${response.body}');
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erreur: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Widget _buildInterestsSection(Map<String, dynamic> user) {
+    final interests = user['interests'] ?? [];
+
+    if (interests.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.favorite_border, size: 60, color: Colors.grey[400]),
+            const SizedBox(height: 16),
+            Text(
+              'Aucun intérêt enregistré',
+              style: TextStyle(
+                fontSize: 18,
+                color: Colors.grey[600],
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ],
         ),
+      );
+    }
+
+    return GridView.builder(
+      padding: const EdgeInsets.all(8),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        childAspectRatio: 0.8,
+        crossAxisSpacing: 8,
+        mainAxisSpacing: 8,
       ),
+      itemCount: interests.length,
+      itemBuilder: (context, index) {
+        final interestId = interests[index];
+        final interestName = 'Lieu favori';
+        final imageUrl = 'https://via.placeholder.com/300';
+        
+        return GestureDetector(
+          onTap: () {
+            _navigateToDetails(interestId, 'interest');
+          },
+          child: Card(
+            clipBehavior: Clip.antiAlias,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            elevation: 2,
+            child: Stack(
+              children: [
+                // Image
+                Positioned.fill(
+                  child: CachedNetworkImage(
+                    imageUrl: imageUrl,
+                    fit: BoxFit.cover,
+                    placeholder: (context, url) => Container(
+                      color: Colors.grey[200],
+                      child: const Center(child: CircularProgressIndicator()),
+                    ),
+                    errorWidget: (context, url, error) => Container(
+                      color: Colors.grey[200],
+                      child: const Center(child: Icon(Icons.broken_image, size: 40)),
+                    ),
+                  ),
+                ),
+                // Overlay pour lisibilité
+                Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.transparent,
+                          Colors.black.withOpacity(0.7),
+                        ],
+                      ),
+                    ),
+                    padding: const EdgeInsets.all(8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          interestName,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            const Icon(Icons.place, size: 12, color: Colors.white70),
+                            const SizedBox(width: 4),
+                            const Text(
+                              'Voir détails',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                // Badge Intérêt
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.pink.shade400,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.favorite, color: Colors.white, size: 12),
+                        SizedBox(width: 4),
+                        Text(
+                          'FAVORI',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildChoicesSection(Map<String, dynamic> user) {
+    final choices = user['choices'] ?? [];
+
+    if (choices.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.check_circle_outline, size: 60, color: Colors.grey[400]),
+            const SizedBox(height: 16),
+            Text(
+              'Aucun Choice ajouté',
+              style: TextStyle(
+                fontSize: 18,
+                color: Colors.grey[600],
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return GridView.builder(
+      padding: const EdgeInsets.all(8),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        childAspectRatio: 0.8,
+        crossAxisSpacing: 8,
+        mainAxisSpacing: 8,
+      ),
+      itemCount: choices.length,
+      itemBuilder: (context, index) {
+        final choice = choices[index];
+        final targetId = choice['targetId'];
+        final comment = choice['comment'] ?? '';
+        final targetName = choice['targetName'] ?? 'Lieu non spécifié';
+        final imageUrl = choice['imageUrl'] ?? 'https://via.placeholder.com/300';
+        
+        return GestureDetector(
+          onTap: () {
+            _navigateToDetails(targetId, 'choice');
+          },
+          child: Card(
+            clipBehavior: Clip.antiAlias,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            elevation: 2,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Image en haut
+                Expanded(
+                  child: Stack(
+                    children: [
+                      // Image
+                      Positioned.fill(
+                        child: CachedNetworkImage(
+                          imageUrl: imageUrl,
+                          fit: BoxFit.cover,
+                          placeholder: (context, url) => Container(
+                            color: Colors.grey[200],
+                            child: const Center(child: CircularProgressIndicator()),
+                          ),
+                          errorWidget: (context, url, error) => Container(
+                            color: Colors.grey[200],
+                            child: const Center(child: Icon(Icons.broken_image, size: 40)),
+                          ),
+                        ),
+                      ),
+                      // Overlay pour lisibilité
+                      Positioned(
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [
+                                Colors.transparent,
+                                Colors.black.withOpacity(0.7),
+                              ],
+                            ),
+                          ),
+                          padding: const EdgeInsets.all(8),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                targetName,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              if (choice['aspects'] != null) ...[
+                                const SizedBox(height: 4),
+                                Row(
+                                  children: [
+                                    const Icon(Icons.star, size: 14, color: Colors.amber),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      '${(choice['aspects']['qualité générale'] as int? ?? 0)}',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                      // Badge Choice
+                      Positioned(
+                        top: 8,
+                        right: 8,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.indigo,
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.check_circle, color: Colors.white, size: 12),
+                              SizedBox(width: 4),
+                              Text(
+                                'CHOICE',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                // Commentaire en bas si présent
+                if (comment.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.all(8.0),
+                    child: Text(
+                      comment,
+                      style: const TextStyle(fontSize: 12),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }

@@ -20,6 +20,12 @@ class _RecoverProducerPageState extends State<RecoverProducerPage> with SingleTi
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   
+  // Contrôleurs pour le formulaire de vérification d'identité
+  final TextEditingController _firstNameController = TextEditingController();
+  final TextEditingController _lastNameController = TextEditingController();
+  final TextEditingController _positionController = TextEditingController();
+  final TextEditingController _justificationController = TextEditingController();
+  
   bool _isLoading = false;
   bool _showVerificationForm = false;
   TabController? _tabController;
@@ -38,6 +44,11 @@ class _RecoverProducerPageState extends State<RecoverProducerPage> with SingleTi
     _tabController!.addListener(() {
       setState(() {
         _isRestaurantSelected = _tabController!.index == 0;
+        // Vider les résultats de recherche quand on change d'onglet
+        _searchResults = [];
+        if (_searchController.text.isNotEmpty) {
+          _searchProducers(_searchController.text);
+        }
       });
     });
     
@@ -67,6 +78,10 @@ class _RecoverProducerPageState extends State<RecoverProducerPage> with SingleTi
     _producerIdController.dispose();
     _searchController.dispose();
     _emailController.dispose();
+    _firstNameController.dispose();
+    _lastNameController.dispose();
+    _positionController.dispose();
+    _justificationController.dispose();
     _debounceTimer?.cancel();
     super.dispose();
   }
@@ -98,7 +113,7 @@ class _RecoverProducerPageState extends State<RecoverProducerPage> with SingleTi
       setState(() => _isSearching = true);
 
       try {
-        // Filter by type based on selected tab
+        // Filtrer par type en fonction de l'onglet sélectionné
         final type = _isRestaurantSelected ? 'restaurant' : 'leisureProducer';
         final response = await http.get(
           Uri.parse('${getBaseUrl()}/api/unified/search?query=$query&type=$type'),
@@ -114,6 +129,7 @@ class _RecoverProducerPageState extends State<RecoverProducerPage> with SingleTi
                       'name': item['name'] ?? item['intitulé'] ?? 'Sans nom',
                       'type': item['type'],
                       'address': item['address'] ?? item['adresse'] ?? 'Adresse non spécifiée',
+                      'image': item['image'] ?? item['photo'] ?? item['photo_url'] ?? '',
                     })
                 .toList()
                 .cast<Map<String, dynamic>>();
@@ -170,9 +186,16 @@ class _RecoverProducerPageState extends State<RecoverProducerPage> with SingleTi
       };
       
       // Add verification info if available
-      if (_showVerificationForm && _emailController.text.isNotEmpty) {
+      if (_showVerificationForm) {
         requestBody['email'] = _emailController.text;
+        requestBody['firstName'] = _firstNameController.text;
+        requestBody['lastName'] = _lastNameController.text;
+        requestBody['position'] = _positionController.text;
+        requestBody['justification'] = _justificationController.text;
         requestBody['verification'] = true;
+        
+        // Add image verification will be handled by a separate API call
+        // or we could use a multi-part form request in a more advanced implementation
       }
 
       final response = await http.post(
@@ -392,13 +415,24 @@ class _RecoverProducerPageState extends State<RecoverProducerPage> with SingleTi
                               itemBuilder: (context, index) {
                                 final result = _searchResults[index];
                                 return ListTile(
-                                  leading: CircleAvatar(
-                                    backgroundColor: Colors.grey[200],
-                                    child: Icon(
-                                      result['type'] == 'restaurant' ? Icons.restaurant : Icons.sports,
-                                      color: Colors.grey[600],
-                                    ),
-                                  ),
+                                  leading: result['image'] != null && result['image'].toString().isNotEmpty
+                                    ? CircleAvatar(
+                                        backgroundImage: NetworkImage(result['image']),
+                                        onBackgroundImageError: (_, __) {
+                                          // Fallback icon if image fails to load
+                                          Icon(
+                                            result['type'] == 'restaurant' ? Icons.restaurant : Icons.sports,
+                                            color: Colors.grey[600],
+                                          );
+                                        },
+                                      )
+                                    : CircleAvatar(
+                                        backgroundColor: Colors.grey[200],
+                                        child: Icon(
+                                          result['type'] == 'restaurant' ? Icons.restaurant : Icons.sports,
+                                          color: Colors.grey[600],
+                                        ),
+                                      ),
                                   title: Text(result['name']),
                                   subtitle: Text(result['address']),
                                   onTap: () => _handleProducerSelection(result),
@@ -510,28 +544,111 @@ class _RecoverProducerPageState extends State<RecoverProducerPage> with SingleTi
                               ),
                             ),
                           
-                          // Verification section (shown when requested)
+                          // Vérification section (shown when requested)
                           if (_showVerificationForm) ...[
                             const SizedBox(height: 24),
                             const Divider(),
                             const SizedBox(height: 16),
                             
-                            const Text(
-                              'Vérification d\'identité',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.deepPurple,
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.start,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: Colors.deepPurple.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: const Icon(Icons.verified_user, color: Colors.deepPurple),
+                                ),
+                                const SizedBox(width: 12),
+                                const Expanded(
+                                  child: Text(
+                                    'Vérification d\'identité',
+                                    style: TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.deepPurple,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.amber.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.amber.withOpacity(0.3)),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.info_outline, color: Colors.amber, size: 20),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      'Votre compte sera vérifié dans les 24h. Si aucun justificatif n\'est fourni, votre compte pourrait être suspendu.',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: Colors.grey[700],
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Veuillez fournir des informations supplémentaires pour vérifier votre identité',
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: Colors.grey[600],
-                              ),
+                            
+                            const SizedBox(height: 20),
+                            
+                            // Informations personnelles
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextFormField(
+                                    controller: _firstNameController,
+                                    decoration: InputDecoration(
+                                      labelText: 'Prénom',
+                                      prefixIcon: const Icon(Icons.person_outline, color: Colors.deepPurple),
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                    ),
+                                    validator: (value) => value!.isEmpty ? 'Requis' : null,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: TextFormField(
+                                    controller: _lastNameController,
+                                    decoration: InputDecoration(
+                                      labelText: 'Nom',
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                    ),
+                                    validator: (value) => value!.isEmpty ? 'Requis' : null,
+                                  ),
+                                ),
+                              ],
                             ),
+                            
+                            const SizedBox(height: 16),
+                            
+                            // Statut / Position
+                            TextFormField(
+                              controller: _positionController,
+                              decoration: InputDecoration(
+                                labelText: 'Statut (gérant, employé, etc.)',
+                                prefixIcon: const Icon(Icons.business_center, color: Colors.deepPurple),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                              validator: (value) => value!.isEmpty ? 'Veuillez indiquer votre statut' : null,
+                            ),
+                            
                             const SizedBox(height: 16),
                             
                             // Email field
@@ -544,7 +661,25 @@ class _RecoverProducerPageState extends State<RecoverProducerPage> with SingleTi
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                               ),
+                              validator: (value) => value!.isEmpty ? 'Email requis' : null,
                             ),
+                            
+                            const SizedBox(height: 16),
+                            
+                            // Justification
+                            TextFormField(
+                              controller: _justificationController,
+                              maxLines: 2,
+                              decoration: InputDecoration(
+                                labelText: 'Motif de récupération',
+                                hintText: 'Expliquez pourquoi vous récupérez ce compte',
+                                prefixIcon: const Icon(Icons.description, color: Colors.deepPurple),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                            ),
+                            
                             const SizedBox(height: 16),
                             
                             // Upload verification image
@@ -558,12 +693,35 @@ class _RecoverProducerPageState extends State<RecoverProducerPage> with SingleTi
                                   border: Border.all(color: Colors.grey[300]!),
                                 ),
                                 child: _verificationImage != null
-                                    ? ClipRRect(
-                                        borderRadius: BorderRadius.circular(10),
-                                        child: Image.file(
-                                          _verificationImage!,
-                                          fit: BoxFit.cover,
-                                        ),
+                                    ? Stack(
+                                        fit: StackFit.expand,
+                                        children: [
+                                          ClipRRect(
+                                            borderRadius: BorderRadius.circular(10),
+                                            child: Image.file(
+                                              _verificationImage!,
+                                              fit: BoxFit.cover,
+                                            ),
+                                          ),
+                                          Positioned(
+                                            top: 5,
+                                            right: 5,
+                                            child: CircleAvatar(
+                                              radius: 15,
+                                              backgroundColor: Colors.white.withOpacity(0.7),
+                                              child: IconButton(
+                                                padding: EdgeInsets.zero,
+                                                iconSize: 18,
+                                                icon: const Icon(Icons.close, color: Colors.black),
+                                                onPressed: () {
+                                                  setState(() {
+                                                    _verificationImage = null;
+                                                  });
+                                                },
+                                              ),
+                                            ),
+                                          ),
+                                        ],
                                       )
                                     : Column(
                                         mainAxisAlignment: MainAxisAlignment.center,
@@ -571,7 +729,7 @@ class _RecoverProducerPageState extends State<RecoverProducerPage> with SingleTi
                                           const Icon(Icons.add_photo_alternate, size: 40, color: Colors.grey),
                                           const SizedBox(height: 8),
                                           Text(
-                                            'Ajouter un justificatif\n(facture, identité, etc.)',
+                                            'Ajouter un justificatif\n(facture, bulletin, pièce d\'identité, etc.)',
                                             style: TextStyle(color: Colors.grey[600]),
                                             textAlign: TextAlign.center,
                                           ),

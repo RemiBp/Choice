@@ -11,7 +11,8 @@ import 'screens/home_screen.dart'; // Page principale
 import 'screens/profile_screen.dart'; // Profil utilisateur
 import 'screens/map_screen.dart'; // Carte des restaurants
 import 'screens/map_leisure_screen.dart'; // Carte des loisirs
-import 'screens/producer_search_page.dart'; // Page Découvrir (Recherche Producteurs)
+import 'screens/producer_search_page.dart'; // Page Recherche Producteurs
+import 'screens/copilot_screen.dart'; // Page Copilot
 import 'screens/feed_screen.dart'; // Page Feed
 import 'screens/producerLeisure_screen.dart'; // Producteurs de loisirs
 import 'screens/eventLeisure_screen.dart'; // Événements loisirs
@@ -154,20 +155,23 @@ class _LandingPageState extends State<LandingPage> with SingleTickerProviderStat
       setState(() => _isSearching = true);
 
       try {
+        // Filtrer par type en fonction de l'onglet sélectionné
+        final type = _isRestaurantSelected ? 'restaurant' : 'leisureProducer';
         final response = await http.get(
-          Uri.parse('${getBaseUrl()}/api/unified/search?query=$query'),
+          Uri.parse('${getBaseUrl()}/api/unified/search?query=$query&type=$type'),
         );
 
         if (response.statusCode == 200) {
           final List<dynamic> results = json.decode(response.body);
           setState(() {
             _searchResults = results
-                .where((item) => item['type'] == 'restaurant' || item['type'] == 'leisureProducer')
+                .where((item) => item['type'] == type)
                 .map((item) => {
                       'id': item['_id'],
                       'name': item['name'] ?? item['intitulé'] ?? 'Sans nom',
                       'type': item['type'],
                       'address': item['address'] ?? item['adresse'] ?? 'Adresse non spécifiée',
+                      'image': item['image'] ?? item['photo'] ?? item['photo_url'] ?? '',
                     })
                 .toList()
                 .cast<Map<String, dynamic>>();
@@ -294,7 +298,7 @@ class _LandingPageState extends State<LandingPage> with SingleTickerProviderStat
                             const SizedBox(width: 8),
                             const Expanded(
                               child: Text(
-                                'Se connecter en tant qu\'utilisateur',
+                                'Connexion en tant qu\'utilisateur',
                                 style: TextStyle(
                                   fontSize: 16, 
                                   fontWeight: FontWeight.bold,
@@ -363,7 +367,7 @@ class _LandingPageState extends State<LandingPage> with SingleTickerProviderStat
                             const SizedBox(width: 8),
                             const Expanded(
                               child: Text(
-                                'Récupérer un compte producteur',
+                                'Récupérez votre compte producer',
                                 style: TextStyle(
                                   fontSize: 16, 
                                   fontWeight: FontWeight.bold,
@@ -412,7 +416,9 @@ class _LandingPageState extends State<LandingPage> with SingleTickerProviderStat
                               controller: _searchController,
                               onChanged: (value) => _searchProducers(value),
                               decoration: InputDecoration(
-                                hintText: 'Rechercher un producteur par nom...',
+                                hintText: _isRestaurantSelected 
+                                  ? 'Rechercher un restaurant par nom...' 
+                                  : 'Rechercher une activité de loisir par nom...',
                                 prefixIcon: const Icon(Icons.search, color: Colors.grey),
                                 border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(8),
@@ -446,13 +452,21 @@ class _LandingPageState extends State<LandingPage> with SingleTickerProviderStat
                                   itemBuilder: (context, index) {
                                     final result = _searchResults[index];
                                     return ListTile(
-                                      leading: CircleAvatar(
-                                        backgroundColor: Colors.grey[200],
-                                        child: Icon(
-                                          result['type'] == 'restaurant' ? Icons.restaurant : Icons.sports,
-                                          color: Colors.grey[600],
-                                        ),
-                                      ),
+                                      leading: result['image'] != null && result['image'].toString().isNotEmpty
+                                        ? CircleAvatar(
+                                            backgroundImage: NetworkImage(result['image']),
+                                            onBackgroundImageError: (_, __) {
+                                              // Don't return anything from void function
+                                              print("Error loading image");
+                                            },
+                                          )
+                                        : CircleAvatar(
+                                            backgroundColor: Colors.grey[200],
+                                            child: Icon(
+                                              result['type'] == 'restaurant' ? Icons.restaurant : Icons.sports,
+                                              color: Colors.grey[600],
+                                            ),
+                                          ),
                                       title: Text(result['name'] ?? 'Sans nom'),
                                       subtitle: Text(result['address'] ?? 'Adresse non spécifiée'),
                                       onTap: () => _handleProducerSelection(result),
@@ -698,21 +712,24 @@ class _MainNavigationState extends State<MainNavigation> with WidgetsBindingObse
       _pages = [
         FeedScreen(userId: widget.userId), // Page Feed
         const MapScreen(), // Carte des restaurants
-        ProducerSearchPage(userId: widget.userId), // Page Découvrir
+        ProducerSearchPage(userId: widget.userId), // Page Recherche Producteurs
+        CopilotScreen(userId: widget.userId), // Page Copilot
         MyProfileScreen(userId: widget.userId), // Mon profil utilisateur
       ];
     } else if (widget.accountType == 'RestaurantProducer') {
       _pages = [
         FeedScreen(userId: widget.userId), // Page Feed
         const MapScreen(), // Carte des restaurants
-        ProducerDashboardIaPage(userId: widget.userId),
+        ProducerSearchPage(userId: widget.userId), // Page Recherche Producteurs
+        ProducerDashboardIaPage(userId: widget.userId), // Dashboard IA
         MyProducerProfileScreen(userId: widget.userId), // Mon profil producer (restauration)
       ];
     } else if (widget.accountType == 'LeisureProducer') {
       _pages = [
         FeedScreen(userId: widget.userId), // Page Feed
         const MapLeisureScreen(), // Carte des loisirs
-        ProducerSearchPage(userId: widget.userId), // Page Découvrir
+        ProducerSearchPage(userId: widget.userId), // Page Recherche Producteurs
+        CopilotScreen(userId: widget.userId), // Page Copilot
         MyProducerLeisureProfileScreen(userId: widget.userId), // Mon profil producer (loisir)
       ];
     } else {
@@ -865,18 +882,23 @@ class _MainNavigationState extends State<MainNavigation> with WidgetsBindingObse
         onTap: _onItemTapped,
         selectedItemColor: Colors.blue,
         unselectedItemColor: Colors.grey,
+        type: BottomNavigationBarType.fixed, // Important pour afficher 5 éléments
         items: const [
           BottomNavigationBarItem(
             icon: Icon(Icons.home),
-            label: 'Accueil',
+            label: 'Feed',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.map),
-            label: 'Carte',
+            label: 'Cartes',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.search),
-            label: 'Découvrir',
+            label: 'Recherche',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.emoji_objects),
+            label: 'Copilot',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.person),

@@ -23,7 +23,7 @@ class MapScreen extends StatefulWidget {
   _MapScreenState createState() => _MapScreenState();
 }
 
-class _MapScreenState extends State<MapScreen> {
+class _MapScreenState extends State<MapScreen> with AutomaticKeepAliveClientMixin {
   // Déclarations des variables d'état globales
   Set<Marker> _markers = {}; // Contiendra les marqueurs affichés sur la carte
   bool _isLoading = false; // Pour indiquer si les données sont en cours de chargement
@@ -63,6 +63,9 @@ class _MapScreenState extends State<MapScreen> {
 
   // Rayon de recherche
   double _selectedRadius = 1500;
+  
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void initState() {
@@ -205,6 +208,9 @@ class _MapScreenState extends State<MapScreen> {
           markerId: MarkerId(producerId),
           position: LatLng(lat, lon),
           icon: customIcon,
+          alpha: 1.0, // Assurer une opacité complète
+          zIndex: 2.0, // Mettre au-dessus des autres éléments
+          consumeTapEvents: true, // Capture les taps correctement
           onTap: () {
             // Afficher une carte de détail au-dessus du marqueur
             _showProducerQuickView(context, producer);
@@ -317,232 +323,449 @@ class _MapScreenState extends State<MapScreen> {
     return (score * 120).clamp(0.0, 120.0);
   }
   
+  /// Convertir une catégorie de restaurant en emoji
+  String _getEmojiForCategory(String category) {
+    category = category.toLowerCase();
+    if (category.contains('italien') || category.contains('pizza')) {
+      return '🍕';
+    } else if (category.contains('français') || category.contains('francais')) {
+      return '🥖';
+    } else if (category.contains('japonais') || category.contains('sushi')) {
+      return '🍣';
+    } else if (category.contains('indien')) {
+      return '🍛';
+    } else if (category.contains('mexicain')) {
+      return '🌮';
+    } else if (category.contains('chinois')) {
+      return '🥡';
+    } else if (category.contains('thai') || category.contains('thaï')) {
+      return '🍜';
+    } else if (category.contains('burger') || category.contains('américain')) {
+      return '🍔';
+    } else if (category.contains('vegan') || category.contains('végé')) {
+      return '🥗';
+    } else if (category.contains('fast') || category.contains('rapide')) {
+      return '🍟';
+    } else if (category.contains('café') || category.contains('cafe')) {
+      return '☕';
+    } else if (category.contains('bar')) {
+      return '🍺';
+    } else if (category.contains('dessert') || category.contains('patisserie')) {
+      return '🍰';
+    } else {
+      return '🍽️';
+    }
+  }
+  
   /// Créer une image bitmap personnalisée pour le marqueur
   Future<BitmapDescriptor> _createCustomMarkerBitmap(String name, double rating, double hue) async {
-    // Utiliser simplement le marqueur par défaut avec la teinte pour éviter les problèmes de rendu
+    // Utiliser le marqueur par défaut avec la teinte appropriée
     return BitmapDescriptor.defaultMarkerWithHue(hue);
   }
   
   /// Afficher une carte de détail rapide au-dessus du marqueur
   void _showProducerQuickView(BuildContext context, Map<String, dynamic> producer) {
-    final GlobalKey quickViewKey = GlobalKey();
-    
-    // Obtenir l'image du restaurant si disponible
+    // Obtenir l'image du restaurant avec une image de secours de qualité
     final String imageUrl = producer['photo'] ?? 
                            producer['image'] ?? 
-                           'https://via.placeholder.com/400x200?text=Restaurant';
+                           'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=500&q=80';
     
-    // Trouver la position du marqueur sur l'écran
-    if (_mapController != null) {
-      // Afficher une carte rapide avec les détails essentiels et un bouton pour voir plus
-      showDialog(
-        context: context,
-        builder: (context) => Dialog(
-          key: quickViewKey,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          clipBehavior: Clip.antiAlias,
-          insetPadding: const EdgeInsets.symmetric(horizontal: 20),
-          child: Container(
-            width: 320,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Image d'en-tête avec nom et note superposés
-                Stack(
-                  children: [
-                    // Image d'en-tête
-                    Container(
-                      height: 150,
-                      width: double.infinity,
-                      decoration: BoxDecoration(
-                        image: DecorationImage(
-                          image: NetworkImage(imageUrl),
-                          fit: BoxFit.cover,
-                        ),
+    // Couleur thématique
+    final Color themeColor = Colors.deepOrange;
+    
+    // Récupérer les catégories et les convertir en émojis
+    List<String> categoryEmojis = [];
+    if (producer['category'] != null && producer['category'] is List) {
+      categoryEmojis = (producer['category'] as List)
+          .map((cat) => _getEmojiForCategory(cat.toString()))
+          .toList();
+    }
+    
+    // Récupérer les types de plats et les convertir en émojis
+    List<String> dishTypeEmojis = [];
+    if (producer['dish_types'] != null && producer['dish_types'] is List) {
+      dishTypeEmojis = (producer['dish_types'] as List)
+          .take(5) // Limiter à 5 max
+          .map((type) {
+            String dishType = type.toString().toLowerCase();
+            if (dishType.contains('viande')) return '🥩';
+            if (dishType.contains('poisson')) return '🐟';
+            if (dishType.contains('végé')) return '🥦';
+            if (dishType.contains('pâtes') || dishType.contains('pasta')) return '🍝';
+            if (dishType.contains('riz') || dishType.contains('rice')) return '🍚';
+            if (dishType.contains('soupe')) return '🍲';
+            if (dishType.contains('salad')) return '🥗';
+            if (dishType.contains('dessert')) return '🍰';
+            return '🍴';
+          })
+          .toList();
+    }
+    
+    // Extraire les caractéristiques nutritionnelles
+    List<String> nutritionEmojis = [];
+    if (producer['nutriscores'] != null) {
+      if (producer['nutriscores']['A'] != null) nutritionEmojis.add('🥗');
+      if (producer['nutriscores']['B'] != null) nutritionEmojis.add('🥦');
+    }
+    if (producer['low_carbon'] == true) nutritionEmojis.add('🌱');
+    if (producer['bio'] == true) nutritionEmojis.add('🌿');
+    
+    // Afficher la boîte de dialogue améliorée
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        clipBehavior: Clip.antiAlias,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 20),
+        child: Container(
+          width: 320,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Image d'en-tête avec nom et note superposés
+              Stack(
+                children: [
+                  // Image d'en-tête
+                  Container(
+                    height: 150,
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      image: DecorationImage(
+                        image: NetworkImage(imageUrl),
+                        fit: BoxFit.cover,
                       ),
                     ),
-                    // Dégradé pour améliorer la lisibilité du texte
-                    Container(
-                      height: 150,
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            Colors.black.withOpacity(0.1),
-                            Colors.black.withOpacity(0.7),
-                          ],
-                        ),
+                  ),
+                  // Dégradé pour améliorer la lisibilité du texte
+                  Container(
+                    height: 150,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.black.withOpacity(0.1),
+                          Colors.black.withOpacity(0.7),
+                        ],
                       ),
                     ),
-                    // Nom et note du restaurant
-                    Positioned(
-                      bottom: 10,
-                      left: 15,
-                      right: 15,
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Expanded(
-                            child: Text(
-                              producer['name'] ?? "Restaurant",
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 22,
-                                shadows: [
-                                  Shadow(
-                                    color: Colors.black,
-                                    offset: Offset(0, 1),
-                                    blurRadius: 3,
-                                  ),
-                                ],
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: Colors.amber,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  "${producer['rating']?.toStringAsFixed(1) ?? 'N/A'}",
-                                  style: const TextStyle(
-                                    color: Colors.black,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 16,
-                                  ),
+                  ),
+                  // Nom et note du restaurant
+                  Positioned(
+                    bottom: 10,
+                    left: 15,
+                    right: 15,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            producer['name'] ?? "Restaurant",
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 22,
+                              shadows: [
+                                Shadow(
+                                  color: Colors.black,
+                                  offset: Offset(0, 1),
+                                  blurRadius: 3,
                                 ),
-                                const Icon(Icons.star, size: 16, color: Colors.black),
                               ],
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.amber,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                "${producer['rating']?.toStringAsFixed(1) ?? 'N/A'}",
+                                style: const TextStyle(
+                                  color: Colors.black,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                ),
+                              ),
+                              const Icon(Icons.star, size: 16, color: Colors.black),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Bouton fermer
+                  Positioned(
+                    top: 10,
+                    right: 10,
+                    child: InkWell(
+                      onTap: () => Navigator.pop(context),
+                      child: Container(
+                        padding: const EdgeInsets.all(5),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.5),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.close,
+                          color: Colors.white,
+                          size: 20,
+                        ),
+                      ),
+                    ),
+                  ),
+                  // Badge catégorie principale
+                  if (categoryEmojis.isNotEmpty)
+                  Positioned(
+                    top: 10,
+                    left: 10,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: themeColor,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: [
+                          Text(
+                            categoryEmojis.first,
+                            style: const TextStyle(fontSize: 14),
+                          ),
+                          const SizedBox(width: 4),
+                          const Text(
+                            "Restaurant",
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
                             ),
                           ),
                         ],
                       ),
                     ),
-                    // Bouton fermer
-                    Positioned(
-                      top: 10,
-                      right: 10,
-                      child: InkWell(
-                        onTap: () => Navigator.pop(context),
-                        child: Container(
-                          padding: const EdgeInsets.all(5),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.5),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(
-                            Icons.close,
-                            color: Colors.white,
-                            size: 20,
+                  ),
+                ],
+              ),
+              
+              // Corps avec détails et émojis
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Adresse
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.location_on, size: 18, color: Colors.grey),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            producer['address'] ?? "Adresse non disponible",
+                            style: const TextStyle(fontSize: 14),
                           ),
                         ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    
+                    // Catégories avec émojis
+                    if (producer['category'] != null && producer['category'] is List && producer['category'].isNotEmpty) ...[
+                      const Text(
+                        "Type de cuisine :",
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
+                      const SizedBox(height: 8),
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: List.generate(
+                            producer['category']?.length ?? 0,
+                            (index) {
+                              final category = (producer['category'] as List)[index].toString();
+                              final emoji = categoryEmojis[index < categoryEmojis.length ? index : 0];
+                              
+                              return Container(
+                                margin: const EdgeInsets.only(right: 8),
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: themeColor.withOpacity(0.8),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(emoji, style: const TextStyle(fontSize: 16)),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      category,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    
+                    // Badge de correspondance si score élevé
+                    if (producer['score'] != null && producer['score'] > 0.7) ...[
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.green.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.green, width: 1),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: const [
+                            Icon(Icons.check_circle, color: Colors.green, size: 16),
+                            SizedBox(width: 4),
+                            Text(
+                              "Match avec vos critères",
+                              style: TextStyle(
+                                color: Colors.green,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    
+                    // Spécificités avec émojis
+                    if (dishTypeEmojis.isNotEmpty || nutritionEmojis.isNotEmpty) ...[
+                      const Text(
+                        "Spécificités :",
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
+                      const SizedBox(height: 8),
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            // Plats signature
+                            ...dishTypeEmojis.map((emoji) => 
+                              Padding(
+                                padding: const EdgeInsets.only(right: 8),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(8),
+                                      decoration: BoxDecoration(
+                                        color: Colors.orange.withOpacity(0.1),
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: Text(
+                                        emoji,
+                                        style: const TextStyle(fontSize: 24),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            // Spécificités nutritionnelles
+                            ...nutritionEmojis.map((emoji) => 
+                              Padding(
+                                padding: const EdgeInsets.only(right: 8),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(8),
+                                      decoration: BoxDecoration(
+                                        color: Colors.green.withOpacity(0.1),
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: Text(
+                                        emoji,
+                                        style: const TextStyle(fontSize: 24),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              )
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    
+                    // Notes détaillées
+                    if (producer['notes_globales'] != null) ...[
+                      const Text(
+                        "Notes détaillées :",
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        children: [
+                          _buildRatingItem("Service", producer['notes_globales']?['service'] ?? 0.0),
+                          _buildRatingItem("Lieu", producer['notes_globales']?['lieu'] ?? 0.0),
+                          _buildRatingItem("Portions", producer['notes_globales']?['portions'] ?? 0.0),
+                          _buildRatingItem("Ambiance", producer['notes_globales']?['ambiance'] ?? 0.0),
+                        ],
+                      ),
+                    ],
+                    
+                    const SizedBox(height: 16),
+                    
+                    // Bouton pour voir plus de détails
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: ElevatedButton.icon(
+                        icon: const Icon(Icons.restaurant_menu),
+                        label: const Text('VOIR LE PROFIL COMPLET', 
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: themeColor,
+                          foregroundColor: Colors.white,
+                          elevation: 3,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onPressed: () {
+                          Navigator.pop(context); // Fermer la boîte de dialogue
+                          _navigateToProducerDetails(producer['_id']);
+                        },
                       ),
                     ),
                   ],
                 ),
-                
-                // Corps avec les détails essentiels
-                Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Adresse
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Icon(Icons.location_on, size: 18, color: Colors.grey),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              producer['address'] ?? "Adresse non disponible",
-                              style: const TextStyle(fontSize: 14),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      
-                      // Catégories si disponibles
-                      if (producer['category'] != null && producer['category'] is List && producer['category'].isNotEmpty) ...[
-                        Wrap(
-                          spacing: 6,
-                          children: (producer['category'] as List).map<Widget>((cat) {
-                            return Chip(
-                              label: Text(cat.toString()),
-                              labelStyle: const TextStyle(fontSize: 12, color: Colors.white),
-                              backgroundColor: Colors.blue,
-                              padding: const EdgeInsets.all(0),
-                              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                            );
-                          }).toList(),
-                        ),
-                        const SizedBox(height: 12),
-                      ],
-                      
-                      // Notes détaillées
-                      if (producer['notes_globales'] != null) ...[
-                        const Text(
-                          "Notes détaillées :",
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceAround,
-                          children: [
-                            _buildRatingItem("Service", producer['notes_globales']?['service'] ?? 0.0),
-                            _buildRatingItem("Lieu", producer['notes_globales']?['lieu'] ?? 0.0),
-                            _buildRatingItem("Portions", producer['notes_globales']?['portions'] ?? 0.0),
-                            _buildRatingItem("Ambiance", producer['notes_globales']?['ambiance'] ?? 0.0),
-                          ],
-                        ),
-                      ],
-                      
-                      const SizedBox(height: 20),
-                      
-                      // Bouton pour voir plus de détails
-                      SizedBox(
-                        width: double.infinity,
-                        height: 50,
-                        child: ElevatedButton.icon(
-                          icon: const Icon(Icons.restaurant_menu),
-                          label: const Text('VOIR LE PROFIL COMPLET', style: TextStyle(fontSize: 16)),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.deepOrange,
-                            foregroundColor: Colors.white,
-                            elevation: 3,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                          onPressed: () {
-                            Navigator.pop(context); // Fermer la boîte de dialogue
-                            _navigateToProducerDetails(producer['_id']);
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
-      );
-    }
+      ),
+    );
   }
   
-  // Construire un widget d'étoiles de notation
+  // Construire un widget d'étoiles de notation avec couleur par note
   Widget _buildRatingItem(String label, double rating) {
     return Column(
       children: [
@@ -550,20 +773,49 @@ class _MapScreenState extends State<MapScreen> {
           label,
           style: const TextStyle(fontSize: 12),
         ),
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              rating.toStringAsFixed(1),
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-            ),
-            const Icon(Icons.star, size: 12, color: Colors.amber),
-          ],
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          decoration: BoxDecoration(
+            color: _getRatingColor(rating),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                rating.toStringAsFixed(1),
+                style: TextStyle(
+                  fontWeight: FontWeight.bold, 
+                  fontSize: 12,
+                  color: rating > 7.0 ? Colors.white : Colors.black87,
+                ),
+              ),
+              Icon(
+                Icons.star, 
+                size: 12, 
+                color: rating > 7.0 ? Colors.white : Colors.amber,
+              ),
+            ],
+          ),
         ),
       ],
     );
   }
 
+  // Obtenir une couleur en fonction de la note
+  Color _getRatingColor(double rating) {
+    if (rating >= 8.0) {
+      return Colors.green;
+    } else if (rating >= 6.0) {
+      return Colors.lightGreen;
+    } else if (rating >= 4.0) {
+      return Colors.amber;
+    } else if (rating >= 2.0) {
+      return Colors.orange;
+    } else {
+      return Colors.red;
+    }
+  }
 
   /// Récupérer les producteurs proches avec les filtres
   Future<void> _fetchNearbyProducers(double latitude, double longitude) async {
@@ -1224,8 +1476,11 @@ class _MapScreenState extends State<MapScreen> {
   }
 
 
+  // This is the required build method for Flutter's StatefulWidget pattern
   @override
   Widget build(BuildContext context) {
+    // Required for AutomaticKeepAliveClientMixin - must be called first
+    super.build(context);
     return Scaffold(
       appBar: AppBar(
         title: const Text('Carte des Restaurants et Items'),
@@ -1243,22 +1498,83 @@ class _MapScreenState extends State<MapScreen> {
             tooltip: 'Aide',
             onPressed: () => _showHelpDialog(context),
           ),
-          // Bouton pour basculer vers la carte des loisirs
-          IconButton(
-            icon: const Icon(Icons.theater_comedy),
-            tooltip: 'Carte des loisirs',
-            onPressed: () {
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(builder: (context) => const MapLeisureScreen()),
-              );
-            },
+          // Bouton stylisé pour basculer vers la carte des loisirs
+          Container(
+            margin: const EdgeInsets.only(right: 8),
+            decoration: BoxDecoration(
+              color: Colors.deepPurple.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: IconButton(
+              icon: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.theater_comedy),
+                  SizedBox(width: 4),
+                  Text(
+                    "Loisirs",
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+              tooltip: 'Carte des loisirs et événements',
+              onPressed: () {
+                // Animation de transition
+                Navigator.of(context).push(
+                  PageRouteBuilder(
+                    pageBuilder: (context, animation, secondaryAnimation) => const MapLeisureScreen(),
+                    transitionsBuilder: (context, animation, secondaryAnimation, child) {
+                      var begin = const Offset(1.0, 0.0);
+                      var end = Offset.zero;
+                      var curve = Curves.easeInOut;
+                      var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
+                      return SlideTransition(
+                        position: animation.drive(tween),
+                        child: child,
+                      );
+                    },
+                    transitionDuration: const Duration(milliseconds: 400),
+                  ),
+                );
+              },
+            ),
           ),
         ],
       ),
       body: PopScope(
         // Empêche de fermer l'application en appuyant sur retour
         canPop: false,
+        onPopInvoked: (didPop) {
+          // Si le panneau de filtres est ouvert, on le ferme au lieu de quitter
+          if (_isFilterPanelVisible) {
+            setState(() {
+              _isFilterPanelVisible = false;
+            });
+            return;
+          }
+          
+          // Afficher un dialogue de confirmation
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text("Quitter la carte ?"),
+              content: const Text("Voulez-vous vraiment quitter la carte ?"),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context), // Fermer le dialogue
+                  child: const Text("Annuler"),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.pop(context); // Fermer le dialogue
+                    Navigator.pop(context); // Retourner à l'écran précédent
+                  },
+                  child: const Text("Quitter"),
+                ),
+              ],
+            ),
+          );
+        },
         child: Stack(
           children: [
             AdaptiveMapWidget(
@@ -1502,7 +1818,6 @@ class _MapScreenState extends State<MapScreen> {
           ),
         ],
       ),
-
       // Pas de barre de navigation en bas pour éviter le bandeau blanc
     );
   }
@@ -1637,7 +1952,7 @@ class _MapScreenState extends State<MapScreen> {
       ),
     );
   }
-
+  
   /// Affiche un dialogue de filtres rapides
   void _showQuickFilterDialog(BuildContext context) {
     showDialog(
@@ -1692,7 +2007,6 @@ class _MapScreenState extends State<MapScreen> {
       ),
     );
   }
-
   
   double _calculateDynamicScore(Map<String, dynamic> producer) {
     double score = 0.0;
@@ -1857,13 +2171,6 @@ class _MapScreenState extends State<MapScreen> {
         }
       });
     }
-  }
-  
-  /// Met à jour la visibilité du panneau de filtres (appelé depuis AdaptiveMapWidget)
-  void updateFilterPanelVisibility(bool isVisible) {
-    setState(() {
-      _isFilterPanelVisible = isVisible;
-    });
   }
   
   /// Applique un style personnalisé à la carte pour une meilleure lisibilité
@@ -2081,5 +2388,10 @@ class _MapScreenState extends State<MapScreen> {
     } catch (e) {
       print("❌ Erreur lors de l'application du style de carte: $e");
     }
+  }
+  
+  @override
+  dynamic noSuchMethod(Invocation invocation) {
+    return super.noSuchMethod(invocation);
   }
 }

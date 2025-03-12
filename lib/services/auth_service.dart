@@ -30,18 +30,20 @@ class AuthService extends ChangeNotifier {
   // Login
   Future<bool> login(String email, String password) async {
     try {
+      // Utiliser la même route que pour l'enregistrement mais avec login endpoint
       final response = await http.post(
-        Uri.parse('${getBaseUrl()}/api/auth/login'),
-        body: {
+        Uri.parse('${getBaseUrl()}/api/newuser/login'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
           'email': email,
           'password': password,
-        },
+        }),
       );
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        _userId = data['userId'];
-        _accountType = data['accountType'];
+        _userId = data['userId'] ?? data['user']?['_id'];
+        _accountType = data['accountType'] ?? 'user'; // Par défaut utilisateur si non spécifié
         _isAuthenticated = true;
 
         // Save to persistent storage
@@ -52,6 +54,7 @@ class AuthService extends ChangeNotifier {
         notifyListeners();
         return true;
       }
+      print('Login failed with status: ${response.statusCode}, body: ${response.body}');
       return false;
     } catch (e) {
       print('Login error: $e');
@@ -78,8 +81,11 @@ class AuthService extends ChangeNotifier {
 
     try {
       final response = await http.get(
-        Uri.parse('${getBaseUrl()}/api/auth/validate'),
-        headers: {'userId': _userId!},
+        Uri.parse('${getBaseUrl()}/api/newuser/validate'),
+        headers: {
+          'Content-Type': 'application/json',
+          'userId': _userId!
+        },
       );
 
       if (response.statusCode == 200) {
@@ -91,7 +97,8 @@ class AuthService extends ChangeNotifier {
       return false;
     } catch (e) {
       print('Session validation error: $e');
-      return false;
+      // Ne pas déconnecter en cas d'erreur réseau pour permettre le mode hors ligne
+      return true;
     }
   }
 }

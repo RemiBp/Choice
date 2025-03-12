@@ -75,18 +75,99 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
 
   /// Charger une icône personnalisée pour les marqueurs
   Future<void> _loadCustomMarkerIcon() async {
-    // Utiliser des marqueurs colorés par catégorie pour une meilleure distinction visuelle
-    _customMarkerIcon = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueViolet);
-    print("✅ Icône de marqueur personnalisée chargée avec teinte violette par défaut");
+    try {
+      // Utiliser des marqueurs colorés par catégorie avec une teinte forte pour garantir la visibilité
+      _customMarkerIcon = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueViolet);
+      print("✅ Icône de marqueur personnalisée chargée avec teinte violette par défaut");
+    } catch (e) {
+      print("❌ Erreur lors du chargement de l'icône de marqueur: $e");
+      // Fallback à l'icône par défaut si une erreur se produit
+      _customMarkerIcon = BitmapDescriptor.defaultMarker;
+    }
   }
   
   /// Calculer une couleur de marqueur en fonction du score
   double _getColorBasedOnScore(double score) {
-    // Utiliser un dégradé de couleurs plus visible:
-    // 0.0 (faible) = Rouge (0)
+    // Utiliser un dégradé de couleurs plus visible avec des valeurs qui garantissent l'opacité:
+    // 0.0 (faible) = Rouge (0) 
     // 0.5 (moyen) = Jaune (60)
     // 1.0 (excellent) = Vert (120)
+    
+    // Garantir que le score est entre 0 et 1
+    score = score.clamp(0.0, 1.0);
+    
+    // Convertir le score en une valeur de teinte entre 0 (rouge) et 120 (vert)
     return (score * 120).clamp(0.0, 120.0);
+  }
+  
+  /// Obtenir une icône de marqueur basée sur le score et la catégorie
+  BitmapDescriptor _getMarkerIcon(double score, String category) {
+    // Définir la teinte de base par catégorie
+    double baseHue = BitmapDescriptor.hueViolet; // Couleur par défaut
+    
+    // Attribution des couleurs par catégorie
+    category = category.toLowerCase();
+    if (category.contains('théâtre') || category.contains('theatre')) {
+      baseHue = BitmapDescriptor.hueRed;
+    } else if (category.contains('musiqu') || category.contains('concert')) {
+      baseHue = BitmapDescriptor.hueAzure;
+    } else if (category.contains('ciném') || category.contains('cinema')) {
+      baseHue = BitmapDescriptor.hueOrange;
+    } else if (category.contains('danse')) {
+      baseHue = BitmapDescriptor.hueGreen;
+    }
+    
+    // Si le score est très élevé (>0.8), utiliser la teinte verte pour montrer la haute correspondance
+    if (score > 0.8) {
+      return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen);
+    }
+    
+    // Sinon utiliser la teinte basée sur la catégorie
+    return BitmapDescriptor.defaultMarkerWithHue(baseHue);
+  }
+
+  /// Convertir un type de venue en emoji
+  String _getEmojiForCategory(String category) {
+    category = category.toLowerCase();
+    if (category.contains('théâtre') || category.contains('theatre')) {
+      return '🎭';
+    } else if (category.contains('musique') || category.contains('concert')) {
+      return '🎵';
+    } else if (category.contains('danse')) {
+      return '💃';
+    } else if (category.contains('ciném') || category.contains('cinema')) {
+      return '🎬';
+    } else if (category.contains('art') || category.contains('exposition')) {
+      return '🎨';
+    } else if (category.contains('musée') || category.contains('musee')) {
+      return '🏛️';
+    } else if (category.contains('spectacle')) {
+      return '🎪';
+    } else {
+      return '🎟️';
+    }
+  }
+
+  /// Convertir une émotion en emoji
+  String _getEmojiForEmotion(String emotion) {
+    emotion = emotion.toLowerCase();
+    if (emotion.contains('drôle') || emotion.contains('humoristique')) {
+      return '😂';
+    } else if (emotion.contains('émouvant') || emotion.contains('touchant')) {
+      return '😢';
+    } else if (emotion.contains('haletant') || emotion.contains('suspense')) {
+      return '😮';
+    } else if (emotion.contains('intense')) {
+      return '😲';
+    } else if (emotion.contains('poignant')) {
+      return '💔';
+    } else if (emotion.contains('réfléchi') || emotion.contains('reflexion')) {
+      return '🤔';
+    } else if (emotion.contains('joyeux') || emotion.contains('heureux')) {
+      return '😊';
+    } else {
+      return '✨';
+    }
   }
   
   /// Traitement des marqueurs en arrière-plan
@@ -154,71 +235,116 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
             ? entity['lieu'] ?? 'Sans nom'
             : entity['intitulé'] ?? 'Événement sans nom';
         
-        // Assigner un score de pertinence basé sur les filtres (simpliste pour l'instant)
+        // Calculer un score de pertinence plus précis basé sur les filtres
         double score = 0.5; // score par défaut moyen
         
         if (isProducers) {
           // Score pour les producteurs de loisirs
-          if (_selectedProducerCategory != null && 
-              entity['catégorie'] == _selectedProducerCategory) {
-            score += 0.3;
+          if (_selectedProducerCategory != null) {
+            // Correspondance exacte de catégorie
+            if (entity['catégorie'] == _selectedProducerCategory) {
+              score += 0.4;
+            } 
+            // Correspondance partielle (contient le mot)
+            else if (entity['catégorie'] != null && 
+                    entity['catégorie'].toString().toLowerCase().contains(_selectedProducerCategory?.toLowerCase() ?? '')) {
+              score += 0.2;
+            }
           }
           
-          // Ajouter d'autres critères pour améliorer le score
-          final double rating = entity['rating'] != null ? 
-              (entity['rating'] / 5.0).clamp(0.0, 1.0) : 0.5;
-          score = (score + rating) / 2;
+          // Évaluer la note du lieu
+          if (entity['rating'] != null) {
+            final double rating = (entity['rating'] / 5.0).clamp(0.0, 1.0);
+            // Donner plus de poids aux notes élevées
+            score = (score * 0.6) + (rating * 0.4);
+          }
+          
+          // Vérifier des critères supplémentaires comme la popularité
+          if (entity['visites'] != null && entity['visites'] > 100) {
+            score += 0.1;
+          }
+          
+          // Bonus pour les lieux avec image
+          if (entity['photo'] != null || entity['image'] != null) {
+            score += 0.05;
+          }
         } else {
           // Score pour les événements
-          if (_selectedEventCategory != null && 
-              entity['catégorie'] == _selectedEventCategory) {
-            score += 0.3;
+          if (_selectedEventCategory != null) {
+            // Correspondance exacte de catégorie
+            if (entity['catégorie'] == _selectedEventCategory) {
+              score += 0.4;
+            } 
+            // Correspondance partielle
+            else if (entity['catégorie'] != null && 
+                    entity['catégorie'].toString().toLowerCase().contains(_selectedEventCategory?.toLowerCase() ?? '')) {
+              score += 0.2;
+            }
           }
           
-          if (_selectedEmotions.isNotEmpty && entity['emotions'] != null) {
-            final List<dynamic> eventEmotions = entity['emotions'];
-            int matchCount = 0;
-            for (var emotion in _selectedEmotions) {
-              if (eventEmotions.contains(emotion)) {
-                matchCount++;
+          // Correspondance des émotions recherchées
+          if (_selectedEmotions.isNotEmpty) {
+            List<dynamic> eventEmotions = [];
+            
+            // Chercher les émotions dans différentes structures possibles
+            if (entity['emotions'] != null) {
+              eventEmotions = entity['emotions'];
+            } else if (entity['notes_globales'] != null && 
+                      entity['notes_globales']['emotions'] != null) {
+              eventEmotions = entity['notes_globales']['emotions'];
+            }
+            
+            if (eventEmotions.isNotEmpty) {
+              int matchCount = 0;
+              for (var emotion in _selectedEmotions) {
+                if (eventEmotions.any((e) => e.toString().toLowerCase().contains(emotion.toLowerCase()))) {
+                  matchCount++;
+                }
+              }
+              
+              if (matchCount > 0) {
+                // Plus le nombre de correspondances est élevé, plus le score augmente
+                final double emotionScore = matchCount / _selectedEmotions.length;
+                score = (score * 0.6) + (emotionScore * 0.4);
               }
             }
-            if (matchCount > 0) {
-              score += 0.2 * (matchCount / _selectedEmotions.length);
+          }
+          
+          // Critères de prix si définis
+          if (_minPrice > 0 || _maxPrice < 1000) {
+            final double eventPrice = entity['prix_reduit'] != null ? 
+                double.tryParse(entity['prix_reduit'].toString()) ?? 0 : 
+                (entity['prix'] != null ? double.tryParse(entity['prix'].toString()) ?? 0 : 0);
+                
+            if (eventPrice >= _minPrice && eventPrice <= _maxPrice) {
+              score += 0.1;
             }
           }
         }
         
-        // Définir la couleur en fonction de la catégorie
-        double markerHue = BitmapDescriptor.hueViolet; // Couleur par défaut
+        // Limiter le score entre 0 et 1
+        score = score.clamp(0.0, 1.0);
         
-        // Attribution des couleurs par catégorie
+        // Obtenir la catégorie pour la coloration
         String category = isProducers 
             ? entity['catégorie']?.toString().toLowerCase() ?? ''
             : entity['catégorie']?.toString().toLowerCase() ?? '';
-            
-        if (category.contains('théâtre') || category.contains('theatre')) {
-          markerHue = BitmapDescriptor.hueRed;
-        } else if (category.contains('musiqu') || category.contains('concert')) {
-          markerHue = BitmapDescriptor.hueAzure;
-        } else if (category.contains('ciném') || category.contains('cinema')) {
-          markerHue = BitmapDescriptor.hueOrange;
-        } else if (category.contains('danse')) {
-          markerHue = BitmapDescriptor.hueGreen;
-        }
         
-        BitmapDescriptor markerIcon = BitmapDescriptor.defaultMarkerWithHue(markerHue);
+        // Créer une icône de marqueur basée sur le score et la catégorie
+        BitmapDescriptor markerIcon = _getMarkerIcon(score, category);
         
         // Log pour confirmer création du marqueur avec couleur par catégorie
-        print("✅ Marqueur créé pour: $name avec catégorie: $category (teinte: $markerHue)");
+        print("✅ Marqueur créé pour: $name avec catégorie: $category (score: $score)");
         
-        // Créer un marqueur avec visibilité et z-index explicites
+        // Créer le marqueur avec des paramètres garantissant la visibilité
         Marker marker = Marker(
           markerId: MarkerId(id),
           position: LatLng(lat, lon),
-          icon: markerIcon, // Utiliser un marqueur coloré par catégorie
-          visible: true, // Explicitement marquer comme visible
-          zIndex: 10.0, // S'assurer que le marqueur est au-dessus des autres éléments
+          icon: markerIcon,
+          visible: true,
+          alpha: 1.0, // Complètement opaque
+          zIndex: 10.0, // Au-dessus des autres éléments
+          consumeTapEvents: true, // Assure que les taps sont bien capturés
           onTap: () {
             // Afficher les détails directement sans passer par infoWindow
             _showEntityQuickView(context, entity, isProducers, id);
@@ -270,6 +396,51 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
     
     // Couleur thématique selon le type
     final Color themeColor = isProducer ? Colors.purple : Colors.orange;
+    
+    // Récupérer les données à afficher comme émojis
+    String categoryEmoji = "";
+    if (entity['catégorie'] != null) {
+      categoryEmoji = _getEmojiForCategory(entity['catégorie'].toString());
+    }
+    
+    // Récupérer les événements ou émotions pour les convertir en émojis
+    List<String> emotionEmojis = [];
+    
+    // Rechercher les émotions dans différentes structures possibles
+    if (entity['notes_globales']?['emotions'] != null && entity['notes_globales']['emotions'] is List) {
+      emotionEmojis = (entity['notes_globales']['emotions'] as List)
+          .map((e) => _getEmojiForEmotion(e.toString()))
+          .toList();
+    } else if (entity['emotions'] != null && entity['emotions'] is List) {
+      emotionEmojis = (entity['emotions'] as List)
+          .map((e) => _getEmojiForEmotion(e.toString()))
+          .toList();
+    }
+    
+    // Extraire les intérêts pour affichage
+    List<String> interestEmojis = [];
+    if (entity['interests'] != null && entity['interests'] is List) {
+      interestEmojis = (entity['interests'] as List)
+          .take(5) // Limiter à 5 intérêts maximum
+          .map((i) {
+            // Convertir les intérêts en emoji selon le nom
+            String interest = i.toString().toLowerCase();
+            if (interest.contains('food') || interest.contains('cuisine') || interest.contains('restaurant')) {
+              return '🍽️';
+            } else if (interest.contains('art') || interest.contains('culture')) {
+              return '🎨';
+            } else if (interest.contains('sport') || interest.contains('activ')) {
+              return '🏃';
+            } else if (interest.contains('music') || interest.contains('musiqu')) {
+              return '🎵';
+            } else if (interest.contains('nature') || interest.contains('eco')) {
+              return '🌿';
+            } else {
+              return '✨';
+            }
+          })
+          .toList();
+    }
     
     showDialog(
       context: context,
@@ -339,7 +510,7 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                        if (entity['rating'] != null)
+                        if (entity['note'] != null || entity['rating'] != null)
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                             decoration: BoxDecoration(
@@ -350,7 +521,7 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 Text(
-                                  "${entity['rating'].toStringAsFixed(1)}",
+                                  "${(entity['note'] ?? entity['rating']).toStringAsFixed(1)}",
                                   style: const TextStyle(
                                     color: Colors.black,
                                     fontWeight: FontWeight.bold,
@@ -384,7 +555,7 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
                       ),
                     ),
                   ),
-                  // Type de contenu (Producteur ou Événement)
+                  // Type de contenu (Producteur ou Événement) avec emoji
                   Positioned(
                     top: 10,
                     left: 10,
@@ -394,13 +565,23 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
                         color: themeColor,
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: Text(
-                        isProducer ? "Lieu" : "Événement",
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 12,
-                        ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            categoryEmoji,
+                            style: const TextStyle(fontSize: 14),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            isProducer ? "Lieu" : "Événement",
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
@@ -429,12 +610,16 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
                     ),
                     const SizedBox(height: 12),
                     
-                    // Catégorie avec puce stylisée
+                    // Catégorie avec puce stylisée et emoji
                     if (entity['catégorie'] != null) ...[
                       Wrap(
                         spacing: 6,
                         children: [
                           Chip(
+                            avatar: Text(
+                              categoryEmoji,
+                              style: const TextStyle(fontSize: 14),
+                            ),
                             label: Text(entity['catégorie'].toString()),
                             labelStyle: const TextStyle(fontSize: 12, color: Colors.white),
                             backgroundColor: themeColor,
@@ -442,6 +627,97 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
                             materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                           ),
                         ],
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    
+                    // Émotions et intérêts avec émojis - avec un design amélioré
+                    if (emotionEmojis.isNotEmpty || interestEmojis.isNotEmpty) ...[
+                      // En-tête avec un badge de correspondance si c'est un bon match
+                      Row(
+                        children: [
+                          const Text(
+                            "Ambiance & Intérêts :",
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                          ),
+                          const Spacer(),
+                          if (_selectedEmotions.isNotEmpty && emotionEmojis.isNotEmpty)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.green.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: Colors.green, width: 1),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.check_circle, color: Colors.green, size: 12),
+                                  const SizedBox(width: 4),
+                                  const Text(
+                                    "Match",
+                                    style: TextStyle(
+                                      color: Colors.green,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 10,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      
+                      // Affichage amélioré des émojis avec libellé
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            ...emotionEmojis.map((emoji) => 
+                              Padding(
+                                padding: const EdgeInsets.only(right: 8),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(8),
+                                      decoration: BoxDecoration(
+                                        color: Colors.purple.withOpacity(0.1),
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: Text(
+                                        emoji,
+                                        style: const TextStyle(fontSize: 24),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              )
+                            ),
+                            ...interestEmojis.map((emoji) => 
+                              Padding(
+                                padding: const EdgeInsets.only(right: 8),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(8),
+                                      decoration: BoxDecoration(
+                                        color: Colors.blue.withOpacity(0.1),
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: Text(
+                                        emoji,
+                                        style: const TextStyle(fontSize: 24),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              )
+                            ),
+                          ],
+                        ),
                       ),
                       const SizedBox(height: 12),
                     ],
@@ -458,6 +734,25 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
                         style: const TextStyle(fontSize: 14),
                         maxLines: 3,
                         overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    
+                    // Prix si disponible
+                    if (entity['prix_reduit'] != null || entity['ancien_prix'] != null) ...[
+                      Row(
+                        children: [
+                          const Icon(Icons.local_offer, size: 18, color: Colors.green),
+                          const SizedBox(width: 8),
+                          Text(
+                            "Prix : ${entity['prix_reduit'] ?? ''} ${entity['ancien_prix'] != null ? '(au lieu de ${entity['ancien_prix']})' : ''}",
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.green,
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 12),
                     ],
@@ -563,7 +858,7 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
         BitmapDescriptor markerIcon = BitmapDescriptor.defaultMarkerWithHue(markerHue);
         
         // Log pour confirmer création du marqueur avec couleur par catégorie
-        print("✅ Marqueur créé pour arrière-plan avec catégorie: $category (teinte: $markerHue)");
+        print("✅ Marqueur créé pour arrière-plan avec catégorie: $category");
         
         Marker marker = Marker(
           markerId: MarkerId(id),
@@ -589,7 +884,7 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
     
     sendPort.send(['markers', markers]);
   }
-
+                    // Ajouter un espace en bas pour une meilleure apparence
   /// Appliquer les filtres de producteurs
   void _applyProducerFilters() {
     _fetchNearbyProducers(_initialPosition.latitude, _initialPosition.longitude);
@@ -711,17 +1006,36 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
               markerHue = BitmapDescriptor.hueGreen;
             }
             
-            BitmapDescriptor markerIcon = BitmapDescriptor.defaultMarkerWithHue(markerHue);
-            
-            // Log pour confirmer création du marqueur avec couleur par catégorie
-            print("✅ Marqueur créé pour: $name avec catégorie: $category (teinte: $markerHue)");
-            
-            newMarkers.add(Marker(
-              markerId: MarkerId(producer['_id']),
-              position: LatLng(lat, lon),
-              icon: markerIcon,
-              visible: true, // Explicitement marquer comme visible
-              zIndex: 10.0, // S'assurer que le marqueur est au-dessus des autres éléments
+          // Calculer un score de pertinence
+          double score = 0.5; // Score par défaut
+          
+          // Augmenter le score si la catégorie correspond
+          if (_selectedProducerCategory != null) {
+            if (category.contains(_selectedProducerCategory?.toLowerCase() ?? '')) {
+              score += 0.3;
+            }
+          }
+          
+          // Prendre en compte la note si disponible
+          if (producer['rating'] != null) {
+            double rating = (producer['rating'] / 5.0).clamp(0.0, 1.0);
+            score = (score * 0.7) + (rating * 0.3);
+          }
+          
+          // Obtenir une icône de marqueur basée sur le score et la catégorie
+          BitmapDescriptor markerIcon = _getMarkerIcon(score, category);
+          
+          // Log pour confirmer création du marqueur avec couleur par catégorie
+          print("✅ Marqueur créé pour: $name avec catégorie: $category (score: $score)");
+          
+          newMarkers.add(Marker(
+            markerId: MarkerId(producer['_id']),
+            position: LatLng(lat, lon),
+            icon: markerIcon,
+            visible: true,
+            alpha: 1.0, // Garantir l'opacité complète
+            zIndex: 10.0,
+            consumeTapEvents: true, // Assurer que les taps sont bien capturés
               onTap: () {
                 // Afficher une carte de détail au-dessus du marqueur
                 _showEntityQuickView(context, producer, true, producer['_id']);
@@ -874,35 +1188,85 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
           _markers = eventsGroupedByLocation.entries.map((entry) {
             final LatLng position = entry.key;
             final List<dynamic> groupedEvents = entry.value;
+            final firstEvent = groupedEvents.first;
 
-            // Définir la couleur en fonction de la catégorie
-            double markerHue = BitmapDescriptor.hueViolet; // Couleur par défaut
-            
             // Récupérer la catégorie du premier événement du groupe
-            String category = groupedEvents.first['catégorie']?.toString().toLowerCase() ?? '';
+            String category = firstEvent['catégorie']?.toString().toLowerCase() ?? '';
             
-            // Attribution des couleurs par catégorie
-            if (category.contains('théâtre') || category.contains('theatre')) {
-              markerHue = BitmapDescriptor.hueRed;
-            } else if (category.contains('musiqu') || category.contains('concert')) {
-              markerHue = BitmapDescriptor.hueAzure;
-            } else if (category.contains('ciném') || category.contains('cinema')) {
-              markerHue = BitmapDescriptor.hueOrange;
-            } else if (category.contains('danse')) {
-              markerHue = BitmapDescriptor.hueGreen;
+            // Calculer un score de pertinence pour les événements
+            double score = 0.5; // Score par défaut
+            
+            // Augmenter le score selon les filtres
+            if (_selectedEventCategory != null && 
+                category.contains(_selectedEventCategory?.toLowerCase() ?? '')) {
+              score += 0.3;
             }
             
-            BitmapDescriptor markerIcon = BitmapDescriptor.defaultMarkerWithHue(markerHue);
+            // Vérifier les émotions
+            if (_selectedEmotions.isNotEmpty) {
+              List<String> eventEmotions = [];
+              
+              // Extraire les émotions de différentes structures possibles
+              if (firstEvent['emotions'] is List) {
+                eventEmotions = (firstEvent['emotions'] as List)
+                    .map((e) => e.toString().toLowerCase())
+                    .toList();
+              } else if (firstEvent['notes_globales']?['emotions'] is List) {
+                eventEmotions = (firstEvent['notes_globales']['emotions'] as List)
+                    .map((e) => e.toString().toLowerCase())
+                    .toList();
+              }
+              
+              // Compter les correspondances d'émotions
+              int matches = 0;
+              for (var selected in _selectedEmotions) {
+                if (eventEmotions.any((e) => e.contains(selected.toLowerCase()))) {
+                  matches++;
+                }
+              }
+              
+              if (matches > 0) {
+                score += 0.3 * (matches / _selectedEmotions.length);
+              }
+            }
             
-            // Log pour confirmer création du marqueur avec couleur par catégorie
-            print("✅ Marqueur créé pour événement: ${groupedEvents.first['intitulé']} avec catégorie: $category (teinte: $markerHue)");
+            // Prendre en compte la note si disponible
+            if (firstEvent['note'] != null) {
+              double rating = (firstEvent['note'] / 10.0).clamp(0.0, 1.0);
+              score = (score * 0.7) + (rating * 0.3);
+            }
+            
+            // Vérifier les critères de prix si définis
+            if (_minPrice > 0 || _maxPrice < 1000) {
+              double eventPrice = 0;
+              if (firstEvent['prix_reduit'] != null) {
+                eventPrice = double.tryParse(firstEvent['prix_reduit'].toString()) ?? 0;
+              } else if (firstEvent['prix'] != null) {
+                eventPrice = double.tryParse(firstEvent['prix'].toString()) ?? 0;
+              }
+              
+              if (eventPrice >= _minPrice && eventPrice <= _maxPrice) {
+                score += 0.1;
+              }
+            }
+            
+            // Limiter le score entre 0 et 1
+            score = score.clamp(0.0, 1.0);
+            
+            // Obtenir une icône de marqueur basée sur le score et la catégorie
+            BitmapDescriptor markerIcon = _getMarkerIcon(score, category);
+            
+            // Log pour confirmer création du marqueur avec score et catégorie
+            print("✅ Marqueur d'événement créé pour: ${firstEvent['intitulé']} avec catégorie: $category (score: $score)");
             
             return Marker(
-              markerId: MarkerId(groupedEvents.first['_id']),
+              markerId: MarkerId(firstEvent['_id']),
               position: position,
               icon: markerIcon,
-              visible: true, // Explicitement marquer comme visible
-              zIndex: 10.0, // S'assurer que le marqueur est au-dessus des autres éléments
+              visible: true,
+              alpha: 1.0, // Garantir l'opacité complète
+              zIndex: 10.0,
+              consumeTapEvents: true, // Assurer que les taps sont bien capturés
               onTap: () {
                 // Afficher la vue rapide multi-événements
                 if (groupedEvents.length == 1) {
@@ -954,6 +1318,7 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
         return AlertDialog(
           title: const Text("Sélectionnez un événement"),
           content: SizedBox(
+            width: double.infinity,
             height: 300,
             child: ListView.builder(
               itemCount: events.length,
@@ -1628,6 +1993,24 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
     );
   }
   
+  /// Définir une palette de couleurs selon le type de catégorie
+  Color _getCategoryColor(String category) {
+    category = category.toLowerCase();
+    if (category.contains('théâtre') || category.contains('theatre')) {
+      return Colors.redAccent;
+    } else if (category.contains('musique') || category.contains('concert')) {
+      return Colors.blueAccent;
+    } else if (category.contains('danse')) {
+      return Colors.greenAccent;
+    } else if (category.contains('ciném') || category.contains('cinema')) {
+      return Colors.orangeAccent;
+    } else if (category.contains('art') || category.contains('exposition')) {
+      return Colors.purpleAccent;
+    } else {
+      return Colors.deepPurple;
+    }
+  }
+
   /// Affiche un dialogue d'aide pour expliquer l'utilisation des filtres
   void _showHelpDialog(BuildContext context) {
     showDialog(
@@ -1651,6 +2034,8 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
             Text("• Les lieux correspondants apparaîtront sur la carte"),
             SizedBox(height: 8),
             Text("• Cliquez sur un marqueur pour voir les détails du lieu ou de l'événement"),
+            SizedBox(height: 4),
+            Text("• Double-cliquez sur un marqueur pour accéder directement à sa page détaillée"),
           ],
         ),
         actions: [
@@ -1791,6 +2176,7 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
           ),
           // Contenu des onglets avec hauteur contrainte
           SizedBox(
+            width: double.infinity,
             height: screenHeight * 0.5, // Hauteur fixe qui correspond à 50% de l'écran
             child: TabBarView(
               children: [
@@ -1838,28 +2224,55 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
   }
 
   Widget _buildProducerFilters() {
+    // Liste complète des catégories de lieux de loisirs
+    final List<String> venueCategories = [
+      'Théâtre', 'Musique', 'Cinéma', 'Danse', 'Musée', 
+      'Galerie d\'art', 'Parc d\'attractions', 'Escape Game',
+      'Bar à jeux', 'Salle de concert', 'Opéra', 'Cirque'
+    ];
+    
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          "Catégorie producteur",
+          "Catégorie lieu",
           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
         ),
         const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: ['Théâtre', 'Musique', 'Cinéma'].map((category) {
-            return FilterChip(
-              label: Text(category),
-              selected: _selectedProducerCategory == category,
-              onSelected: (selected) {
-                setState(() {
-                  _selectedProducerCategory = selected ? category : null;
-                });
-              },
-            );
-          }).toList(),
+        // Utiliser un ListView.builder avec hauteur fixe pour rendre la liste défilante
+        SizedBox(
+          height: 120, // Hauteur fixe pour permettre le défilement
+          child: Card(
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(color: Colors.grey.shade300),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: SingleChildScrollView(
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: venueCategories.map((category) {
+                    // Récupérer l'emoji correspondant à la catégorie
+                    String emoji = _getEmojiForCategory(category);
+                    return FilterChip(
+                      avatar: Text(emoji, style: const TextStyle(fontSize: 14)),
+                      label: Text(category),
+                      selected: _selectedProducerCategory == category,
+                      selectedColor: _getCategoryColor(category).withOpacity(0.2),
+                      onSelected: (selected) {
+                        setState(() {
+                          _selectedProducerCategory = selected ? category : null;
+                        });
+                      },
+                    );
+                  }).toList(),
+                ),
+              ),
+            ),
+          ),
         ),
         const SizedBox(height: 16),
         
@@ -1868,28 +2281,45 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
         ),
         const SizedBox(height: 8),
-        Slider(
-          value: _selectedRadius,
-          min: 1000,
-          max: 50000,
-          divisions: 49,
-          label: "${_selectedRadius.round()} m",
-          onChanged: (value) {
-            setState(() {
-              _selectedRadius = value;
-            });
-          },
+        Column(
+          children: [
+            Slider(
+              value: _selectedRadius,
+              min: 1000,
+              max: 50000,
+              divisions: 49,
+              label: "${(_selectedRadius/1000).toStringAsFixed(1)} km",
+              onChanged: (value) {
+                setState(() {
+                  _selectedRadius = value;
+                });
+              },
+            ),
+            Text(
+              "Distance : ${(_selectedRadius/1000).toStringAsFixed(1)} km", 
+              style: const TextStyle(fontStyle: FontStyle.italic)
+            ),
+          ],
         ),
         const SizedBox(height: 16),
         
         ElevatedButton.icon(
-          onPressed: _applyProducerFilters,
+          onPressed: () {
+            _applyProducerFilters();
+            // Fermer automatiquement le panneau après application
+            setState(() {
+              _isFilterPanelVisible = false;
+            });
+          },
           icon: const Icon(Icons.search),
-          label: const Text('Rechercher des producteurs'),
+          label: const Text('Rechercher des lieux'),
           style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.blue,
+            backgroundColor: Colors.purple,
             foregroundColor: Colors.white,
             padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
           ),
         ),
       ],
@@ -1897,6 +2327,33 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
   }
 
   Widget _buildEventFilters() {
+    // Liste détaillée des émotions possibles
+    final List<Map<String, dynamic>> emotions = [
+      {'label': 'Drôle', 'value': 'drôle', 'emoji': '😂'},
+      {'label': 'Émouvant', 'value': 'émouvant', 'emoji': '😢'},
+      {'label': 'Haletant', 'value': 'haletant', 'emoji': '😮'},
+      {'label': 'Intense', 'value': 'intense', 'emoji': '😲'},
+      {'label': 'Poignant', 'value': 'poignant', 'emoji': '💔'},
+      {'label': 'Réfléchi', 'value': 'réfléchi', 'emoji': '🤔'},
+      {'label': 'Joyeux', 'value': 'joyeux', 'emoji': '😊'},
+      {'label': 'Surprenant', 'value': 'surprenant', 'emoji': '😯'},
+      {'label': 'Inspirant', 'value': 'inspirant', 'emoji': '✨'},
+      {'label': 'Relaxant', 'value': 'relaxant', 'emoji': '😌'},
+    ];
+    
+    // Catégories d'événements plus complètes
+    final List<Map<String, dynamic>> eventCategories = [
+      {'label': 'Théâtre', 'value': 'Théâtre', 'emoji': '🎭'},
+      {'label': 'Comédie', 'value': 'Comédie', 'emoji': '😁'},
+      {'label': 'Drame', 'value': 'Drame', 'emoji': '😔'},
+      {'label': 'Musique', 'value': 'Musique', 'emoji': '🎵'},
+      {'label': 'Concert', 'value': 'Concert', 'emoji': '🎸'},
+      {'label': 'Danse', 'value': 'Danse', 'emoji': '💃'},
+      {'label': 'Exposition', 'value': 'Exposition', 'emoji': '🎨'},
+      {'label': 'Festival', 'value': 'Festival', 'emoji': '🎪'},
+      {'label': 'Cinéma', 'value': 'Cinéma', 'emoji': '🎬'},
+    ];
+    
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1905,24 +2362,42 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
         ),
         const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: ['Théâtre', 'Musique', 'Danse'].map((category) {
-            return FilterChip(
-              label: Text(category),
-              selected: _selectedEventCategory == category,
-              onSelected: (selected) {
-                setState(() {
-                  _selectedEventCategory = selected ? category : null;
-                });
-              },
-            );
-          }).toList(),
+        // Rendre les catégories défilantes pour éviter la surcharge visuelle
+        SizedBox(
+          height: 120,
+          child: Card(
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(color: Colors.grey.shade300),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: SingleChildScrollView(
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: eventCategories.map((category) {
+                    return FilterChip(
+                      avatar: Text(category['emoji']),
+                      label: Text(category['label']),
+                      selected: _selectedEventCategory == category['value'],
+                      selectedColor: _getCategoryColor(category['value']).withOpacity(0.2),
+                      onSelected: (selected) {
+                        setState(() {
+                          _selectedEventCategory = selected ? category['value'] : null;
+                        });
+                      },
+                    );
+                  }).toList(),
+                ),
+              ),
+            ),
+          ),
         ),
         const SizedBox(height: 16),
         
-        // Notes minimales pour l'événement
+        // Notes minimales pour l'événement - en utilisant des sliders plus stylisés
         const Text(
           "Notes minimales",
           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
@@ -1955,67 +2430,103 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
         ),
         const SizedBox(height: 16),
         
-        // Émotions recherchées
+        // Émotions recherchées - avec émojis
         const Text(
           "Émotions recherchées",
           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
         ),
         const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: ['drôle', 'émouvant', 'haletant', 'intense', 'poignant', 'réfléchi', 'joyeux']
-              .map((emotion) => FilterChip(
-                    label: Text(emotion),
-                    selected: _selectedEmotions.contains(emotion),
-                    selectedColor: Colors.blue.withOpacity(0.7),
-                    checkmarkColor: Colors.white,
+        // Rendre les émotions défilantes pour ne pas surcharger l'interface
+        SizedBox(
+          height: 120,
+          child: Card(
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(color: Colors.grey.shade300),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: SingleChildScrollView(
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: emotions.map((emotion) => FilterChip(
+                    avatar: Text(emotion['emoji']),
+                    label: Text(emotion['label']),
+                    selected: _selectedEmotions.contains(emotion['value']),
+                    selectedColor: Colors.purple.withOpacity(0.2),
+                    checkmarkColor: Colors.purple,
                     onSelected: (isSelected) {
                       setState(() {
                         if (isSelected) {
-                          _selectedEmotions.add(emotion);
+                          _selectedEmotions.add(emotion['value']);
                         } else {
-                          _selectedEmotions.remove(emotion);
+                          _selectedEmotions.remove(emotion['value']);
                         }
                       });
                     },
-                  ))
-              .toList(),
+                  )).toList(),
+                ),
+              ),
+            ),
+          ),
         ),
         const SizedBox(height: 16),
         
-        // Prix
+        // Prix avec affichage plus clair
         const Text(
           "Gamme de prix (€)",
           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
         ),
         const SizedBox(height: 8),
-        RangeSlider(
-          values: RangeValues(_minPrice, _maxPrice),
-          min: 0,
-          max: 1000,
-          divisions: 100,
-          labels: RangeLabels(
-            "${_minPrice.round()}€", 
-            "${_maxPrice.round()}€",
-          ),
-          onChanged: (values) {
-            setState(() {
-              _minPrice = values.start;
-              _maxPrice = values.end;
-            });
-          },
+        Column(
+          children: [
+            RangeSlider(
+              values: RangeValues(_minPrice, _maxPrice),
+              min: 0,
+              max: 1000,
+              divisions: 100,
+              labels: RangeLabels(
+                "${_minPrice.round()}€", 
+                "${_maxPrice.round()}€",
+              ),
+              onChanged: (values) {
+                setState(() {
+                  _minPrice = values.start;
+                  _maxPrice = values.end;
+                });
+              },
+              activeColor: Colors.orange,
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text("Min: ${_minPrice.round()}€"),
+                Text("Max: ${_maxPrice.round()}€"),
+              ],
+            ),
+          ],
         ),
         const SizedBox(height: 16),
         
         ElevatedButton.icon(
-          onPressed: _applyEventFilters,
+          onPressed: () {
+            _applyEventFilters();
+            // Fermer automatiquement le panneau après application
+            setState(() {
+              _isFilterPanelVisible = false;
+            });
+          },
           icon: const Icon(Icons.search),
           label: const Text('Rechercher des événements'),
           style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.blue,
+            backgroundColor: Colors.orange,
             foregroundColor: Colors.white,
             padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
           ),
         ),
       ],
