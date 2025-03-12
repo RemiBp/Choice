@@ -64,44 +64,56 @@ class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> with Sing
 
   Future<void> _fetchProducerDetails() async {
     try {
-      // Extraire le domaine et le protocole de l'URL complète
+      // Utiliser la nouvelle fonction fetchProducerWithFallback pour éviter les erreurs 404
       final baseUrl = getBaseUrl();
-      Uri url;
-      Uri relationsUrl;
+      final client = http.Client();
       
-      if (baseUrl.startsWith('http://')) {
-        // Si c'est http://
-        final domain = baseUrl.replaceFirst('http://', '');
-        url = Uri.http(domain, '/api/leisureProducers/$_producerId');
-        relationsUrl = Uri.http(domain, '/api/leisureProducers/$_producerId/relations');
-      } else if (baseUrl.startsWith('https://')) {
-        // Si c'est https://
-        final domain = baseUrl.replaceFirst('https://', '');
-        url = Uri.https(domain, '/api/leisureProducers/$_producerId');
-        relationsUrl = Uri.https(domain, '/api/leisureProducers/$_producerId/relations');
-      } else {
-        // Utiliser Uri.parse comme solution de secours
-        url = Uri.parse('$baseUrl/api/leisureProducers/$_producerId');
-        relationsUrl = Uri.parse('$baseUrl/api/leisureProducers/$_producerId/relations');
-      }
-
-      final responses = await Future.wait([
-        http.get(url),
-        http.get(relationsUrl),
-      ]);
-
-      if (responses[0].statusCode == 200) {
-        Map<String, dynamic> producerData = json.decode(responses[0].body);
-        
-        // Add relations data if available
-        if (responses[1].statusCode == 200) {
-          final relationsData = json.decode(responses[1].body);
-          producerData = {
-            ...producerData,
-            ...relationsData,
-          };
+      // Cette fonction essaie d'abord l'endpoint standard puis l'endpoint leisure en cas d'échec
+      final producerData = await fetchProducerWithFallback(_producerId, client, baseUrl);
+      
+      if (producerData != null) {
+        // Récupérer les données de relations pour ce producteur
+        Map<String, dynamic>? relationsData;
+        try {
+          // Essayer de récupérer les relations via l'API standard
+          Uri relationsUrl;
+          if (baseUrl.startsWith('http://')) {
+            final domain = baseUrl.replaceFirst('http://', '');
+            relationsUrl = Uri.http(domain, '/api/producers/$_producerId/relations');
+          } else {
+            final domain = baseUrl.replaceFirst('https://', '');
+            relationsUrl = Uri.https(domain, '/api/producers/$_producerId/relations');
+          }
+          
+          final relationsResponse = await client.get(relationsUrl);
+          
+          if (relationsResponse.statusCode == 200) {
+            relationsData = json.decode(relationsResponse.body);
+          } else {
+            // Si échec, essayer l'endpoint leisure
+            if (baseUrl.startsWith('http://')) {
+              final domain = baseUrl.replaceFirst('http://', '');
+              relationsUrl = Uri.http(domain, '/api/leisureProducers/$_producerId/relations');
+            } else {
+              final domain = baseUrl.replaceFirst('https://', '');
+              relationsUrl = Uri.https(domain, '/api/leisureProducers/$_producerId/relations');
+            }
+            
+            final leisureRelationsResponse = await client.get(relationsUrl);
+            if (leisureRelationsResponse.statusCode == 200) {
+              relationsData = json.decode(leisureRelationsResponse.body);
+            }
+          }
+        } catch (e) {
+          print('⚠️ Erreur lors de la récupération des relations: $e');
         }
         
+        // Fusionner les données du producteur avec les relations si disponibles
+        if (relationsData != null) {
+          producerData.addAll(relationsData);
+        }
+        
+        // Mettre à jour l'état
         setState(() {
           _producerData = producerData;
           _isLoading = false;
@@ -114,7 +126,7 @@ class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> with Sing
         });
       } else {
         setState(() {
-          _error = 'Erreur lors de la récupération des données: ${responses[0].statusCode}';
+          _error = 'Erreur lors de la récupération des données du producteur';
           _isLoading = false;
         });
       }
@@ -1301,9 +1313,13 @@ class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> with Sing
     print('🔍 Navigation vers l\'événement avec ID : $eventId');
 
     try {
-      // Nettoyer l'ID de l'événement (supprimer les caractères non-alphanumériques)
-      final cleanId = eventId.replaceAll(RegExp(r'[^\w-]'), '');
-      print('🔍 ID nettoyé : $cleanId');
+      // Utiliser notre fonction améliorée pour extraire l'ID proprement
+      final cleanId = extractEventId(eventId);
+      print('🔍 ID extrait : $cleanId');
+      
+      if (cleanId.isEmpty) {
+        throw Exception("ID d'événement invalide");
+      }
       
       // Extraire le domaine et le protocole de l'URL complète
       final baseUrl = getBaseUrl();
@@ -1327,16 +1343,45 @@ class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> with Sing
       
       final response = await http.get(url);
 
-      setState(() {
-        _isLoading = false;
-      });
-      
-      if (response.statusCode == 200) {
-        // Décodage des données de l'événement
-        // Décodage des données de l'événement
+      // Si première tentative échoue, essayer un chemin alternatif
+      if (response.statusCode != 200) {
+        print('⚠️ Premier appel API a échoué, tentative avec un autre endpoint...');
+        final alternativeApiPath = apiPath.contains('events') 
+            ? apiPath.replaceAll('events', 'evenements') 
+            : apiPath.replaceAll('evenements', 'events');
+            
+        if (baseUrl.startsWith('http://')) {
+          url = Uri.http(baseUrl.replaceFirst('http://', ''), alternativeApiPath);
+        } else {
+          url = Uri.https(baseUrl.replaceFirst('https://', ''), alternativeApiPath);
+        }
+        
+        final secondResponse = await http.get(url);
+        
+        if (secondResponse.statusCode == 200) {
+          // Utiliser les données de la deuxième tentative
+          final data = json.decode(secondResponse.body);
+          setState(() {
+            _isLoading = false;
+          });
+          
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => EventLeisureScreen(
+                eventData: data,
+              ),
+            ),
+          );
+          return;
+        }
+      } else {
+        // La première requête a réussi
         final data = json.decode(response.body);
-
-        // Navigation vers la page de l'événement
+        setState(() {
+          _isLoading = false;
+        });
+        
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -1345,15 +1390,19 @@ class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> with Sing
             ),
           ),
         );
-      } else {
-        // Erreur lors de la récupération des détails
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("Erreur lors de la récupération des détails : ${response.body}"),
-            backgroundColor: Colors.red,
-          ),
-        );
+        return;
       }
+      
+      // Si on arrive ici, les deux tentatives ont échoué
+      setState(() {
+        _isLoading = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Événement introuvable. ID: $cleanId"),
+          backgroundColor: Colors.red,
+        ),
+      );
     } catch (e) {
       // Gestion des erreurs réseau
       ScaffoldMessenger.of(context).showSnackBar(

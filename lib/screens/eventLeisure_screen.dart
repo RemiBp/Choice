@@ -51,32 +51,77 @@ class _EventLeisureScreenState extends State<EventLeisureScreen> {
 
   Future<void> _fetchEventDetails() async {
     try {
-      // Extraire le domaine et le protocole de l'URL complète
+      print('🔍 Récupération des détails pour l\'événement avec ID: $_eventId');
+      // Utiliser le domaine et le protocole de l'URL complète
       final baseUrl = getBaseUrl();
-      Uri url;
+      final client = http.Client();
       
-      if (baseUrl.startsWith('http://')) {
-        // Si c'est http://
-        final domain = baseUrl.replaceFirst('http://', '');
-        url = Uri.http(domain, '/api/events/$_eventId');
-      } else if (baseUrl.startsWith('https://')) {
-        // Si c'est https://
-        final domain = baseUrl.replaceFirst('https://', '');
-        url = Uri.https(domain, '/api/events/$_eventId');
-      } else {
-        // Utiliser Uri.parse comme solution de secours
-        url = Uri.parse('$baseUrl/api/events/$_eventId');
+      // Essayer d'abord l'endpoint standard '/api/events/'
+      Uri url;
+      Map<String, dynamic>? responseData;
+      bool success = false;
+      
+      // Tentative 1: /api/events/$_eventId
+      try {
+        if (baseUrl.startsWith('http://')) {
+          final domain = baseUrl.replaceFirst('http://', '');
+          url = Uri.http(domain, '/api/events/$_eventId');
+        } else {
+          final domain = baseUrl.replaceFirst('https://', '');
+          url = Uri.https(domain, '/api/events/$_eventId');
+        }
+        
+        print('🔗 Tentative 1: $url');
+        final response = await client.get(url).timeout(
+          const Duration(seconds: 10),
+          onTimeout: () => http.Response('{"error":"timeout"}', 408),
+        );
+
+        if (response.statusCode == 200) {
+          responseData = json.decode(response.body);
+          success = true;
+          print('✅ Événement trouvé via /api/events/');
+        } else {
+          print('⚠️ Échec avec le statut: ${response.statusCode}');
+        }
+      } catch (e) {
+        print('⚠️ Erreur lors de la première tentative: $e');
       }
       
-      final response = await http.get(url);
+      // Tentative 2: /api/evenements/$_eventId (si première tentative a échoué)
+      if (!success) {
+        try {
+          if (baseUrl.startsWith('http://')) {
+            final domain = baseUrl.replaceFirst('http://', '');
+            url = Uri.http(domain, '/api/evenements/$_eventId');
+          } else {
+            final domain = baseUrl.replaceFirst('https://', '');
+            url = Uri.https(domain, '/api/evenements/$_eventId');
+          }
+          
+          print('🔗 Tentative 2: $url');
+          final response = await client.get(url).timeout(
+            const Duration(seconds: 10),
+            onTimeout: () => http.Response('{"error":"timeout"}', 408),
+          );
 
-      if (response.statusCode == 200) {
-        final responseData = json.decode(response.body);
-        
-        // Format dates and detect if event is passed
+          if (response.statusCode == 200) {
+            responseData = json.decode(response.body);
+            success = true;
+            print('✅ Événement trouvé via /api/evenements/');
+          } else {
+            print('⚠️ Échec avec le statut: ${response.statusCode}');
+          }
+        } catch (e) {
+          print('⚠️ Erreur lors de la deuxième tentative: $e');
+        }
+      }
+      
+      // Si l'une des tentatives a réussi, formater les données
+      if (success && responseData != null) {
         setState(() {
           _eventData = {
-            ...responseData,
+            ...responseData!,
             'date_formatted': formatEventDate(responseData['date_debut'] ?? responseData['prochaines_dates']),
             'is_passed': isEventPassed(responseData),
             'image': getEventImageUrl(responseData),
@@ -84,8 +129,9 @@ class _EventLeisureScreenState extends State<EventLeisureScreen> {
           _isLoading = false;
         });
       } else {
+        // Si toutes les tentatives ont échoué
         setState(() {
-          _error = 'Erreur lors de la récupération des données: ${response.statusCode}';
+          _error = 'Erreur lors de la récupération des données de l\'événement';
           _isLoading = false;
         });
       }

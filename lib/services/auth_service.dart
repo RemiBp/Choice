@@ -62,6 +62,28 @@ class AuthService extends ChangeNotifier {
     }
   }
 
+  // Login as guest
+  Future<bool> loginAsGuest() async {
+    try {
+      // Créer un ID utilisateur invité unique basé sur le timestamp
+      final guestId = 'guest-${DateTime.now().millisecondsSinceEpoch}';
+      _userId = guestId;
+      _accountType = 'guest'; // Type de compte spécial pour les invités
+      _isAuthenticated = true;
+
+      // Enregistrer dans le stockage persistant
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('userId', _userId!);
+      await prefs.setString('accountType', _accountType!);
+
+      notifyListeners();
+      return true;
+    } catch (e) {
+      print('Guest login error: $e');
+      return false;
+    }
+  }
+
   // Logout
   Future<void> logout() async {
     _userId = null;
@@ -78,6 +100,9 @@ class AuthService extends ChangeNotifier {
   // Check if session is valid
   Future<bool> validateSession() async {
     if (!_isAuthenticated || _userId == null) return false;
+    
+    // Pour les utilisateurs invités, la session est toujours valide
+    if (_accountType == 'guest') return true;
 
     try {
       final response = await http.get(

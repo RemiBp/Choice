@@ -818,65 +818,7 @@ class _MainNavigationState extends State<MainNavigation> with WidgetsBindingObse
               ],
             )
           : null, // Pas d'AppBar sur les pages de carte
-      body: Stack(
-        children: [
-          _pages[_selectedIndex], // Affiche la page active
-          if (_selectedIndex == 1) // Si l'utilisateur est sur la carte
-            Positioned(
-              top: 20,
-              left: 0,
-              right: 0,
-              child: Center(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).cardColor.withOpacity(0.9), // Utilise la couleur de carte du thème actuel
-                    borderRadius: BorderRadius.circular(8),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.2),
-                        blurRadius: 5,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: DropdownButton<String>(
-                    isExpanded: true, // Permet au bouton de prendre toute la largeur disponible
-                    value: _isLeisureMap ? 'Loisirs' : 'Restaurants',
-                    items: const [
-                      DropdownMenuItem(
-                        value: 'Restaurants',
-                        child: Text(
-                          'Carte des Restaurants',
-                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                      DropdownMenuItem(
-                        value: 'Loisirs',
-                        child: Text(
-                          'Carte des Loisirs',
-                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                    ],
-                    onChanged: (String? value) {
-                      if (value != null) {
-                        _toggleMap(value);
-                        Navigator.pushReplacement(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) =>
-                                _isLeisureMap ? const MapLeisureScreen() : const MapScreen(),
-                          ),
-                        );
-                      }
-                    },
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
+      body: _pages[_selectedIndex], // Affiche la page active
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
         onTap: _onItemTapped,

@@ -1,4 +1,4 @@
-import 'dart:math'; // Nécessaire pour sin, cos, sqrt, atan2
+import 'dart:math' as math; // Nécessaire pour sin, cos, sqrt, atan2
 import 'dart:typed_data'; // Pour Uint8List et ByteData
 import 'dart:ui' as ui; // Pour Picture et ImageByteFormat
 import 'dart:isolate'; // Pour traitement en arrière-plan
@@ -359,8 +359,100 @@ class _MapScreenState extends State<MapScreen> with AutomaticKeepAliveClientMixi
   
   /// Créer une image bitmap personnalisée pour le marqueur
   Future<BitmapDescriptor> _createCustomMarkerBitmap(String name, double rating, double hue) async {
-    // Utiliser le marqueur par défaut avec la teinte appropriée
-    return BitmapDescriptor.defaultMarkerWithHue(hue);
+    try {
+      // Pour une meilleure visibilité et interactivité, créer un marqueur plus distinctif
+      final recorder = ui.PictureRecorder();
+      final canvas = Canvas(recorder);
+      const size = Size(120, 80); // Taille plus grande pour plus de détails
+
+      // Fond du marqueur
+      final Paint bgPaint = Paint()
+        ..color = _getColorFromHue(hue).withOpacity(0.9)
+        ..style = PaintingStyle.fill;
+
+      // Dessiner le corps du marqueur (forme de goutte plus élégante)
+      final Path markerPath = Path()
+        ..moveTo(size.width / 2, size.height)
+        ..lineTo(size.width * 0.2, size.height * 0.6)
+        ..quadraticBezierTo(0, size.height * 0.35, size.width * 0.3, size.height * 0.25)
+        ..quadraticBezierTo(size.width * 0.4, size.height * 0.1, size.width * 0.5, size.height * 0.15)
+        ..quadraticBezierTo(size.width * 0.6, size.height * 0.1, size.width * 0.7, size.height * 0.25)
+        ..quadraticBezierTo(size.width, size.height * 0.35, size.width * 0.8, size.height * 0.6)
+        ..close();
+
+      canvas.drawPath(markerPath, bgPaint);
+
+      // Ajouter un contour
+      final Paint strokePaint = Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2;
+      canvas.drawPath(markerPath, strokePaint);
+
+      // Ajouter les étoiles de notation
+      const starSize = 12.0;
+      final startX = size.width * 0.5 - ((starSize + 2) * 2.5); // Centrer les 5 étoiles
+      final startY = size.height * 0.35;
+      
+      // Dessiner les étoiles selon la note
+      for (int i = 0; i < 5; i++) {
+        final Paint starPaint = Paint()
+          ..color = i < (rating / 2) ? Colors.amber : Colors.white.withOpacity(0.7)
+          ..style = PaintingStyle.fill;
+          
+        final starPath = Path();
+        final centerX = startX + (i * (starSize + 2));
+        final centerY = startY;
+        
+        // Dessiner une étoile simplifiée
+        for (int j = 0; j < 5; j++) {
+          final angle = -math.pi / 2 + j * math.pi * 2 / 5;
+          final point = Offset(
+            centerX + math.cos(angle) * starSize / 2,
+            centerY + math.sin(angle) * starSize / 2,
+          );
+          
+          if (j == 0) {
+            starPath.moveTo(point.dx, point.dy);
+          } else {
+            starPath.lineTo(point.dx, point.dy);
+          }
+          
+          // Ajouter les points intérieurs de l'étoile
+          final innerAngle = angle + math.pi / 5;
+          final innerPoint = Offset(
+            centerX + math.cos(innerAngle) * starSize / 5,
+            centerY + math.sin(innerAngle) * starSize / 5,
+          );
+          starPath.lineTo(innerPoint.dx, innerPoint.dy);
+        }
+        
+        starPath.close();
+        canvas.drawPath(starPath, starPaint);
+      }
+
+      // Transformer le canvas en image
+      final picture = recorder.endRecording();
+      final img = await picture.toImage(size.width.toInt(), size.height.toInt());
+      final byteData = await img.toByteData(format: ui.ImageByteFormat.png);
+      
+      if (byteData == null) {
+        throw Exception("Échec de conversion en ByteData");
+      }
+      
+      final Uint8List uint8List = byteData.buffer.asUint8List();
+      return BitmapDescriptor.fromBytes(uint8List);
+    } catch (e) {
+      print("❌ Erreur création marqueur personnalisé: $e");
+      // En cas d'erreur, utiliser le marqueur par défaut
+      return BitmapDescriptor.defaultMarkerWithHue(hue);
+    }
+  }
+  
+  /// Convertit une teinte en couleur
+  Color _getColorFromHue(double hue) {
+    // Convertir la teinte (0-360) en couleur HSV (saturation et valeur à 1.0)
+    return HSVColor.fromAHSV(1.0, hue, 1.0, 1.0).toColor();
   }
   
   /// Afficher une carte de détail rapide au-dessus du marqueur
@@ -2123,11 +2215,11 @@ class _MapScreenState extends State<MapScreen> with AutomaticKeepAliveClientMixi
     double dLat = (lat2 - lat1) * (3.141592653589793 / 180.0);
     double dLon = (lon2 - lon1) * (3.141592653589793 / 180.0);
     double a = 
-        (sin(dLat / 2) * sin(dLat / 2)) +
-        cos(lat1 * (3.141592653589793 / 180.0)) *
-            cos(lat2 * (3.141592653589793 / 180.0)) *
-            (sin(dLon / 2) * sin(dLon / 2));
-    double c = 2 * atan2(sqrt(a), sqrt(1 - a));
+        (math.sin(dLat / 2) * math.sin(dLat / 2)) +
+        math.cos(lat1 * (3.141592653589793 / 180.0)) *
+            math.cos(lat2 * (3.141592653589793 / 180.0)) *
+            (math.sin(dLon / 2) * math.sin(dLon / 2));
+    double c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
     return earthRadius * c;
   }
 

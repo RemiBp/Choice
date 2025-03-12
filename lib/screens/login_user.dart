@@ -275,10 +275,35 @@ class _LoginUserPageState extends State<LoginUserPage> {
                       ),
                       side: BorderSide(color: Colors.grey[400]!),
                     ),
-                    onPressed: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Fonctionnalité en développement')),
-                      );
+                    onPressed: () async {
+                      setState(() => _isLoading = true);
+                      
+                      try {
+                        final authService = Provider.of<AuthService>(context, listen: false);
+                        final success = await authService.loginAsGuest();
+                        
+                        if (success) {
+                          // La navigation sera gérée automatiquement par le Provider dans main.dart
+                          if (!mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Vous êtes connecté en tant qu\'invité. Certaines fonctionnalités peuvent être limitées.')),
+                          );
+                        } else {
+                          if (!mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Erreur lors de la connexion en tant qu\'invité')),
+                          );
+                        }
+                      } catch (e) {
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Erreur: ${e.toString()}')),
+                        );
+                      } finally {
+                        if (mounted) {
+                          setState(() => _isLoading = false);
+                        }
+                      }
                     },
                   ),
                 ),

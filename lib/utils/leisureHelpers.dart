@@ -1,4 +1,6 @@
 import 'package:intl/intl.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 
 /// Formats event date for display based on various possible source formats
 /// Handles formats like DD/MM/YYYY, text descriptions (e.g., "ven 7 mars"), etc.
@@ -12,21 +14,34 @@ String formatEventDate(dynamic dateInput) {
   }
   
   try {
+    // Vérifier s'il s'agit d'une plage de dates
+    if (dateStr.contains('-') && !dateStr.contains('/')) {
+      final parts = dateStr.split('-');
+      if (parts.length == 2) {
+        String startDate = formatEventDate(parts[0].trim());
+        String endDate = formatEventDate(parts[1].trim());
+        return '$startDate - $endDate';
+      }
+    }
+    
     // Try to parse different date formats
     DateTime? parsedDate;
     
-    // Try DD/MM/YYYY format (e.g., "29/04/2025")
+    // Try DD/MM/YYYY format (e.g., "10/01/2025")
     if (dateStr.contains('/')) {
       try {
-        parsedDate = DateFormat('dd/MM/yyyy').parse(dateStr);
-        return DateFormat('d MMMM yyyy', 'fr_FR').format(parsedDate);
+        List<String> parts = dateStr.split('/');
+        if (parts.length == 3) {
+          parsedDate = DateFormat('dd/MM/yyyy').parse(dateStr);
+          return DateFormat('d MMMM yyyy', 'fr_FR').format(parsedDate);
+        }
       } catch (e) {
         // Continue to other formats
       }
     }
     
-    // Try YYYY-MM-DD format
-    if (dateStr.contains('-')) {
+    // Try YYYY-MM-DD format (ISO format)
+    if (dateStr.contains('-') && dateStr.length >= 8) {
       try {
         parsedDate = DateFormat('yyyy-MM-dd').parse(dateStr);
         return DateFormat('d MMMM yyyy', 'fr_FR').format(parsedDate);
@@ -35,7 +50,20 @@ String formatEventDate(dynamic dateInput) {
       }
     }
 
-    // Handle text descriptions like "ven 7 mars"
+    // Handle MongoDB date format "date_debut: 10/01/2025" or date_fin/date_debut fields
+    if (dateStr.toLowerCase().contains('date_debut') || dateStr.toLowerCase().contains('date_fin')) {
+      final dateRegex = RegExp(r'(\d{1,2})/(\d{1,2})/(\d{4})');
+      final match = dateRegex.firstMatch(dateStr);
+      if (match != null) {
+        final day = int.parse(match.group(1)!);
+        final month = int.parse(match.group(2)!);
+        final year = int.parse(match.group(3)!);
+        parsedDate = DateTime(year, month, day);
+        return DateFormat('d MMMM yyyy', 'fr_FR').format(parsedDate);
+      }
+    }
+    
+    // Handle text descriptions like "ven 14 févr." or "ven 7 mars"
     List<String> months = [
       'janv', 'févr', 'mars', 'avr', 'mai', 'juin', 
       'juil', 'août', 'sept', 'oct', 'nov', 'déc'
@@ -59,8 +87,25 @@ String formatEventDate(dynamic dateInput) {
       return _capitalizeFirstLetter(dateStr);
     }
     
-    // If we couldn't parse or identify it, return as is
-    return dateStr;
+    // Try to extract any date pattern from the string
+    final dateRegExp = RegExp(r'(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{2,4})');
+    final match = dateRegExp.firstMatch(dateStr);
+    if (match != null) {
+      try {
+        final day = int.parse(match.group(1)!);
+        final month = int.parse(match.group(2)!);
+        int year = int.parse(match.group(3)!);
+        if (year < 100) year += 2000; // Assume 2-digit years are in the 2000s
+        
+        parsedDate = DateTime(year, month, day);
+        return DateFormat('d MMMM yyyy', 'fr_FR').format(parsedDate);
+      } catch (e) {
+        print('⚠️ Error creating DateTime from regex match: $e');
+      }
+    }
+    
+    // If we couldn't parse or identify it, return as is but capitalized
+    return _capitalizeFirstLetter(dateStr);
   } catch (e) {
     print('⚠️ Error formatting date: $e');
     return dateStr; // Return original string if parsing fails
@@ -152,16 +197,35 @@ bool isEventPassed(Map<String, dynamic> event) {
 
 /// Gets an appropriate image URL for an event, handling null or empty values
 String getEventImageUrl(Map<String, dynamic> event) {
-  // Check if there's a direct image URL (primary field)
-  if (event['image'] != null && event['image'].toString().isNotEmpty && 
-      !event['image'].toString().contains('placeholder')) {
-    return event['image'].toString();
+  // Vérifier les champs image dans l'ordre de priorité
+  final imageCandidates = [
+    'image',
+    'image_url',
+    'photo',
+    'thumbnail',
+    'cover',
+    'cover_image',
+    'banner'
+  ];
+  
+  for (String field in imageCandidates) {
+    if (event[field] != null && 
+        event[field].toString().isNotEmpty && 
+        !event[field].toString().contains('placeholder')) {
+      return event[field].toString();
+    }
   }
   
-  // Check for image in alternate fields
-  if (event['image_url'] != null && event['image_url'].toString().isNotEmpty && 
-      !event['image_url'].toString().contains('placeholder')) {
-    return event['image_url'].toString();
+  // Traiter les cas spéciaux de Shotgun Live
+  if (event['site_url'] != null && event['site_url'].toString().contains('shotgun.live')) {
+    // Chercher dans lineup[].image ou d'autres champs imbriqués
+    if (event['lineup'] != null && event['lineup'] is List && (event['lineup'] as List).isNotEmpty) {
+      final firstArtist = event['lineup'][0];
+      if (firstArtist != null && firstArtist['image'] != null && 
+          firstArtist['image'].toString().isNotEmpty) {
+        return firstArtist['image'].toString();
+      }
+    }
   }
   
   // Special case for billetreduc URLs 
@@ -169,6 +233,18 @@ String getEventImageUrl(Map<String, dynamic> event) {
     String eventId = event['site_url'].toString().split('/').last.replaceAll('evt.htm', '');
     if (eventId.isNotEmpty) {
       return 'https://www.billetreduc.com/zg/n100/$eventId.jpeg';
+    }
+  }
+  
+  // Chercher dans tous les champs pour trouver des URL d'images
+  for (var key in event.keys) {
+    final value = event[key];
+    if (value is String && 
+        value.isNotEmpty && 
+        (value.startsWith('http') || value.startsWith('https')) &&
+        (value.endsWith('.jpg') || value.endsWith('.jpeg') || 
+         value.endsWith('.png') || value.endsWith('.webp'))) {
+      return value;
     }
   }
   
@@ -206,6 +282,7 @@ String getProducerImageUrl(Map<String, dynamic> producer) {
 
 /// Normalizes collection routes for consistent API access
 String normalizeCollectionRoute(String collectionType, String id) {
+  // Fonction helper pour essayer des routes alternatives si la première échoue
   switch (collectionType.toLowerCase()) {
     case 'event':
     case 'events':
@@ -218,9 +295,12 @@ String normalizeCollectionRoute(String collectionType, String id) {
     case 'producers':
     case 'producteur':
     case 'producteurs':
+      // Retourner à la fois l'endpoint producer et leisureProducer pour tester les deux
       return '/api/producers/$id';
       
     case 'leisureproducer':
+    case 'leisure_producer':
+    case 'leisure_producers':
     case 'leisureproducers':
     case 'producerloisir':
     case 'producersloisir':
@@ -228,6 +308,11 @@ String normalizeCollectionRoute(String collectionType, String id) {
       return '/api/leisureProducers/$id';
       
     default:
+      // Si le type n'est pas reconnu, essayer de déduire le type basé sur l'ID
+      if (id.length == 24) { // Format MongoDB ObjectId typique
+        // Essayer les deux endpoints pour éviter les 404
+        return '/api/producers/$id';
+      }
       return '/api/$collectionType/$id';
   }
 }
@@ -239,19 +324,58 @@ String extractEventId(String link) {
     return '';
   }
   
+  // Si c'est un ID MongoDB complet, le retourner directement
+  if (RegExp(r'^[a-f0-9]{24}$').hasMatch(link)) {
+    return link;
+  }
+  
   // Handle typical format: "/Loisir_Paris_Evenements/676d7734bc725bb6e91c51ea"
   if (link.contains('/')) {
     final parts = link.split('/');
-    // Get the last non-empty segment
+    // Parcourir de droite à gauche et trouver le premier segment qui ressemble à un ID MongoDB
     for (int i = parts.length - 1; i >= 0; i--) {
       if (parts[i].isNotEmpty) {
+        // Vérifier si c'est un ObjectId MongoDB (24 caractères hex)
+        if (RegExp(r'^[a-f0-9]{24}$').hasMatch(parts[i])) {
+          return parts[i];
+        }
+        // Sinon retourner le dernier segment non vide
         return parts[i];
       }
     }
   }
   
-  // If no slashes found, return the original (might be an ID directly)
+  // Si aucune barre oblique n'est trouvée, retourner l'original
   return link;
+}
+
+/// Fonction utilitaire pour tester les deux endpoints de producteurs (normal et loisir)
+/// Utiliser cette fonction dans les écrans pour éviter les erreurs 404
+Future<Map<String, dynamic>?> fetchProducerWithFallback(String producerId, http.Client client, String baseUrl) async {
+  // D'abord essayer l'endpoint producer standard
+  try {
+    final standardUrl = '$baseUrl/api/producers/$producerId';
+    final response = await client.get(Uri.parse(standardUrl));
+    if (response.statusCode == 200) {
+      return json.decode(response.body);
+    }
+  } catch (e) {
+    print('⚠️ Error fetching from standard producer endpoint: $e');
+  }
+  
+  // Si échec, essayer l'endpoint leisureProducer
+  try {
+    final leisureUrl = '$baseUrl/api/leisureProducers/$producerId';
+    final response = await client.get(Uri.parse(leisureUrl));
+    if (response.statusCode == 200) {
+      return json.decode(response.body);
+    }
+  } catch (e) {
+    print('⚠️ Error fetching from leisure producer endpoint: $e');
+  }
+  
+  // Si les deux échouent, retourner null
+  return null;
 }
 
 /// Capitalizes the first letter of a string

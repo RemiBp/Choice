@@ -1,0 +1,37 @@
+{
+  "_id": {
+    "$oid": "67d0eaa2f7dbe8469b8ef6d3"
+  },
+  "content": "🎭 Producteur sans nom présente: Dafné Kritharas à partir de 17€50.",
+  "time_posted": {
+    "$date": "2025-03-12T02:00:02.647Z"
+  },
+  "is_automated": true,
+  "author": {
+    "id": {
+      "$oid": "677c38baf2ed94237735250f"
+    },
+    "name": "Producteur",
+    "avatar": "/defaultAppAvatar.png"
+  },
+  "likes": 0,
+  "comments": 0,
+  "media": [
+    {
+      "type": "image",
+      "url": "https://www.billetreduc.com/zg/n100/352259.jpeg",
+      "width": 800,
+      "height": 600,
+      "is_event": true
+    }
+  ],
+  "isProducerPost": true,
+  "isLeisureProducer": true,
+  "producer_id": {
+    "$oid": "677c38baf2ed94237735250f"
+  },
+  "referenced_event_id": {
+    "$oid": "677bc42ab06ac29bec7d17ed"
+  },
+  "__v": 0
+}

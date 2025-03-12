@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'dart:io' show Platform;
 
-// Commenter/décommenter selon l'environnement
+// Configuration des URL serveur - NE PAS MODIFIER en production
 const bool useNgrok = false; // Désactivé
 const String ngrokUrl = "https://cfae-195-220-106-83.ngrok-free.app"; // Non utilisé
 const String localUrl = "http://10.0.2.2:5000"; // Pour émulateur Android
@@ -28,8 +28,21 @@ String getBaseUrl() {
     bool isEmulator = false;
     
     try {
-      // Vérification d'émulateur Android (approche simple)
-      isEmulator = Platform.environment.containsKey('ANDROID_EMULATOR');
+      // Méthode améliorée pour détecter un émulateur Android
+      String androidModel = Platform.operatingSystemVersion.toLowerCase();
+      isEmulator = androidModel.contains('sdk') || 
+                  androidModel.contains('emulator') || 
+                  androidModel.contains('virtual');
+                  
+      // Vérification additionnelle pour certains modèles d'émulateurs
+      if (!isEmulator) {
+        String? model = Platform.environment['ANDROID_MODEL'];
+        isEmulator = model != null && (
+          model.contains('sdk') || 
+          model.contains('emulator') || 
+          model.contains('Android SDK')
+        );
+      }
     } catch (e) {
       print("⚠️ Erreur lors de la détection d'émulateur: $e");
       isEmulator = false;
@@ -44,7 +57,7 @@ String getBaseUrl() {
     }
   }
   
-  // Par défaut, utiliser l'URL cloud
+  // Par défaut, TOUJOURS utiliser l'URL cloud pour éviter les erreurs de connexion
   print("🔗 Plateforme par défaut - Utilisation de l'URL cloud: $cloudUrl");
   return cloudUrl;
 }
