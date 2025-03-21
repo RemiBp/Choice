@@ -44,23 +44,52 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
   List<String> _selectedEmotions = [];
   double _minPrice = 0;
   double _maxPrice = 1000;
-  BitmapDescriptor? _customMarkerIcon;
+  Map<String, BitmapDescriptor> _markerIcons = {}; // Cache d'icônes pour différentes catégories
 
   // Contrôle du panneau de filtres
   bool _isFilterPanelVisible = false;
+  bool _isPanelAnimating = false; // Pour éviter les clics multiples pendant l'animation
 
   @override
   void initState() {
     super.initState();
-    _loadCustomMarkerIcon();
+    _loadMarkerIcons();
     
     // Initialiser l'écouteur pour les calculs d'arrière-plan
     _receivePort.listen((data) {
-      if (data is List<dynamic> && data.isNotEmpty && data[0] == 'markers') {
-        setState(() {
-          _markers = Set<Marker>.from(data[1]);
-          _isComputingMarkers = false;
-        });
+      if (data is List<dynamic> && data.isNotEmpty) {
+        // Traiter les données de marqueurs envoyées par l'isolate
+        if (data[0] == 'markerData') {
+          print("✅ Réception des données pour ${(data[1] as List).length} marqueurs");
+          // Convertir les données de marqueurs en objets Marker réels
+          Set<Marker> newMarkers = _createMarkersFromData(data[1]);
+          
+          setState(() {
+            _markers = newMarkers;
+            _isComputingMarkers = false;
+            
+            // Pour le débogage - afficher un message si des marqueurs sont chargés
+            print("✅ ${_markers.length} marqueurs chargés et prêts à être affichés");
+            
+            // S'assurer que la carte est ajustée pour montrer tous les marqueurs
+            if (_markers.isNotEmpty && _mapController != null && mounted) {
+              _fitMarkersOnMap();
+            }
+          });
+        } 
+        // Pour la compatibilité avec l'ancien format de données
+        else if (data[0] == 'markers') {
+          setState(() {
+            _markers = Set<Marker>.from(data[1]);
+            _isComputingMarkers = false;
+            print("✅ ${_markers.length} marqueurs chargés directement");
+            
+            // S'assurer que la carte est ajustée pour montrer tous les marqueurs
+            if (_markers.isNotEmpty && _mapController != null && mounted) {
+              _fitMarkersOnMap();
+            }
+          });
+        }
       }
     });
     
@@ -72,6 +101,112 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
     });
   }
   
+  /// Convertir les données de marqueurs reçues de l'isolate en objets Marker réels
+  Set<Marker> _createMarkersFromData(List<dynamic> markersData) {
+    Set<Marker> markers = {};
+    
+    // Index pour créer un z-index unique pour chaque marqueur
+    int markerIndex = 0;
+    
+    for (var markerData in markersData) {
+      try {
+        final String id = markerData['id'];
+        // Récupérer les coordonnées originales
+        double lat = markerData['lat'];
+        double lon = markerData['lon'];
+        final String name = markerData['name'];
+        final double hue = markerData['hue'];
+        final String category = markerData['category'];
+        final bool isProducer = markerData['isProducer'];
+        final String entityJson = markerData['entityJson'];
+        
+        // Ajouter un léger décalage aux coordonnées pour éviter la superposition parfaite
+        final double offsetFactor = 0.0001; // ~10 mètres de décalage maximum
+        final math.Random random = math.Random(markerIndex); // Random déterministe basé sur l'index
+        
+        // Appliquer un petit décalage unique à chaque marqueur
+        lat += random.nextDouble() * offsetFactor * 2 - offsetFactor;
+        lon += random.nextDouble() * offsetFactor * 2 - offsetFactor;
+        
+        // Reconstruire l'entité à partir de son JSON
+        Map<String, dynamic> entity = json.decode(entityJson);
+        
+        // Utiliser des hues différentes selon l'index pour créer des marqueurs visuellement distincts
+        double markerHue = (markerIndex % 7) * 45.0; // 0, 45, 90, 135, 180, 225, 270
+        if (markerIndex == 0) markerHue = BitmapDescriptor.hueRed; // Premier marqueur toujours rouge
+        
+        // Créer l'icône du marqueur avec la teinte calculée
+        BitmapDescriptor markerIcon = BitmapDescriptor.defaultMarkerWithHue(markerHue);
+        
+        // Z-index unique et croissant pour chaque marqueur - utiliser une plage plus large
+        final double zIndex = 100.0 + (markerIndex * 2.0); // z-index 100.0, 102.0, 104.0, etc.
+        
+        // Appliquer un décalage beaucoup plus prononcé pour éviter un chevauchement parfait
+        final double offsetFactor = 0.0005; // ~50 mètres de décalage
+        lat += math.cos(markerIndex * 0.3) * offsetFactor; // Décalage circulaire
+        lon += math.sin(markerIndex * 0.3) * offsetFactor;
+        
+        // Créer le marqueur avec tous les paramètres nécessaires pour garantir visibilité et interaction
+        Marker marker = Marker(
+          markerId: MarkerId(id),
+          position: LatLng(lat, lon),
+          icon: markerIcon,
+          visible: true,
+          flat: markerIndex % 2 == 0, // Alterner entre flat true/false pour diversifier le rendu
+          alpha: 1.0, // Complètement opaque
+          zIndex: zIndex, // Z-index unique et beaucoup plus élevé
+          anchor: const Offset(0.5, 1.0), // Ancrage standard pour les marqueurs Google
+          consumeTapEvents: true, // Assure que les taps sont bien capturés
+          onTap: () {
+            // Afficher les détails directement sans passer par infoWindow
+            _showEntityQuickView(context, entity, isProducer, id);
+            
+            // Gérer le double-tap pour navigation directe
+            if (_lastTappedMarkerId == id) {
+              // Double tap détecté - naviguer vers la page détaillée
+              if (isProducer) {
+                _navigateToProducerDetails(entity);
+              } else {
+                _navigateToEventDetails(id);
+              }
+              _lastTappedMarkerId = null;
+            } else {
+              // Premier tap - enregistrer l'ID
+              setState(() {
+                _lastTappedMarkerId = id;
+              });
+              
+              // Annuler après un délai si pas de second tap
+              Future.delayed(const Duration(seconds: 3), () {
+                if (mounted && _lastTappedMarkerId == id) {
+                  setState(() {
+                    _lastTappedMarkerId = null;
+                  });
+                }
+              });
+            }
+          },
+          infoWindow: InfoWindow(
+            title: name,
+            snippet: isProducer 
+                ? entity['description']?.toString().substring(0, math.min(50, (entity['description']?.toString().length ?? 0))) ?? 'Pas de description'
+                : entity['catégorie'] ?? 'Pas de catégorie',
+          ),
+        );
+        
+        markers.add(marker);
+        print("✅ Marqueur créé et visible pour: $name avec catégorie: $category, z-index: $zIndex");
+        
+        // Incrémenter l'index pour le prochain marqueur
+        markerIndex++;
+      } catch (e) {
+        print("❌ Erreur lors de la création du marqueur à partir des données: $e");
+      }
+    }
+    
+    return markers;
+  }
+  
   @override
   void dispose() {
     _receivePort.close();
@@ -79,16 +214,27 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
     super.dispose();
   }
 
-  /// Charger une icône personnalisée pour les marqueurs
-  Future<void> _loadCustomMarkerIcon() async {
+  /// Charger les icônes personnalisées pour les différentes catégories de marqueurs
+  Future<void> _loadMarkerIcons() async {
     try {
-      // Utiliser des marqueurs colorés par catégorie avec une teinte forte pour garantir la visibilité
-      _customMarkerIcon = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueViolet);
-      print("✅ Icône de marqueur personnalisée chargée avec teinte violette par défaut");
+      // Précharger les icônes pour chaque catégorie pour éviter les délais lors de l'affichage
+      _markerIcons = {
+        'default': BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueViolet),
+        'théâtre': BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+        'musique': BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+        'cinéma': BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange),
+        'danse': BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+        'exposition': BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueYellow),
+        'musée': BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueCyan),
+        'festival': BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueMagenta),
+        'match': BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+      };
+      
+      print("✅ Icônes de marqueurs chargées pour toutes les catégories");
     } catch (e) {
-      print("❌ Erreur lors du chargement de l'icône de marqueur: $e");
+      print("❌ Erreur lors du chargement des icônes de marqueurs: $e");
       // Fallback à l'icône par défaut si une erreur se produit
-      _customMarkerIcon = BitmapDescriptor.defaultMarker;
+      _markerIcons = {'default': BitmapDescriptor.defaultMarker};
     }
   }
   
@@ -108,28 +254,35 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
   
   /// Obtenir une icône de marqueur basée sur le score et la catégorie
   BitmapDescriptor _getMarkerIcon(double score, String category) {
-    // Définir la teinte de base par catégorie
-    double baseHue = BitmapDescriptor.hueViolet; // Couleur par défaut
-    
-    // Attribution des couleurs par catégorie
+    // Normaliser la catégorie pour la recherche
     category = category.toLowerCase();
+    
+    // Trouver la catégorie correspondante dans notre cache
+    String iconKey = 'default';
+    
     if (category.contains('théâtre') || category.contains('theatre')) {
-      baseHue = BitmapDescriptor.hueRed;
+      iconKey = 'théâtre';
     } else if (category.contains('musiqu') || category.contains('concert')) {
-      baseHue = BitmapDescriptor.hueAzure;
+      iconKey = 'musique';
     } else if (category.contains('ciném') || category.contains('cinema')) {
-      baseHue = BitmapDescriptor.hueOrange;
+      iconKey = 'cinéma';
     } else if (category.contains('danse')) {
-      baseHue = BitmapDescriptor.hueGreen;
+      iconKey = 'danse';
+    } else if (category.contains('expo')) {
+      iconKey = 'exposition';
+    } else if (category.contains('musée') || category.contains('musee')) {
+      iconKey = 'musée';
+    } else if (category.contains('festival')) {
+      iconKey = 'festival';
     }
     
-    // Si le score est très élevé (>0.8), utiliser la teinte verte pour montrer la haute correspondance
+    // Si le score est très élevé (>0.8), utiliser l'icône "match" pour montrer la haute correspondance
     if (score > 0.8) {
-      return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen);
+      return _markerIcons['match'] ?? _markerIcons['default'] ?? BitmapDescriptor.defaultMarker;
     }
     
-    // Sinon utiliser la teinte basée sur la catégorie
-    return BitmapDescriptor.defaultMarkerWithHue(baseHue);
+    // Sinon utiliser l'icône basée sur la catégorie
+    return _markerIcons[iconKey] ?? _markerIcons['default'] ?? BitmapDescriptor.defaultMarker;
   }
 
   /// Convertir un type de venue en emoji
@@ -181,12 +334,33 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
     if (_isComputingMarkers) return;
     _isComputingMarkers = true;
     
+    print("🔍 Traitement de ${entities.length} entités (type: ${isProducers ? 'producteurs' : 'événements'})");
+    
+    // Vérification rapide des coordonnées pour débugger
+    int validCoordinatesCount = 0;
+    for (var entity in entities) {
+      if (entity['location'] != null && 
+          entity['location']['coordinates'] != null && 
+          entity['location']['coordinates'].length >= 2) {
+        validCoordinatesCount++;
+      }
+    }
+    print("✅ Nombre d'entités avec coordonnées valides: $validCoordinatesCount sur ${entities.length}");
+    
     if (kIsWeb) {
       // En Web, créer les marqueurs directement
       Set<Marker> newMarkers = _createMarkers(entities, isProducers);
       setState(() {
         _markers = newMarkers;
         _isComputingMarkers = false;
+        
+        // Pour le débogage - afficher un message si des marqueurs sont chargés
+        print("✅ ${_markers.length} marqueurs chargés et prêts à être affichés sur le web");
+        
+        // S'assurer que la carte est ajustée pour montrer tous les marqueurs
+        if (_markers.isNotEmpty && _mapController != null) {
+          _fitMarkersOnMap();
+        }
       });
     } else {
       // Sur mobile, utiliser le traitement en arrière-plan
@@ -201,6 +375,20 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
   /// Créer les marqueurs directement (pour le web)
   Set<Marker> _createMarkers(List<dynamic> entities, bool isProducers) {
     Set<Marker> markers = {};
+    
+    // Debug: afficher les 3 premières entités pour vérification
+    if (entities.isNotEmpty) {
+      print("🔍 Echantillon des entites:");
+      for (int i = 0; i < math.min(3, entities.length); i++) {
+        print("- Entite ${i+1}: ${entities[i]['lieu'] ?? entities[i]['intitulé'] ?? 'Sans nom'}");
+        if (entities[i]['location'] != null && entities[i]['location']['coordinates'] != null) {
+          print("  Coords: ${entities[i]['location']['coordinates']}");
+        }
+      }
+    }
+    
+    // Utiliser un compteur pour z-index unique, commencer à un nombre élevé pour garantir la visibilité
+    double zIndexCounter = 1000.0;
     
     // Calculer un score de pertinence pour chaque entité
     for (var entity in entities) {
@@ -227,8 +415,8 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
         }
         
         // Convertir en double de manière sécurisée
-        final double lon = coordinates[0].toDouble();
-        final double lat = coordinates[1].toDouble();
+        double lon = coordinates[0].toDouble();
+        double lat = coordinates[1].toDouble();
         
         // Vérifier que les coordonnées sont dans les limites valides
         if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
@@ -236,121 +424,65 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
           continue;
         }
         
+        // Ajouter un léger décalage aléatoire aux coordonnées pour éviter la superposition
+        // On utilise l'index de l'entité pour créer un décalage déterministe mais unique
+        final int entityIndex = entities.indexOf(entity);
+        final double offsetFactor = 0.0001; // ~10 mètres de décalage maximum
+        final math.Random random = math.Random(entityIndex); // Random prévisible basé sur l'index
+        
+        // Appliquer un décalage différent pour chaque marqueur
+        lat += random.nextDouble() * offsetFactor * 2 - offsetFactor;
+        lon += random.nextDouble() * offsetFactor * 2 - offsetFactor;
+        
         final String id = entity['_id'];
         final String name = isProducers
             ? entity['lieu'] ?? 'Sans nom'
             : entity['intitulé'] ?? 'Événement sans nom';
         
-        // Calculer un score de pertinence plus précis basé sur les filtres
-        double score = 0.5; // score par défaut moyen
+        print('✅ Création du marqueur pour: $name [lat=$lat, lon=$lon] avec décalage');
         
-        if (isProducers) {
-          // Score pour les producteurs de loisirs
-          if (_selectedProducerCategory != null) {
-            // Correspondance exacte de catégorie
-            if (entity['catégorie'] == _selectedProducerCategory) {
-              score += 0.4;
-            } 
-            // Correspondance partielle (contient le mot)
-            else if (entity['catégorie'] != null && 
-                    entity['catégorie'].toString().toLowerCase().contains(_selectedProducerCategory?.toLowerCase() ?? '')) {
-              score += 0.2;
-            }
-          }
-          
-          // Évaluer la note du lieu
-          if (entity['rating'] != null) {
-            final double rating = (entity['rating'] / 5.0).clamp(0.0, 1.0);
-            // Donner plus de poids aux notes élevées
-            score = (score * 0.6) + (rating * 0.4);
-          }
-          
-          // Vérifier des critères supplémentaires comme la popularité
-          if (entity['visites'] != null && entity['visites'] > 100) {
-            score += 0.1;
-          }
-          
-          // Bonus pour les lieux avec image
-          if (entity['photo'] != null || entity['image'] != null) {
-            score += 0.05;
-          }
-        } else {
-          // Score pour les événements
-          if (_selectedEventCategory != null) {
-            // Correspondance exacte de catégorie
-            if (entity['catégorie'] == _selectedEventCategory) {
-              score += 0.4;
-            } 
-            // Correspondance partielle
-            else if (entity['catégorie'] != null && 
-                    entity['catégorie'].toString().toLowerCase().contains(_selectedEventCategory?.toLowerCase() ?? '')) {
-              score += 0.2;
-            }
-          }
-          
-          // Correspondance des émotions recherchées
-          if (_selectedEmotions.isNotEmpty) {
-            List<dynamic> eventEmotions = [];
-            
-            // Chercher les émotions dans différentes structures possibles
-            if (entity['emotions'] != null) {
-              eventEmotions = entity['emotions'];
-            } else if (entity['notes_globales'] != null && 
-                      entity['notes_globales']['emotions'] != null) {
-              eventEmotions = entity['notes_globales']['emotions'];
-            }
-            
-            if (eventEmotions.isNotEmpty) {
-              int matchCount = 0;
-              for (var emotion in _selectedEmotions) {
-                if (eventEmotions.any((e) => e.toString().toLowerCase().contains(emotion.toLowerCase()))) {
-                  matchCount++;
-                }
-              }
-              
-              if (matchCount > 0) {
-                // Plus le nombre de correspondances est élevé, plus le score augmente
-                final double emotionScore = matchCount / _selectedEmotions.length;
-                score = (score * 0.6) + (emotionScore * 0.4);
-              }
-            }
-          }
-          
-          // Critères de prix si définis
-          if (_minPrice > 0 || _maxPrice < 1000) {
-            final double eventPrice = entity['prix_reduit'] != null ? 
-                double.tryParse(entity['prix_reduit'].toString()) ?? 0 : 
-                (entity['prix'] != null ? double.tryParse(entity['prix'].toString()) ?? 0 : 0);
-                
-            if (eventPrice >= _minPrice && eventPrice <= _maxPrice) {
-              score += 0.1;
-            }
-          }
-        }
+        // Utiliser une couleur basée sur l'index de l'entité pour diversifier visuellement les marqueurs
+        double markerHue;
+        if (entityIndex % 8 == 0) markerHue = BitmapDescriptor.hueRed;
+        else if (entityIndex % 8 == 1) markerHue = BitmapDescriptor.hueOrange; 
+        else if (entityIndex % 8 == 2) markerHue = BitmapDescriptor.hueYellow;
+        else if (entityIndex % 8 == 3) markerHue = BitmapDescriptor.hueGreen;
+        else if (entityIndex % 8 == 4) markerHue = BitmapDescriptor.hueCyan;
+        else if (entityIndex % 8 == 5) markerHue = BitmapDescriptor.hueAzure;
+        else if (entityIndex % 8 == 6) markerHue = BitmapDescriptor.hueBlue;
+        else markerHue = BitmapDescriptor.hueViolet;
         
-        // Limiter le score entre 0 et 1
-        score = score.clamp(0.0, 1.0);
+        // Augmenter le décalage des coordonnées pour éviter la superposition parfaite
+        final double offsetFactor = 0.0005; // ~50 mètres de décalage maximum
+        lat += math.cos(entityIndex * 0.3) * offsetFactor; // Motif circulaire pour la distribution
+        lon += math.sin(entityIndex * 0.3) * offsetFactor; // Variation sinusoïdale pour éviter l'alignement
         
-        // Obtenir la catégorie pour la coloration
-        String category = isProducers 
-            ? entity['catégorie']?.toString().toLowerCase() ?? ''
-            : entity['catégorie']?.toString().toLowerCase() ?? '';
+        // Z-index beaucoup plus élevé et espacé pour garantir séparation visuelle
+        final double zIndex = 100.0 + (entityIndex * 2.0); // z-index 100.0, 102.0, 104.0, etc.
         
-        // Créer une icône de marqueur basée sur le score et la catégorie
-        BitmapDescriptor markerIcon = _getMarkerIcon(score, category);
+        // Créer l'icône du marqueur avec la couleur calculée
+        BitmapDescriptor markerIcon = BitmapDescriptor.defaultMarkerWithHue(markerHue);
         
-        // Log pour confirmer création du marqueur avec couleur par catégorie
-        print("✅ Marqueur créé pour: $name avec catégorie: $category (score: $score)");
+        // Log pour confirmer création du marqueur avec informations détaillées
+        print("✅ Marqueur créé pour: $name avec catégorie: $category (index: $entityIndex, hue: $markerHue, z-index: $zIndex)");
         
-        // Créer le marqueur avec des paramètres garantissant la visibilité
+        // Créer le marqueur avec tous les paramètres nécessaires pour garantir visibilité et séparation
         Marker marker = Marker(
           markerId: MarkerId(id),
           position: LatLng(lat, lon),
           icon: markerIcon,
           visible: true,
+          flat: entityIndex % 2 == 0, // Alterner entre flat true/false pour éviter superposition visuelle
           alpha: 1.0, // Complètement opaque
-          zIndex: 10.0, // Au-dessus des autres éléments
+          zIndex: zIndex, // Z-index unique beaucoup plus élevé
+          anchor: const Offset(0.5, 1.0), // Ancrage standard pour les marqueurs Google
           consumeTapEvents: true, // Assure que les taps sont bien capturés
+          infoWindow: InfoWindow(
+            title: name,
+            snippet: isProducers 
+                ? entity['description']?.toString().substring(0, math.min(50, (entity['description']?.toString().length ?? 0))) ?? 'Pas de description'
+                : entity['catégorie'] ?? 'Pas de catégorie',
+          ),
           onTap: () {
             // Afficher les détails directement sans passer par infoWindow
             _showEntityQuickView(context, entity, isProducers, id);
@@ -801,13 +933,18 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
     );
   }
   
-  /// Fonction statique pour créer les marqueurs en arrière-plan
+  /// Fonction statique pour préparer les données des marqueurs en arrière-plan
+  /// Plutôt que de créer des objets Marker directement, nous allons envoyer des données
+  /// structurées qui seront ensuite utilisées pour créer les marqueurs dans le thread principal
   static void _createMarkersInBackground(Map<String, dynamic> params) {
     final List<dynamic> entities = params['entities'];
     final bool isProducers = params['isProducers'];
     final SendPort sendPort = params['port'];
     
-    Set<Marker> markers = {};
+    // Créer une liste pour stocker les données simplifiées des marqueurs
+    List<Map<String, dynamic>> markerDataList = [];
+    
+    print("🏗️ Préparation des données pour ${entities.length} entités en arrière-plan");
     
     for (var entity in entities) {
       try {
@@ -839,6 +976,9 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
         }
         
         final String id = entity['_id'];
+        final String name = isProducers
+            ? entity['lieu'] ?? 'Sans nom'
+            : entity['intitulé'] ?? 'Événement sans nom';
         
         // Définir la couleur en fonction de la catégorie
         double markerHue = BitmapDescriptor.hueViolet; // Couleur par défaut
@@ -859,40 +999,51 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
           markerHue = BitmapDescriptor.hueOrange;
         } else if (category.contains('danse')) {
           markerHue = BitmapDescriptor.hueGreen;
+        } else if (category.contains('expo')) {
+          markerHue = BitmapDescriptor.hueYellow;
+        } else if (category.contains('musée') || category.contains('musee')) {
+          markerHue = BitmapDescriptor.hueCyan;
+        } else if (category.contains('festival')) {
+          markerHue = BitmapDescriptor.hueMagenta;
         }
         
-        BitmapDescriptor markerIcon = BitmapDescriptor.defaultMarkerWithHue(markerHue);
+        // Sérialiser l'entité pour pouvoir la reconstruire dans le thread principal
+        String entityJson = json.encode(entity);
         
-        // Log pour confirmer création du marqueur avec couleur par catégorie
-        print("✅ Marqueur créé pour arrière-plan avec catégorie: $category");
+        // Créer un objet de données pour ce marqueur
+        Map<String, dynamic> markerData = {
+          'id': id,
+          'lat': lat,
+          'lon': lon,
+          'name': name,
+          'hue': markerHue,
+          'category': category,
+          'isProducer': isProducers,
+          'entityJson': entityJson,
+        };
         
-        Marker marker = Marker(
-          markerId: MarkerId(id),
-          position: LatLng(lat, lon),
-          icon: markerIcon,
-          visible: true, // Explicitement marquer comme visible
-          zIndex: 10.0, // S'assurer que le marqueur est au-dessus des autres éléments
-          infoWindow: InfoWindow(
-            title: isProducers
-                ? entity['lieu'] ?? 'Sans nom'
-                : entity['intitulé'] ?? 'Événement sans nom',
-            snippet: isProducers 
-                ? entity['description'] ?? 'Pas de description'
-                : entity['catégorie'] ?? 'Pas de catégorie',
-          ),
-        );
+        // Ajouter les données à la liste
+        markerDataList.add(markerData);
         
-        markers.add(marker);
+        // Log pour confirmer création des données du marqueur
+        print("✅ Données préparées pour marqueur: $name (catégorie: $category)");
       } catch (e) {
-        // Ignorer les erreurs silencieusement en arrière-plan
+        print("❌ Erreur lors de la création des données d'un marqueur en arrière-plan: $e");
       }
     }
     
-    sendPort.send(['markers', markers]);
+    print("✅ ${markerDataList.length} marqueurs préparés en arrière-plan, envoi au thread principal");
+    
+    // Envoyer les données des marqueurs au thread principal
+    sendPort.send(['markerData', markerDataList]);
   }
   
   /// Appliquer les filtres de producteurs
   void _applyProducerFilters() {
+    setState(() {
+      _markers.clear(); // Vider les marqueurs existants avant d'en ajouter de nouveaux
+      _shouldShowMarkers = true; // S'assurer que les marqueurs seront visibles
+    });
     _fetchNearbyProducers(_initialPosition.latitude, _initialPosition.longitude);
     _showSnackBar("Recherche des producteurs mise à jour.");
   }
@@ -1455,47 +1606,74 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
         canPop: false,
         child: Stack(
           children: [
-            AdaptiveMapWidget(
-              initialPosition: _initialPosition,
-              initialZoom: 12.0,
-              markers: _markers,
-              onMapCreated: (GoogleMapController controller) {
-                _mapController = controller;
-                setState(() {
-                  _isMapReady = true;
-                });
+            // Carte avec animation du panneau de critères
+            Stack(
+              children: [
+                AdaptiveMapWidget(
+                  initialPosition: _initialPosition,
+                  initialZoom: 12.0,
+                  markers: _markers,
+                  onMapCreated: (GoogleMapController controller) {
+                    _mapController = controller;
+                    setState(() {
+                      _isMapReady = true;
+                    });
+                    
+                    // Appliquer un style personnalisé à la carte
+                    _setMapStyle(controller);
+                    
+                    // Afficher un guide visuel pour les critères après un court délai
+                    Future.delayed(const Duration(seconds: 1), () {
+                      if (mounted) {
+                        _showFilterHintTooltip();
+                      }
+                    });
+                    
+                    // Charger les marqueurs si ce n'est pas déjà fait
+                    if (_markers.isEmpty && _shouldShowMarkers) {
+                      _fetchNearbyProducers(_initialPosition.latitude, _initialPosition.longitude);
+                    }
+                  },
+                  onTap: (position) {
+                    // Fermer le panneau de filtres si ouvert et permettre le déplacement
+                    if (_isFilterPanelVisible && !_isPanelAnimating) {
+                      setState(() {
+                        _isPanelAnimating = true;
+                        
+                        // Animation de fermeture douce
+                        Future.delayed(const Duration(milliseconds: 300), () {
+                          if (mounted) {
+                            setState(() {
+                              _isFilterPanelVisible = false;
+                              _isPanelAnimating = false;
+                            });
+                          }
+                        });
+                      });
+                    }
+                    
+                    // Permettre le déplacement sur la carte en tapant
+                    if (_mapController != null) {
+                      _mapController!.animateCamera(
+                        CameraUpdate.newLatLng(position),
+                      );
+                    }
+                  },
+                ),
                 
-                // Appliquer un style personnalisé à la carte
-                _setMapStyle(controller);
-                
-                // Afficher un guide visuel pour les critères après un court délai
-                Future.delayed(const Duration(seconds: 1), () {
-                  if (mounted) {
-                    _showFilterHintTooltip();
-                  }
-                });
-                
-                // Charger les marqueurs si ce n'est pas déjà fait
-                if (_markers.isEmpty && _shouldShowMarkers) {
-                  _fetchNearbyProducers(_initialPosition.latitude, _initialPosition.longitude);
-                }
-              },
-              onTap: (position) {
-                // Fermer le panneau de filtres si ouvert et permettre le déplacement
-                setState(() {
-                  if (_isFilterPanelVisible) {
-                    _isFilterPanelVisible = false;
-                  }
-                });
-                
-                // Permettre le déplacement sur la carte en tapant
-                if (_mapController != null) {
-                  _mapController!.animateCamera(
-                    CameraUpdate.newLatLng(position),
-                  );
-                }
-              },
-              filterPanel: _isFilterPanelVisible ? _buildFilterPanel() : null,
+                // Panneau de filtres avec animation améliorée
+                AnimatedPositioned(
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeOutQuint,
+                  left: _isFilterPanelVisible ? 0 : -MediaQuery.of(context).size.width,
+                  top: 0,
+                  bottom: 0,
+                  width: MediaQuery.of(context).size.width * 0.85,
+                  child: _isFilterPanelVisible || _isPanelAnimating 
+                    ? _buildFilterPanel() 
+                    : const SizedBox.shrink(),
+                ),
+              ],
             ),
             
             // Indicateur de chargement amélioré
@@ -1744,75 +1922,114 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
               ),
             ),
             
-            // Bouton flottant pour les critères avec badge de notification
-            Positioned(
-              top: 150,
-              left: 16,
-              child: FloatingActionButton.extended(
-                backgroundColor: Colors.white,
-                foregroundColor: Colors.purple,
-                elevation: 4,
-                icon: const Icon(Icons.filter_list),
-                label: Row(
-                  children: [
-                    const Text("Critères"),
-                    if (_selectedProducerCategory != null || _selectedEventCategory != null || _selectedEmotions.isNotEmpty)
-                      Container(
-                        margin: const EdgeInsets.only(left: 8),
-                        padding: const EdgeInsets.all(6),
-                        decoration: const BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: Colors.purple,
+              // Bouton flottant pour les critères avec badge de notification et animation
+              Positioned(
+                top: 16,
+                left: 16,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 300),
+                  transform: Matrix4.translationValues(
+                    _isFilterPanelVisible ? 20 : 0, 
+                    0, 
+                    0
+                  ),
+                  child: FloatingActionButton(
+                    mini: true,
+                    backgroundColor: _isFilterPanelVisible 
+                      ? Colors.purple.withOpacity(0.8) 
+                      : Colors.white,
+                    foregroundColor: _isFilterPanelVisible 
+                      ? Colors.white 
+                      : Colors.purple,
+                    elevation: _isFilterPanelVisible ? 0 : 4,
+                    heroTag: "filterBtn",
+                    child: Stack(
+                      children: [
+                        AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 300),
+                          child: _isFilterPanelVisible
+                            ? const Icon(Icons.arrow_back, key: ValueKey('back'))
+                            : const Icon(Icons.filter_list, key: ValueKey('filter')),
                         ),
-                        child: Text(
-                          _getActiveFiltersCount().toString(),
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
+                        if (!_isFilterPanelVisible && (_selectedProducerCategory != null || _selectedEventCategory != null || _selectedEmotions.isNotEmpty))
+                          Positioned(
+                            right: 0,
+                            top: 0,
+                            child: Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Colors.purple,
+                              ),
+                              child: Text(
+                                _getActiveFiltersCount().toString(),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
                           ),
-                        ),
-                      ),
-                  ],
+                      ],
+                    ),
+                    onPressed: () {
+                      if (!_isPanelAnimating) {
+                        setState(() {
+                          _isPanelAnimating = true;
+                          _isFilterPanelVisible = !_isFilterPanelVisible;
+                          
+                          // Remettre le flag d'animation à false après un délai 
+                          // pour éviter les clics multiples pendant l'animation
+                          Future.delayed(const Duration(milliseconds: 300), () {
+                            if (mounted) {
+                              setState(() {
+                                _isPanelAnimating = false;
+                              });
+                            }
+                          });
+                        });
+                      }
+                    },
+                  ),
                 ),
-                onPressed: () {
-                  setState(() {
-                    _isFilterPanelVisible = true;
-                  });
-                },
               ),
-            ),
           ],
         ),
       ),
       
-      // Boutons d'action flottants - redessinés et groupés
+      // Boutons d'action flottants - redessinés et groupés avec clarification
       floatingActionButton: Column(
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
-          // Bouton pour rafraîchir les données
-          Container(
-            margin: const EdgeInsets.only(bottom: 8),
-            decoration: BoxDecoration(
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.2),
-                  blurRadius: 6,
-                  offset: const Offset(0, 2),
-                )
-              ],
+            // Bouton pour rafraîchir les données avec étiquette
+            Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              decoration: BoxDecoration(
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.2),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  )
+                ],
+              ),
+              child: FloatingActionButton.extended(
+                heroTag: "refreshLeisureBtn",
+                backgroundColor: Colors.deepPurple, // Couleur distincte
+                foregroundColor: Colors.white,
+                icon: const Icon(Icons.refresh),
+                label: const Text("Recharger", style: TextStyle(fontSize: 12)),
+                onPressed: () {
+                  setState(() {
+                    _markers.clear(); // Vider les marqueurs existants avant d'en ajouter de nouveaux
+                    _shouldShowMarkers = true; // S'assurer que les marqueurs seront visibles
+                  });
+                  _fetchNearbyProducers(_initialPosition.latitude, _initialPosition.longitude);
+                  _showSnackBar("Chargement des lieux en cours...");
+                },
+              ),
             ),
-            child: FloatingActionButton(
-              mini: true,
-              heroTag: "refreshLeisureBtn",
-              backgroundColor: Colors.white,
-              foregroundColor: Colors.purple,
-              child: const Icon(Icons.refresh),
-              onPressed: () {
-                _fetchNearbyProducers(_initialPosition.latitude, _initialPosition.longitude);
-              },
-            ),
-          ),
           // Bouton pour la position actuelle
           Container(
             decoration: BoxDecoration(
@@ -2480,30 +2697,49 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
     );
   }
   
-  /// Widget pour les sliders de notation
+  /// Widget amélioré pour les sliders de notation avec retour visuel plus clair
   Widget _buildRatingSlider(String label, double value, Function(double) onChanged) {
-    return Row(
+    // Définir une couleur basée sur la valeur pour un retour visuel
+    Color sliderColor = value < 3 ? Colors.grey :
+                        value < 6 ? Colors.blue :
+                        value < 8 ? Colors.orange : Colors.green;
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SizedBox(
-          width: 100,
-          child: Text(label),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: value > 0 ? sliderColor.withOpacity(0.2) : Colors.grey.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: value > 0 ? sliderColor : Colors.grey.withOpacity(0.3),
+                  width: 1,
+                ),
+              ),
+              child: Text(
+                value > 0 ? value.toStringAsFixed(1) : "Non spécifié",
+                style: TextStyle(
+                  color: value > 0 ? sliderColor : Colors.grey,
+                  fontWeight: FontWeight.w500,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          ],
         ),
-        Expanded(
-          child: Slider(
-            value: value,
-            min: 0,
-            max: 10,
-            divisions: 10,
-            label: value.toStringAsFixed(1),
-            onChanged: onChanged,
-          ),
-        ),
-        SizedBox(
-          width: 40,
-          child: Text(
-            value > 0 ? value.toStringAsFixed(1) : "-",
-            textAlign: TextAlign.center,
-          ),
+        Slider(
+          value: value,
+          min: 0,
+          max: 10,
+          divisions: 10,
+          label: value.toStringAsFixed(1),
+          activeColor: sliderColor,
+          onChanged: onChanged,
         ),
       ],
     );

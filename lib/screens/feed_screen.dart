@@ -1115,30 +1115,49 @@ class _FeedScreenState extends State<FeedScreen> {
   Widget _buildPostCard(Map<String, dynamic> post) {
     final String postId = post['_id']?.toString() ?? '';
     final String content = post['content']?.toString() ?? 'Contenu non disponible';
-    final String postedAt = post['posted_at']?.toString() ?? DateTime.now().toIso8601String();
-    final String? mediaUrl = (post['media'] as List?)?.isNotEmpty == true
-        ? ((post['media'][0]?.toString()?.endsWith('.jpg') ?? false) ||
-                (post['media'][0]?.toString()?.endsWith('.png') ?? false) ||
-                (post['media'][0]?.toString()?.endsWith('.jpeg') ?? false))
-            ? post['media'][0].toString()
-            : null
-        : null;
-    final String? videoUrl = (post['media'] as List?)?.isNotEmpty == true
-        ? ((post['media'][0]?.toString()?.endsWith('.mp4') ?? false) ||
-                (post['media'][0]?.toString()?.endsWith('.mov') ?? false) ||
-                (post['media'][0]?.toString()?.endsWith('.avi') ?? false))
-            ? post['media'][0].toString()
-            : null
-        : null;
+    final String postedAt = post['time_posted']?.toString() ?? post['posted_at']?.toString() ?? DateTime.now().toIso8601String();
+    
+    // Gestion des médias avec support pour tableaux d'objets structurés
+    List<dynamic> mediaList = post['media'] as List? ?? [];
+    String? mediaUrl;
+    String? videoUrl;
+    
+    if (mediaList.isNotEmpty) {
+      final firstMedia = mediaList[0];
+      // Vérifier si c'est un objet structuré (nouveau format) ou une simple URL (ancien format)
+      if (firstMedia is Map) {
+        final mediaType = firstMedia['type']?.toString().toLowerCase() ?? '';
+        final mediaUrlFromObj = firstMedia['url']?.toString() ?? '';
+        
+        if (mediaType == 'image' || mediaUrlFromObj.endsWith('.jpg') || 
+            mediaUrlFromObj.endsWith('.png') || mediaUrlFromObj.endsWith('.jpeg')) {
+          mediaUrl = mediaUrlFromObj;
+        } else if (mediaType == 'video' || mediaUrlFromObj.endsWith('.mp4') || 
+                  mediaUrlFromObj.endsWith('.mov') || mediaUrlFromObj.endsWith('.avi')) {
+          videoUrl = mediaUrlFromObj;
+        }
+      } else if (firstMedia is String) {
+        // Format simple - juste une URL
+        final mediaUrlStr = firstMedia.toString();
+        if (mediaUrlStr.endsWith('.jpg') || mediaUrlStr.endsWith('.png') || mediaUrlStr.endsWith('.jpeg')) {
+          mediaUrl = mediaUrlStr;
+        } else if (mediaUrlStr.endsWith('.mp4') || mediaUrlStr.endsWith('.mov') || mediaUrlStr.endsWith('.avi')) {
+          videoUrl = mediaUrlStr;
+        }
+      }
+    }
+    
     final String? producerId = post['producer_id']?.toString();
     final String? userId = post['user_id']?.toString();
     final String? eventId = post['event_id']?.toString();
+    final String? referencedEventId = post['referenced_event_id']?.toString();
     final bool isProducer = producerId != null;
-    final bool isLeisureProducer = post['is_leisure_producer'] == true;
-    final String targetId = isLeisureProducer ? (eventId ?? '') : (producerId ?? '');
+    final bool isLeisureProducer = post['is_leisure_producer'] == true || post['isLeisureProducer'] == true;
+    final bool isAutomated = post['is_automated'] == true;
+    final String targetId = isLeisureProducer ? (eventId ?? referencedEventId ?? '') : (producerId ?? '');
     final List<dynamic> comments = post['comments'] ?? [];
     final bool isLiked = post['isLiked'] == true;
-    final int likesCount = post['likesCount'] ?? 0;
+    final int likesCount = post['likesCount'] ?? post['likes_count'] ?? 0;
 
     return StatefulBuilder(
       builder: (BuildContext context, StateSetter setState) {
@@ -1161,7 +1180,8 @@ class _FeedScreenState extends State<FeedScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // Header avec avatar et nom
-              if (producerId != null || userId != null)
+                // Header avec avatar et nom
+                if (producerId != null || userId != null)
                 FutureBuilder<Map<String, dynamic>?>(
                   future: isProducer
                       ? _fetchAuthorDetails(producerId!, true, isLeisureProducer: isLeisureProducer)
@@ -1229,8 +1249,8 @@ class _FeedScreenState extends State<FeedScreen> {
                     final authorData = snapshot.data!;
                     final String name = _extractAuthorName(authorData, isProducer, isLeisureProducer);
                     final String avatarUrl = isProducer
-                        ? (authorData['photo'] ?? authorData['image'] ?? authorData['photo_url'] ?? 'https://storage.googleapis.com/choice-app/images/placeholder.jpg')
-                        : (authorData['photo_url'] ?? authorData['photo'] ?? 'https://storage.googleapis.com/choice-app/images/placeholder.jpg');
+                        ? (authorData['photo'] ?? authorData['image'] ?? authorData['photo_url'] ?? authorData['avatar'] ?? 'https://storage.googleapis.com/choice-app/images/placeholder.jpg')
+                        : (authorData['photo_url'] ?? authorData['photo'] ?? authorData['avatar'] ?? 'https://storage.googleapis.com/choice-app/images/placeholder.jpg');
 
                     return InkWell(
                       onTap: () => isProducer
@@ -1298,6 +1318,35 @@ class _FeedScreenState extends State<FeedScreen> {
                                 ],
                               ),
                             ),
+                            // Badge automatisé si le post est généré automatiquement
+                            if (isAutomated)
+                              Container(
+                                margin: const EdgeInsets.only(right: 8.0),
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: Colors.blue.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: Colors.blue.withOpacity(0.3),
+                                    width: 1,
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.auto_awesome, size: 14, color: Colors.blue.shade700),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      'Auto',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w500,
+                                        color: Colors.blue.shade700,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             // Options menu
                             Material(
                               color: Colors.transparent,
@@ -1383,6 +1432,241 @@ class _FeedScreenState extends State<FeedScreen> {
                 ),
               ),
 
+              // Badge pour les posts automatisés
+              if (isAutomated)
+                Container(
+                  margin: const EdgeInsets.only(left: 16.0, bottom: 8.0),
+                  padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 5.0),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: Colors.blue.withOpacity(0.3),
+                      width: 1,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.auto_awesome, size: 14, color: Colors.blue.shade700),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Post généré automatiquement',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.blue.shade700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+              // Section pour événement référencé si présent
+              if (referencedEventId != null)
+                FutureBuilder<Map<String, dynamic>?>(
+                  future: _fetchEventDetails(referencedEventId),
+                  builder: (context, snapshot) {
+                    Widget eventWidget;
+                    
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      // Afficher un skeleton loader pendant le chargement
+                      eventWidget = Container(
+                        margin: const EdgeInsets.only(top: 8, bottom: 4, left: 16, right: 16),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.grey[100],
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Shimmer.fromColors(
+                          baseColor: Colors.grey[300]!,
+                          highlightColor: Colors.grey[100]!,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Container(
+                                    width: 24,
+                                    height: 24,
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Container(
+                                    width: 150,
+                                    height: 16,
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Container(
+                                width: double.infinity,
+                                height: 12,
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    } else if (snapshot.hasData && snapshot.data != null) {
+                      // Afficher les détails de l'événement
+                      final eventData = snapshot.data!;
+                      final String eventTitle = eventData['intitulé'] ?? eventData['title'] ?? 'Événement';
+                      final String eventDate = eventData['date_debut'] ?? eventData['date'] ?? '';
+                      final String eventLocation = eventData['lieu'] ?? '';
+                      
+                      eventWidget = InkWell(
+                      onTap: () {
+                        if (referencedEventId != null) {
+                          _safeNavigateToEventDetails(context, referencedEventId);
+                        }
+                      },
+                      child: Container(
+                          margin: const EdgeInsets.only(top: 8, bottom: 4, left: 16, right: 16),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.purple.withOpacity(0.05),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: Colors.purple.withOpacity(0.3),
+                              width: 1,
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.event,
+                                    color: Colors.purple.shade700,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      eventTitle,
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.purple.shade700,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  Icon(
+                                    Icons.arrow_forward_ios,
+                                    size: 16,
+                                    color: Colors.purple.shade700,
+                                  ),
+                                ],
+                              ),
+                              if (eventDate.isNotEmpty || eventLocation.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 8.0, left: 4.0),
+                                  child: Row(
+                                    children: [
+                                      if (eventDate.isNotEmpty) ...[
+                                        Icon(
+                                          Icons.calendar_today,
+                                          size: 14,
+                                          color: Colors.purple.shade400,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          eventDate,
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.purple.shade400,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                      ],
+                                      if (eventLocation.isNotEmpty) ...[
+                                        Icon(
+                                          Icons.location_on,
+                                          size: 14,
+                                          color: Colors.purple.shade400,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Expanded(
+                                          child: Text(
+                                            eventLocation,
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: Colors.purple.shade400,
+                                            ),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      );
+                    } else {
+                      // Afficher un bouton simple en cas d'erreur
+                      eventWidget = InkWell(
+                        onTap: () {
+                          if (referencedEventId != null) {
+                            _safeNavigateToEventDetails(context, referencedEventId);
+                          }
+                        },
+                        child: Container(
+                          margin: const EdgeInsets.only(top: 8, bottom: 4, left: 16, right: 16),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.purple.withOpacity(0.05),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: Colors.purple.withOpacity(0.3),
+                              width: 1,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.event,
+                                color: Colors.purple.shade700,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Voir l\'événement associé',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.purple.shade700,
+                                  ),
+                                ),
+                              ),
+                              Icon(
+                                Icons.arrow_forward_ios,
+                                size: 16,
+                                color: Colors.purple.shade700,
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }
+                    
+                    return eventWidget;
+                  },
+                ),
+                
               // Media (vidéo ou image)
               if (videoUrl != null)
                 Padding(
@@ -1414,7 +1698,11 @@ class _FeedScreenState extends State<FeedScreen> {
                                   snapshot.hasData) {
                                 final controller = snapshot.data!;
                                 return GestureDetector(
-                                  onTap: () => _openMediaInReelsMode(context, videoUrl, true, post),
+                                  onTap: () {
+                                    if (videoUrl != null) {
+                                      _safeOpenMediaInReelsMode(context, videoUrl, true, post);
+                                    }
+                                  },
                                   child: AspectRatio(
                                     aspectRatio: controller.value.aspectRatio,
                                     child: Stack(
@@ -1589,7 +1877,11 @@ class _FeedScreenState extends State<FeedScreen> {
                       alignment: Alignment.center,
                       children: [
                         GestureDetector(
-                          onTap: () => _openMediaInReelsMode(context, mediaUrl, false, post),
+                          onTap: () {
+                            if (mediaUrl != null) {
+                              _safeOpenMediaInReelsMode(context, mediaUrl, false, post);
+                            }
+                          },
                           child: CachedNetworkImage(
                             imageUrl: mediaUrl,
                             width: double.infinity,
@@ -1659,7 +1951,11 @@ class _FeedScreenState extends State<FeedScreen> {
                           bottom: 12,
                           right: 12,
                           child: GestureDetector(
-                            onTap: () => _openMediaInReelsMode(context, mediaUrl, false, post),
+                            onTap: () {
+                              if (mediaUrl != null) {
+                                _safeOpenMediaInReelsMode(context, mediaUrl, false, post);
+                              }
+                            },
                             child: Container(
                               padding: const EdgeInsets.all(8),
                               decoration: BoxDecoration(
@@ -1958,6 +2254,158 @@ class _FeedScreenState extends State<FeedScreen> {
           ),
         );
       },
+    );
+  }
+  
+  /// Navigue vers la page de détails d'un événement avec null safety
+  void _safeNavigateToEventDetails(BuildContext context, String? eventId) {
+    if (eventId == null) return;
+    _navigateToEventDetails(context, eventId);
+  }
+  
+  /// Navigue vers la page de détails d'un événement
+  Future<void> _navigateToEventDetails(BuildContext context, String eventId) async {
+    setState(() {
+      _isLoading = true;
+    });
+    print('🔍 Navigation vers l\'événement avec ID : $eventId');
+
+    try {
+      // Extraction de l'ID proprement
+      final cleanId = eventId.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
+      print('🔍 ID extrait : $cleanId');
+      
+      if (cleanId.isEmpty) {
+        throw Exception("ID d'événement invalide");
+      }
+      
+      // Extraire le domaine et le protocole de l'URL complète
+      final baseUrl = getBaseUrl();
+      Uri url;
+      
+      // Construire l'URL avec le chemin normalisé
+      final apiPath = '/api/events/$cleanId';
+      
+      if (baseUrl.startsWith('http://')) {
+        // Si c'est http://
+        final domain = baseUrl.replaceFirst('http://', '');
+        url = Uri.http(domain, apiPath);
+      } else if (baseUrl.startsWith('https://')) {
+        // Si c'est https://
+        final domain = baseUrl.replaceFirst('https://', '');
+        url = Uri.https(domain, apiPath);
+      } else {
+        // Utiliser Uri.parse comme solution de secours
+        url = Uri.parse('$baseUrl$apiPath');
+      }
+      
+      final response = await http.get(url);
+
+      // Si première tentative échoue, essayer un chemin alternatif
+      if (response.statusCode != 200) {
+        print('⚠️ Premier appel API a échoué, tentative avec un autre endpoint...');
+        final alternativeApiPath = '/api/evenements/$cleanId';
+            
+        if (baseUrl.startsWith('http://')) {
+          url = Uri.http(baseUrl.replaceFirst('http://', ''), alternativeApiPath);
+        } else {
+          url = Uri.https(baseUrl.replaceFirst('https://', ''), alternativeApiPath);
+        }
+        
+        final secondResponse = await http.get(url);
+        
+        if (secondResponse.statusCode == 200) {
+          // Utiliser les données de la deuxième tentative
+          final data = json.decode(secondResponse.body);
+          setState(() {
+            _isLoading = false;
+          });
+          
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => EventLeisureScreen(
+                eventData: data,
+              ),
+            ),
+          );
+          return;
+        }
+      } else {
+        // La première requête a réussi
+        final data = json.decode(response.body);
+        setState(() {
+          _isLoading = false;
+        });
+        
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => EventLeisureScreen(
+              eventData: data,
+            ),
+          ),
+        );
+        return;
+      }
+      
+      // Si on arrive ici, les deux tentatives ont échoué
+      setState(() {
+        _isLoading = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Événement introuvable. ID: $cleanId"),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } catch (e) {
+      // Gestion des erreurs réseau
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Erreur réseau : $e"),
+          backgroundColor: Colors.red,
+        ),
+      );
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  /// Ouvre une image/vidéo en mode "reels" pour navigation verticale avec null safety
+  void _safeOpenMediaInReelsMode(BuildContext context, String? mediaUrl, bool isVideo, Map<String, dynamic> post) {
+    if (mediaUrl == null) return;
+    _openMediaInReelsMode(context, mediaUrl, isVideo, post);
+  }
+
+  /// Ouvre une image/vidéo en mode "reels" pour navigation verticale
+  void _openMediaInReelsMode(BuildContext context, String mediaUrl, bool isVideo, Map<String, dynamic> post) {
+    Navigator.of(context).push(
+      PageRouteBuilder(
+        transitionDuration: const Duration(milliseconds: 300),
+        pageBuilder: (context, animation, secondaryAnimation) {
+          final curveTween = CurveTween(curve: Curves.easeOut);
+          final fadeTween = Tween<double>(begin: 0.0, end: 1.0);
+          final fadeAnimation = animation.drive(fadeTween.chain(curveTween));
+          
+          return FadeTransition(
+            opacity: fadeAnimation,
+            child: ReelsViewScreen(
+              initialMediaUrl: mediaUrl, 
+              isVideo: isVideo,
+              postData: post,
+              userId: widget.userId,
+              onLike: _likePost,
+              onInterested: _markInterested,
+              onChoice: _markChoice,
+              onComment: () => _showCommentsSheet(context, post),
+            ),
+          );
+        },
+        opaque: false,
+        barrierColor: Colors.black87,
+      ),
     );
   }
 
@@ -2633,36 +3081,6 @@ class _FeedScreenState extends State<FeedScreen> {
             ],
           ),
         ),
-      ),
-    );
-  }
-
-  // Ouvre une image/vidéo en mode "reels" pour navigation verticale
-  void _openMediaInReelsMode(BuildContext context, String mediaUrl, bool isVideo, Map<String, dynamic> post) {
-    Navigator.of(context).push(
-      PageRouteBuilder(
-        transitionDuration: const Duration(milliseconds: 300),
-        pageBuilder: (context, animation, secondaryAnimation) {
-          final curveTween = CurveTween(curve: Curves.easeOut);
-          final fadeTween = Tween<double>(begin: 0.0, end: 1.0);
-          final fadeAnimation = animation.drive(fadeTween.chain(curveTween));
-          
-          return FadeTransition(
-            opacity: fadeAnimation,
-            child: ReelsViewScreen(
-              initialMediaUrl: mediaUrl, 
-              isVideo: isVideo,
-              postData: post,
-              userId: widget.userId,
-              onLike: _likePost,
-              onInterested: _markInterested,
-              onChoice: _markChoice,
-              onComment: () => _showCommentsSheet(context, post),
-            ),
-          );
-        },
-        opaque: false,
-        barrierColor: Colors.black87,
       ),
     );
   }

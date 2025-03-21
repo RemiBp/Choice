@@ -8,6 +8,7 @@ import 'map_leisure_screen.dart';
 import 'dart:math' as Math;
 import 'eventLeisure_screen.dart'; // Import nécessaire pour afficher les événements
 import '../utils/leisureHelpers.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 class ProducerLeisureScreen extends StatefulWidget {
   final String producerId;
@@ -34,33 +35,6 @@ class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> with Sing
   late TabController _tabController;
   bool _isFollowing = false;
 
-  @override
-  void initState() {
-    super.initState();
-    
-    // Initialize TabController
-    _tabController = TabController(length: 2, vsync: this);
-    
-    // If producerData is provided, use it directly
-    if (widget.producerData != null) {
-      setState(() {
-        _producerData = widget.producerData;
-        _isLoading = false;
-        // Extract the producer ID from producerData if needed
-        _producerId = widget.producerData!['_id'] ?? '';
-      });
-    } else {
-      // Otherwise, use the provided producerId and fetch data
-      _producerId = widget.producerId;
-      _fetchProducerDetails();
-    }
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
 
   Future<void> _fetchProducerDetails() async {
     try {
@@ -269,6 +243,91 @@ class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> with Sing
     }
   }
 
+  // Stocke les posts du producteur
+  List<dynamic> _producerPosts = [];
+  bool _isLoadingPosts = false;
+  bool _hasPostsError = false;
+
+  // Fonction pour récupérer les posts du producteur
+  Future<void> _fetchProducerPosts() async {
+    if (_producerId.isEmpty) return;
+    
+    setState(() {
+      _isLoadingPosts = true;
+      _hasPostsError = false;
+    });
+    
+    try {
+      // Extraire le domaine et le protocole de l'URL complète
+      final baseUrl = getBaseUrl();
+      Uri url;
+      
+      if (baseUrl.startsWith('http://')) {
+        final domain = baseUrl.replaceFirst('http://', '');
+        url = Uri.http(domain, '/api/posts', {
+          'producerId': _producerId,
+          'limit': '10'
+        });
+      } else if (baseUrl.startsWith('https://')) {
+        final domain = baseUrl.replaceFirst('https://', '');
+        url = Uri.https(domain, '/api/posts', {
+          'producerId': _producerId,
+          'limit': '10'
+        });
+      } else {
+        url = Uri.parse('$baseUrl/api/posts?producerId=$_producerId&limit=10');
+      }
+      
+      final response = await http.get(url);
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        setState(() {
+          _producerPosts = data;
+          _isLoadingPosts = false;
+        });
+        print('✅ Posts du producteur récupérés : ${_producerPosts.length} posts');
+      } else {
+        setState(() {
+          _isLoadingPosts = false;
+          _hasPostsError = true;
+        });
+        print('❌ Erreur lors de la récupération des posts du producteur : ${response.statusCode}');
+      }
+    } catch (e) {
+      setState(() {
+        _isLoadingPosts = false;
+        _hasPostsError = true;
+      });
+      print('❌ Erreur réseau lors de la récupération des posts : $e');
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    
+    // Initialize TabController with 3 tabs (Events, Posts, Location)
+    _tabController = TabController(length: 3, vsync: this);
+    
+    // If producerData is provided, use it directly
+    if (widget.producerData != null) {
+      setState(() {
+        _producerData = widget.producerData;
+        _isLoading = false;
+        // Extract the producer ID from producerData if needed
+        _producerId = widget.producerData!['_id'] ?? '';
+        
+        // Fetch posts once we have the producer ID
+        _fetchProducerPosts();
+      });
+    } else {
+      // Otherwise, use the provided producerId and fetch data
+      _producerId = widget.producerId;
+      _fetchProducerDetails();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     // Afficher un indicateur de chargement
@@ -315,7 +374,7 @@ class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> with Sing
                 style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 32),
               ElevatedButton.icon(
                 onPressed: () {
                   setState(() {
@@ -340,7 +399,532 @@ class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> with Sing
         ),
       );
     }
+  // Widget pour les compteurs d'interaction
+  Widget _buildInteractionCounter(IconData icon, Color color, int count, String label) {
+    return Column(
+      children: [
+        Icon(icon, color: count > 0 ? color : Colors.grey),
+        const SizedBox(height: 4),
+        Text(
+          count.toString(),
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: count > 0 ? color : Colors.grey,
+          ),
+        ),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 10,
+            color: Colors.grey[600],
+          ),
+        ),
+      ],
+    );
+  }
+  
+  // Widget pour afficher un message quand il n'y a pas de posts
+  Widget _buildEmptyPostsMessage() {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 40.0),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.grey.withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.article_outlined,
+              size: 40,
+              color: Colors.grey[400],
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Aucune publication disponible',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+              color: Colors.grey[600],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Revenez bientôt pour voir les nouvelles publications',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey[500],
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+  
+  // Widget pour afficher un message d'erreur lors du chargement des posts
+  Widget _buildPostsErrorWidget() {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 32.0),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.red.withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.error_outline,
+              size: 40,
+              color: Colors.red,
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'Erreur lors du chargement des posts',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+              color: Colors.red,
+            ),
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton.icon(
+            onPressed: _fetchProducerPosts,
+            icon: const Icon(Icons.refresh),
+            label: const Text('Réessayer'),
+            style: ElevatedButton.styleFrom(
+              foregroundColor: Colors.white,
+              backgroundColor: Colors.blue,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  // Helper to navigate to event details
+  Future<void> _navigateToEventDetails(BuildContext context, String eventId) async {
+    setState(() {
+      _isLoading = true;
+    });
+    print('🔍 Navigation vers l\'événement avec ID : $eventId');
 
+    try {
+      // Utiliser notre fonction améliorée pour extraire l'ID proprement
+      final cleanId = extractEventId(eventId);
+      print('🔍 ID extrait : $cleanId');
+      
+      if (cleanId.isEmpty) {
+        throw Exception("ID d'événement invalide");
+      }
+      
+      // Extraire le domaine et le protocole de l'URL complète
+      final baseUrl = getBaseUrl();
+      Uri url;
+      
+      // Construire l'URL avec le chemin normalisé
+      final apiPath = normalizeCollectionRoute('events', cleanId);
+      
+      if (baseUrl.startsWith('http://')) {
+        // Si c'est http://
+        final domain = baseUrl.replaceFirst('http://', '');
+        url = Uri.http(domain, apiPath);
+      } else if (baseUrl.startsWith('https://')) {
+        // Si c'est https://
+        final domain = baseUrl.replaceFirst('https://', '');
+        url = Uri.https(domain, apiPath);
+      } else {
+        // Utiliser Uri.parse comme solution de secours
+        url = Uri.parse('$baseUrl$apiPath');
+      }
+      
+      final response = await http.get(url);
+
+      // Si première tentative échoue, essayer un chemin alternatif
+      if (response.statusCode != 200) {
+        print('⚠️ Premier appel API a échoué, tentative avec un autre endpoint...');
+        final alternativeApiPath = apiPath.contains('events') 
+            ? apiPath.replaceAll('events', 'evenements') 
+            : apiPath.replaceAll('evenements', 'events');
+            
+        if (baseUrl.startsWith('http://')) {
+          url = Uri.http(baseUrl.replaceFirst('http://', ''), alternativeApiPath);
+        } else {
+          url = Uri.https(baseUrl.replaceFirst('https://', ''), alternativeApiPath);
+        }
+        
+        final secondResponse = await http.get(url);
+        
+        if (secondResponse.statusCode == 200) {
+          // Utiliser les données de la deuxième tentative
+          final data = json.decode(secondResponse.body);
+          setState(() {
+            _isLoading = false;
+          });
+          
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => EventLeisureScreen(
+                eventData: data,
+              ),
+            ),
+          );
+          return;
+        }
+      } else {
+        // La première requête a réussi
+        final data = json.decode(response.body);
+        setState(() {
+          _isLoading = false;
+        });
+        
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => EventLeisureScreen(
+              eventData: data,
+            ),
+          ),
+        );
+        return;
+      }
+      
+      // Si on arrive ici, les deux tentatives ont échoué
+      setState(() {
+        _isLoading = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Événement introuvable. ID: $cleanId"),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } catch (e) {
+      // Gestion des erreurs réseau
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Erreur réseau : $e"),
+          backgroundColor: Colors.red,
+        ),
+      );
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+  
+  // Widget pour afficher un post
+  Widget _buildPostItem(Map<String, dynamic> post) {
+    // Extraire les informations du post
+    final String content = post['content'] ?? 'Contenu non disponible';
+    final List<dynamic> media = post['media'] ?? [];
+    final bool isAutomated = post['is_automated'] == true;
+    final String postedAt = post['time_posted'] ?? DateTime.now().toIso8601String();
+    final int likesCount = post['likes_count'] ?? 0;
+    final int commentsCount = post['comments_count'] ?? 0;
+    final int interestedCount = post['interested_count'] ?? 0;
+    final int choiceCount = post['choice_count'] ?? 0;
+    final eventId = post['referenced_event_id'];
+    
+    // Formatage de la date
+    String formattedDate = '';
+    try {
+      final DateTime date = DateTime.parse(postedAt);
+      formattedDate = DateFormat('dd MMM yyyy').format(date);
+    } catch (e) {
+      formattedDate = 'Date inconnue';
+    }
+    
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      elevation: 4,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // En-tête du post avec avatar et badge automated si nécessaire
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Row(
+              children: [
+                // Avatar du producteur
+                CircleAvatar(
+                  radius: 20,
+                  backgroundImage: CachedNetworkImageProvider(
+                    getProducerImageUrl(_producerData!),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                // Nom et date
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _producerData!['lieu'] ?? 'Nom non spécifié',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                      Text(
+                        formattedDate,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                // Badge si le post est automatisé
+                if (isAutomated)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: Colors.blue.withOpacity(0.3),
+                        width: 1,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.auto_awesome, size: 14, color: Colors.blue.shade700),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Auto',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.blue.shade700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          
+          // Contenu du post
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Text(
+              content,
+              style: const TextStyle(fontSize: 16),
+              maxLines: 5,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          
+          // Media (images) s'il y en a
+          if (media.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12.0),
+              child: SizedBox(
+                height: 200,
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: media.length,
+                  itemBuilder: (context, index) {
+                    final mediaItem = media[index];
+                    final String url = mediaItem is Map ? (mediaItem['url'] ?? '') : mediaItem.toString();
+                    
+                    return Container(
+                      margin: const EdgeInsets.only(left: 16.0, right: 8.0),
+                      width: 160,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.1),
+                            blurRadius: 4,
+                            spreadRadius: 1,
+                          ),
+                        ],
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: CachedNetworkImage(
+                          imageUrl: url,
+                          fit: BoxFit.cover,
+                          placeholder: (context, url) => Container(
+                            color: Colors.grey[300],
+                            child: const Center(
+                              child: CircularProgressIndicator(),
+                            ),
+                          ),
+                          errorWidget: (context, url, error) => Container(
+                            color: Colors.grey[300],
+                            child: const Icon(Icons.error),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+            
+          // Section événement référencé si présent
+          if (eventId != null)
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: InkWell(
+                onTap: () => _navigateToEventDetails(context, eventId),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.purple.withOpacity(0.05),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: Colors.purple.withOpacity(0.3),
+                      width: 1,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.event,
+                        color: Colors.purple.shade700,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Voir l\'événement associé',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: Colors.purple.shade700,
+                          ),
+                        ),
+                      ),
+                      Icon(
+                        Icons.arrow_forward_ios,
+                        size: 16,
+                        color: Colors.purple.shade700,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            
+          // Barre d'interactions (compteurs)
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                // Likes
+                _buildInteractionCounter(
+                  Icons.favorite,
+                  Colors.red,
+                  likesCount,
+                  'J\'aime',
+                ),
+                
+                // Comments
+                _buildInteractionCounter(
+                  Icons.chat_bubble,
+                  Colors.blue,
+                  commentsCount,
+                  'Commentaires',
+                ),
+                
+                // Interested
+                _buildInteractionCounter(
+                  Icons.star,
+                  Colors.amber,
+                  interestedCount,
+                  'Intéressés',
+                ),
+                
+                // Choice
+                _buildInteractionCounter(
+                  Icons.check_circle,
+                  Colors.green,
+                  choiceCount,
+                  'Choix',
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  // Section pour afficher les posts du producteur
+  Widget _buildPostsSection() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Titre de la section avec icône
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.article, color: Colors.blue, size: 24),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                'Publications',
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.blue,
+                  letterSpacing: 0.5,
+                ),
+              ),
+              const Spacer(),
+              // Bouton pour rafraîchir les posts
+              IconButton(
+                icon: Icon(Icons.refresh, color: Colors.blue.shade400),
+                onPressed: _fetchProducerPosts,
+              ),
+            ],
+          ),
+          
+          const SizedBox(height: 16),
+          
+          // Affichage des posts
+          _isLoadingPosts
+              ? const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(32.0),
+                    child: CircularProgressIndicator(),
+                  ),
+                )
+              : _hasPostsError
+                  ? _buildPostsErrorWidget()
+                  : _producerPosts.isEmpty
+                      ? _buildEmptyPostsMessage()
+                      : Column(
+                          children: _producerPosts.map<Widget>((post) => _buildPostItem(post)).toList(),
+                        ),
+        ],
+      ),
+    );
+  }
     // Si les données sont chargées mais nulles
     if (_producerData == null) {
       return Scaffold(
@@ -397,22 +981,93 @@ class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> with Sing
     }
 
     return Scaffold(
-      body: CustomScrollView(
-        slivers: [
-          _buildSliverAppBar(_producerData!),
-          SliverList(
-            delegate: SliverChildListDelegate([
+      body: DefaultTabController(
+        length: 3,
+        child: NestedScrollView(
+          headerSliverBuilder: (context, innerBoxIsScrolled) {
+            return [
+              _buildSliverAppBar(_producerData!),
+              SliverPersistentHeader(
+                delegate: _SliverAppBarDelegate(
+                  TabBar(
+                    controller: _tabController,
+                    tabs: const [
+                      Tab(
+                        icon: Icon(Icons.event),
+                        text: "Événements",
+                      ),
+                      Tab(
+                        icon: Icon(Icons.article),
+                        text: "Publications",
+                      ),
+                      Tab(
+                        icon: Icon(Icons.place),
+                        text: "Localisation",
+                      ),
+                    ],
+                    labelColor: Colors.deepPurple,
+                    unselectedLabelColor: Colors.grey,
+                    indicatorColor: Colors.deepPurple,
+                  ),
+                ),
+                pinned: true,
+              ),
+            ];
+          },
+          body: Column(
+            children: [
               _buildProfileActions(_producerData!),
-              const SizedBox(height: 16),
-              _buildTabSection(upcomingEvents, pastEvents),
-              const SizedBox(height: 24),
-              if (coordinates != null) _buildMap(coordinates),
-              const SizedBox(height: 24),
-              _buildMapButton(),
-              const SizedBox(height: 24),
-            ]),
+              Expanded(
+                child: TabBarView(
+                  controller: _tabController,
+                  children: [
+                    // Events Tab
+                    SingleChildScrollView(
+                      child: _buildTabSection(upcomingEvents, pastEvents),
+                    ),
+                    
+                    // Posts Tab
+                    SingleChildScrollView(
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 16.0),
+                        child: _isLoadingPosts
+                          ? const Center(
+                              child: Padding(
+                                padding: EdgeInsets.all(32.0),
+                                child: CircularProgressIndicator(),
+                              ),
+                            )
+                          : _hasPostsError
+                            ? _buildPostsErrorWidget()
+                            : _producerPosts.isEmpty
+                              ? _buildEmptyPostsMessage()
+                              : Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                                  child: Column(
+                                    children: _producerPosts.map<Widget>((post) => _buildPostItem(post)).toList(),
+                                  ),
+                                ),
+                      ),
+                    ),
+                    
+                    // Location Tab
+                    SingleChildScrollView(
+                      child: Column(
+                        children: [
+                          const SizedBox(height: 16),
+                          if (coordinates != null) _buildMap(coordinates),
+                          const SizedBox(height: 16),
+                          _buildMapButton(),
+                          const SizedBox(height: 16),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -1633,5 +2288,31 @@ class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> with Sing
         ],
       ),
     );
+  }
+}
+
+// Delegate pour gérer la taille et le comportement de l'en-tête persistant de la barre d'onglets
+class _SliverAppBarDelegate extends SliverPersistentHeaderDelegate {
+  _SliverAppBarDelegate(this.tabBar);
+
+  final TabBar tabBar;
+
+  @override
+  double get minExtent => tabBar.preferredSize.height;
+  @override
+  double get maxExtent => tabBar.preferredSize.height;
+
+  @override
+  Widget build(
+      BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return Container(
+      color: Colors.white,
+      child: tabBar,
+    );
+  }
+
+  @override
+  bool shouldRebuild(_SliverAppBarDelegate oldDelegate) {
+    return false;
   }
 }

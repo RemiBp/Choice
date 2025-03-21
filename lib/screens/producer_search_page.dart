@@ -18,126 +18,447 @@ class ProducerSearchPage extends StatefulWidget {
 }
 
 class _ProducerSearchPageState extends State<ProducerSearchPage> {
+  // Résultats de recherche et états de chargement
   List<dynamic> _searchResults = [];
   String _query = "";
   bool _isLoading = false;
   String _errorMessage = "";
   final TextEditingController _searchController = TextEditingController();
 
-  // Ces listes seraient normalement remplies par des appels backend
-  // Pour l'instant on utilise des données statiques pour l'affichage
-  final List<Map<String, dynamic>> _trendingNow = [
-    {
-      'id': '1',
-      'type': 'restaurant',
-      'name': 'Le Petit Bistrot',
-      'image': 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=500&q=80',
-      'rating': 4.8,
-      'category': 'Cuisine française'
-    },
-    {
-      'id': '2',
-      'type': 'event',
-      'name': 'Festival Jazz des Puces',
-      'image': 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=500&q=80',
-      'rating': 4.5,
-      'category': 'Concert'
-    },
-    {
-      'id': '3',
-      'type': 'leisureProducer',
-      'name': 'Escape Game "Mystery Room"',
-      'image': 'https://images.unsplash.com/photo-1517263904808-5dc91e3e7044?w=500&q=80',
-      'rating': 4.7,
-      'category': 'Divertissement'
-    },
-  ];
+  // États de chargement pour chaque section
+  bool _isLoadingTrending = true;
+  bool _isLoadingNearby = true;
+  bool _isLoadingFriends = true;
+  bool _isLoadingInnovative = true;
+  bool _isLoadingSurprise = true;
   
-  final List<Map<String, dynamic>> _popularNearby = [
-    {
-      'id': '4',
-      'type': 'restaurant',
-      'name': 'Sushi Fusion',
-      'image': 'https://images.unsplash.com/photo-1579871494447-9811cf80d66c?w=500&q=80',
-      'rating': 4.6,
-      'category': 'Japonais'
-    },
-    {
-      'id': '5',
-      'type': 'leisureProducer',
-      'name': 'Cinéma Le Palace',
-      'image': 'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=500&q=80',
-      'rating': 4.3,
-      'category': 'Cinéma'
-    },
-    {
-      'id': '6',
-      'type': 'event',
-      'name': 'Exposition Picasso',
-      'image': 'https://images.unsplash.com/photo-1531058020387-3be344556be6?w=500&q=80',
-      'rating': 4.9,
-      'category': 'Art'
-    },
-  ];
+  // Messages d'erreur pour chaque section
+  String _trendingError = "";
+  String _nearbyError = "";
+  String _friendsError = "";
+  String _innovativeError = "";
+  String _surpriseError = "";
   
-  final List<Map<String, dynamic>> _bestFriendsExperiences = [
-    {
-      'id': '7',
-      'type': 'restaurant',
-      'name': 'La Trattoria',
-      'image': 'https://images.unsplash.com/photo-1481833761820-0509d3217039?w=500&q=80',
-      'rating': 4.7,
-      'category': 'Italien'
-    },
-    {
-      'id': '8',
-      'type': 'event',
-      'name': 'Concert Live Band',
-      'image': 'https://images.unsplash.com/photo-1501281668745-f7f57925c3b4?w=500&q=80',
-      'rating': 4.4,
-      'category': 'Musique'
-    },
-  ];
+  // Données pour chaque section - remplies dynamiquement via API
+  List<dynamic> _trendingNow = [];
+  List<dynamic> _popularNearby = [];
+  List<dynamic> _bestFriendsExperiences = [];
+  List<dynamic> _innovative = [];
+  List<dynamic> _surprise = [];
   
-  final List<Map<String, dynamic>> _innovative = [
-    {
-      'id': '9',
-      'type': 'leisureProducer',
-      'name': 'VR Experience Center',
-      'image': 'https://images.unsplash.com/photo-1478416272538-5f7e51dc5400?w=500&q=80',
-      'rating': 4.8,
-      'category': 'Réalité Virtuelle'
-    },
-    {
-      'id': '10',
-      'type': 'restaurant',
-      'name': 'Dark Dinner',
-      'image': 'https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=500&q=80',
-      'rating': 4.5,
-      'category': 'Expérience culinaire'
-    },
-  ];
+  @override
+  void initState() {
+    super.initState();
+    // Charger les données de toutes les sections
+    _fetchTrendingItems();
+    _fetchNearbyItems();
+    _fetchFriendsExperiences();
+    _fetchInnovativeItems();
+    _fetchSurpriseItems();
+  }
   
-  final List<Map<String, dynamic>> _surprise = [
-    {
-      'id': '11',
-      'type': 'event',
-      'name': 'Théâtre d\'improvisation',
-      'image': 'https://images.unsplash.com/photo-1503095396549-807759245b35?w=500&q=80',
-      'rating': 4.6,
-      'category': 'Théâtre'
-    },
-    {
-      'id': '12',
-      'type': 'leisureProducer',
-      'name': 'Laser Game Nature',
-      'image': 'https://images.unsplash.com/photo-1551892374-ecf8754cf8b0?w=500&q=80',
-      'rating': 4.4,
-      'category': 'Activité plein air'
-    },
-  ];
+  /// Récupère les tendances actuelles
+  Future<void> _fetchTrendingItems() async {
+    setState(() {
+      _isLoadingTrending = true;
+      _trendingError = "";
+    });
+    
+    try {
+      final baseUrl = getBaseUrl();
+      Uri url;
+      
+      if (baseUrl.startsWith('http://')) {
+        final domain = baseUrl.replaceFirst('http://', '');
+        url = Uri.http(domain, '/api/unified/trending');
+      } else if (baseUrl.startsWith('https://')) {
+        final domain = baseUrl.replaceFirst('https://', '');
+        url = Uri.https(domain, '/api/unified/trending');
+      } else {
+        url = Uri.parse('$baseUrl/api/unified/trending');
+      }
+      
+      final response = await http.get(url).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => throw Exception("Délai d'attente dépassé"),
+      );
+      
+      if (response.statusCode == 200) {
+        setState(() {
+          _trendingNow = _transformApiData(json.decode(response.body));
+          _isLoadingTrending = false;
+        });
+      } else {
+        throw Exception("Erreur ${response.statusCode}: ${response.body}");
+      }
+    } catch (e) {
+      print('❌ Erreur lors du chargement des tendances: $e');
+      setState(() {
+        _trendingError = "Impossible de charger les tendances";
+        _isLoadingTrending = false;
+        
+        // Données de secours si l'API échoue
+        _trendingNow = [
+          {
+            'id': '1',
+            'type': 'restaurant',
+            'name': 'Le Petit Bistrot',
+            'image': 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=500&q=80',
+            'rating': 4.8,
+            'category': 'Cuisine française'
+          },
+          {
+            'id': '2',
+            'type': 'event',
+            'name': 'Festival Jazz des Puces',
+            'image': 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=500&q=80',
+            'rating': 4.5,
+            'category': 'Concert'
+          },
+        ];
+      });
+    }
+  }
+  
+  /// Récupère les lieux populaires à proximité
+  Future<void> _fetchNearbyItems() async {
+    setState(() {
+      _isLoadingNearby = true;
+      _nearbyError = "";
+    });
+    
+    try {
+      final baseUrl = getBaseUrl();
+      Uri url;
+      
+      if (baseUrl.startsWith('http://')) {
+        final domain = baseUrl.replaceFirst('http://', '');
+        url = Uri.http(domain, '/api/unified/nearby');
+      } else if (baseUrl.startsWith('https://')) {
+        final domain = baseUrl.replaceFirst('https://', '');
+        url = Uri.https(domain, '/api/unified/nearby');
+      } else {
+        url = Uri.parse('$baseUrl/api/unified/nearby');
+      }
+      
+      // Paramètres optionnels pour la localisation
+      // Idéalement on utiliserait la position réelle de l'utilisateur
+      final params = {
+        'lat': '48.8566',  // Paris par défaut
+        'lng': '2.3522',
+        'radius': '5000',  // 5km
+      };
+      
+      url = url.replace(queryParameters: params);
+      
+      final response = await http.get(url).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => throw Exception("Délai d'attente dépassé"),
+      );
+      
+      if (response.statusCode == 200) {
+        setState(() {
+          _popularNearby = _transformApiData(json.decode(response.body));
+          _isLoadingNearby = false;
+        });
+      } else {
+        throw Exception("Erreur ${response.statusCode}: ${response.body}");
+      }
+    } catch (e) {
+      print('❌ Erreur lors du chargement des lieux à proximité: $e');
+      setState(() {
+        _nearbyError = "Impossible de charger les lieux à proximité";
+        _isLoadingNearby = false;
+        
+        // Données de secours
+        _popularNearby = [
+          {
+            'id': '4',
+            'type': 'restaurant',
+            'name': 'Sushi Fusion',
+            'image': 'https://images.unsplash.com/photo-1579871494447-9811cf80d66c?w=500&q=80',
+            'rating': 4.6,
+            'category': 'Japonais'
+          },
+          {
+            'id': '5',
+            'type': 'leisureProducer',
+            'name': 'Cinéma Le Palace',
+            'image': 'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=500&q=80',
+            'rating': 4.3,
+            'category': 'Cinéma'
+          },
+        ];
+      });
+    }
+  }
+  
+  /// Récupère les expériences des amis de l'utilisateur
+  Future<void> _fetchFriendsExperiences() async {
+    setState(() {
+      _isLoadingFriends = true;
+      _friendsError = "";
+    });
+    
+    try {
+      final baseUrl = getBaseUrl();
+      Uri url;
+      
+      if (baseUrl.startsWith('http://')) {
+        final domain = baseUrl.replaceFirst('http://', '');
+        url = Uri.http(domain, '/api/unified/friends-experiences');
+      } else if (baseUrl.startsWith('https://')) {
+        final domain = baseUrl.replaceFirst('https://', '');
+        url = Uri.https(domain, '/api/unified/friends-experiences');
+      } else {
+        url = Uri.parse('$baseUrl/api/unified/friends-experiences');
+      }
+      
+      // Ajouter l'ID de l'utilisateur
+      final params = {
+        'userId': widget.userId,
+      };
+      
+      url = url.replace(queryParameters: params);
+      
+      final response = await http.get(url).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => throw Exception("Délai d'attente dépassé"),
+      );
+      
+      if (response.statusCode == 200) {
+        setState(() {
+          _bestFriendsExperiences = _transformApiData(json.decode(response.body));
+          _isLoadingFriends = false;
+        });
+      } else {
+        throw Exception("Erreur ${response.statusCode}: ${response.body}");
+      }
+    } catch (e) {
+      print('❌ Erreur lors du chargement des expériences des amis: $e');
+      setState(() {
+        _friendsError = "Impossible de charger les expériences de vos amis";
+        _isLoadingFriends = false;
+        
+        // Données de secours
+        _bestFriendsExperiences = [
+          {
+            'id': '7',
+            'type': 'restaurant',
+            'name': 'La Trattoria',
+            'image': 'https://images.unsplash.com/photo-1481833761820-0509d3217039?w=500&q=80',
+            'rating': 4.7,
+            'category': 'Italien'
+          },
+          {
+            'id': '8',
+            'type': 'event',
+            'name': 'Concert Live Band',
+            'image': 'https://images.unsplash.com/photo-1501281668745-f7f57925c3b4?w=500&q=80',
+            'rating': 4.4,
+            'category': 'Musique'
+          },
+        ];
+      });
+    }
+  }
+  
+  /// Récupère les expériences innovantes
+  Future<void> _fetchInnovativeItems() async {
+    setState(() {
+      _isLoadingInnovative = true;
+      _innovativeError = "";
+    });
+    
+    try {
+      final baseUrl = getBaseUrl();
+      Uri url;
+      
+      if (baseUrl.startsWith('http://')) {
+        final domain = baseUrl.replaceFirst('http://', '');
+        url = Uri.http(domain, '/api/unified/innovative');
+      } else if (baseUrl.startsWith('https://')) {
+        final domain = baseUrl.replaceFirst('https://', '');
+        url = Uri.https(domain, '/api/unified/innovative');
+      } else {
+        url = Uri.parse('$baseUrl/api/unified/innovative');
+      }
+      
+      final response = await http.get(url).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => throw Exception("Délai d'attente dépassé"),
+      );
+      
+      if (response.statusCode == 200) {
+        setState(() {
+          _innovative = _transformApiData(json.decode(response.body));
+          _isLoadingInnovative = false;
+        });
+      } else {
+        throw Exception("Erreur ${response.statusCode}: ${response.body}");
+      }
+    } catch (e) {
+      print('❌ Erreur lors du chargement des expériences innovantes: $e');
+      setState(() {
+        _innovativeError = "Impossible de charger les expériences innovantes";
+        _isLoadingInnovative = false;
+        
+        // Données de secours
+        _innovative = [
+          {
+            'id': '9',
+            'type': 'leisureProducer',
+            'name': 'VR Experience Center',
+            'image': 'https://images.unsplash.com/photo-1478416272538-5f7e51dc5400?w=500&q=80',
+            'rating': 4.8,
+            'category': 'Réalité Virtuelle'
+          },
+          {
+            'id': '10',
+            'type': 'restaurant',
+            'name': 'Dark Dinner',
+            'image': 'https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=500&q=80',
+            'rating': 4.5,
+            'category': 'Expérience culinaire'
+          },
+        ];
+      });
+    }
+  }
+  
+  /// Récupère les expériences surprises
+  Future<void> _fetchSurpriseItems() async {
+    setState(() {
+      _isLoadingSurprise = true;
+      _surpriseError = "";
+    });
+    
+    try {
+      final baseUrl = getBaseUrl();
+      Uri url;
+      
+      if (baseUrl.startsWith('http://')) {
+        final domain = baseUrl.replaceFirst('http://', '');
+        url = Uri.http(domain, '/api/unified/surprise');
+      } else if (baseUrl.startsWith('https://')) {
+        final domain = baseUrl.replaceFirst('https://', '');
+        url = Uri.https(domain, '/api/unified/surprise');
+      } else {
+        url = Uri.parse('$baseUrl/api/unified/surprise');
+      }
+      
+      final response = await http.get(url).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => throw Exception("Délai d'attente dépassé"),
+      );
+      
+      if (response.statusCode == 200) {
+        setState(() {
+          _surprise = _transformApiData(json.decode(response.body));
+          _isLoadingSurprise = false;
+        });
+      } else {
+        throw Exception("Erreur ${response.statusCode}: ${response.body}");
+      }
+    } catch (e) {
+      print('❌ Erreur lors du chargement des surprises: $e');
+      setState(() {
+        _surpriseError = "Impossible de charger les surprises";
+        _isLoadingSurprise = false;
+        
+        // Données de secours
+        _surprise = [
+          {
+            'id': '11',
+            'type': 'event',
+            'name': 'Théâtre d\'improvisation',
+            'image': 'https://images.unsplash.com/photo-1503095396549-807759245b35?w=500&q=80',
+            'rating': 4.6,
+            'category': 'Théâtre'
+          },
+          {
+            'id': '12',
+            'type': 'leisureProducer',
+            'name': 'Laser Game Nature',
+            'image': 'https://images.unsplash.com/photo-1551892374-ecf8754cf8b0?w=500&q=80',
+            'rating': 4.4,
+            'category': 'Activité plein air'
+          },
+        ];
+      });
+    }
+  }
+  
+  /// Transforme les données de l'API en format utilisable pour l'UI
+  List<Map<String, dynamic>> _transformApiData(List<dynamic> apiData) {
+    return apiData.map((item) {
+      // Déterminer le type
+      String type = item['type'] ?? 'unknown';
+      
+      // Extraire l'ID
+      String id = item['_id'] ?? '';
+      
+      // Extraire le nom selon le type
+      String name = '';
+      if (type == 'leisureProducer') {
+        name = item['lieu'] ?? item['nom'] ?? item['name'] ?? 'Sans nom';
+      } else if (type == 'restaurant') {
+        name = item['name'] ?? item['établissement'] ?? 'Sans nom';
+      } else if (type == 'event') {
+        name = item['intitulé'] ?? item['titre'] ?? item['name'] ?? 'Sans nom';
+      } else {
+        name = item['name'] ?? 'Sans nom';
+      }
+      
+      // Extraire l'image
+      String image = item['photo'] ?? item['image'] ?? item['photo_url'] ?? 
+                    'https://images.unsplash.com/photo-1494253109108-2e30c049369b?w=500&q=80';
+      
+      // Extraire la note
+      double rating = 0.0;
+      if (item['note'] != null) {
+        rating = item['note'] is double ? item['note'] : double.parse(item['note'].toString());
+      } else if (item['rating'] != null) {
+        rating = item['rating'] is double ? item['rating'] : double.parse(item['rating'].toString());
+      } else {
+        // Note par défaut
+        rating = 4.0;
+      }
+      
+      // Extraire la catégorie
+      String category = item['catégorie'] ?? item['category'] ?? item['type_cuisine'] ?? 'Non catégorisé';
+      
+      return {
+        'id': id,
+        'type': type,
+        'name': name,
+        'image': image,
+        'rating': rating,
+        'category': category,
+      };
+    }).toList();
+  }
 
-  /// Recherche des producteurs, événements et utilisateurs
+  /// Rafraîchit toutes les sections
+  Future<void> _refreshAllSections() async {
+    await Future.wait([
+      _fetchTrendingItems(),
+      _fetchNearbyItems(),
+      _fetchFriendsExperiences(),
+      _fetchInnovativeItems(),
+      _fetchSurpriseItems(),
+    ]);
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Données actualisées'),
+        duration: Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  /// Recherche des producteurs, événements et utilisateurs via l'API
   Future<void> _searchItems() async {
     if (_query.isEmpty) {
       setState(() {
@@ -341,6 +662,7 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> {
 
   @override
   Widget build(BuildContext context) {
+    // Pull to refresh
     return Scaffold(
       body: SafeArea(
         child: Column(
@@ -407,7 +729,10 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> {
                           ),
                         ),
                       )
-                    : _buildTrendingSections(),
+                    : RefreshIndicator(
+                        onRefresh: _refreshAllSections,
+                        child: _buildTrendingSections(),
+                      ),
             ),
           ],
         ),
@@ -436,51 +761,73 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> {
   }
 
   Widget _buildTrendingSections() {
+    // Liste des sections à construire avec leurs données respectives
+    final sections = [
+      {
+        'title': 'Tendances du moment',
+        'data': _trendingNow,
+        'isLoading': _isLoadingTrending,
+        'error': _trendingError,
+        'color': Colors.purple.shade800,
+        'icon': Icons.trending_up,
+      },
+      {
+        'title': 'Le plus populaire autour de vous',
+        'data': _popularNearby,
+        'isLoading': _isLoadingNearby,
+        'error': _nearbyError,
+        'color': Colors.blue.shade700,
+        'icon': Icons.place,
+      },
+      {
+        'title': 'Les meilleures expériences de vos proches',
+        'data': _bestFriendsExperiences,
+        'isLoading': _isLoadingFriends,
+        'error': _friendsError,
+        'color': Colors.teal.shade700,
+        'icon': Icons.people,
+      },
+      {
+        'title': 'Tenter quelque chose d\'improbable, novateur',
+        'data': _innovative,
+        'isLoading': _isLoadingInnovative,
+        'error': _innovativeError,
+        'color': Colors.amber.shade800,
+        'icon': Icons.lightbulb,
+      },
+      {
+        'title': 'Laissez-vous surprendre',
+        'data': _surprise,
+        'isLoading': _isLoadingSurprise,
+        'error': _surpriseError,
+        'color': Colors.pink.shade700,
+        'icon': Icons.auto_awesome,
+      },
+    ];
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
       padding: const EdgeInsets.symmetric(horizontal: 16.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Tendances du moment
-          _buildTrendingSection(
-            'Tendances du moment', 
-            _trendingNow, 
-            Colors.purple.shade800,
-            Icons.trending_up,
-          ),
-          
-          // Le plus populaire autour de vous
-          _buildTrendingSection(
-            'Le plus populaire autour de vous', 
-            _popularNearby, 
-            Colors.blue.shade700,
-            Icons.place,
-          ),
-          
-          // Les meilleures expériences de vos proches
-          _buildTrendingSection(
-            'Les meilleures expériences de vos proches', 
-            _bestFriendsExperiences, 
-            Colors.teal.shade700,
-            Icons.people,
-          ),
-          
-          // Tenter quelque chose d'improbable, novateur
-          _buildTrendingSection(
-            'Tenter quelque chose d\'improbable, novateur', 
-            _innovative, 
-            Colors.amber.shade800,
-            Icons.lightbulb,
-          ),
-          
-          // Laissez-vous surprendre
-          _buildTrendingSection(
-            'Laissez-vous surprendre', 
-            _surprise, 
-            Colors.pink.shade700,
-            Icons.auto_awesome,
-          ),
+          // Construire dynamiquement toutes les sections
+          ...sections.map((section) {
+            final title = section['title'] as String;
+            final data = section['data'] as List;
+            final isLoading = section['isLoading'] as bool;
+            final error = section['error'] as String;
+            final color = section['color'] as Color;
+            final icon = section['icon'] as IconData;
+            
+            return _buildTrendingSection(
+              title, 
+              data, 
+              color,
+              icon,
+              isLoading: isLoading,
+              errorMessage: error,
+            );
+          }).toList(),
           
           const SizedBox(height: 30),
         ],
@@ -488,7 +835,14 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> {
     );
   }
 
-  Widget _buildTrendingSection(String title, List<Map<String, dynamic>> items, Color accentColor, IconData icon) {
+  Widget _buildTrendingSection(
+    String title, 
+    List<dynamic> items, 
+    Color accentColor, 
+    IconData icon, {
+    bool isLoading = false,
+    String errorMessage = "",
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -534,31 +888,213 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> {
         
         const SizedBox(height: 16),
         
-        // Grille horizontale
+        // Contenu de la section (charge, erreur ou données)
         SizedBox(
           height: 190,
-          child: ListView.builder(
-            scrollDirection: Axis.horizontal,
-            physics: const BouncingScrollPhysics(),
-            itemCount: items.length,
-            itemBuilder: (context, index) {
-              final item = items[index];
-              return _buildItemCard(
-                id: item['id'],
-                type: item['type'],
-                name: item['name'],
-                imageUrl: item['image'],
-                rating: item['rating'],
-                category: item['category'],
-                accentColor: accentColor,
-              );
-            },
-          ),
+          child: isLoading
+              ? _buildSectionLoading(accentColor)
+              : errorMessage.isNotEmpty
+                  ? _buildSectionError(errorMessage, accentColor)
+                  : items.isEmpty
+                      ? _buildEmptySection(accentColor)
+                      : ListView.builder(
+                          scrollDirection: Axis.horizontal,
+                          physics: const BouncingScrollPhysics(),
+                          itemCount: items.length,
+                          itemBuilder: (context, index) {
+                            final item = items[index];
+                            return _buildItemCard(
+                              id: item['id'],
+                              type: item['type'],
+                              name: item['name'],
+                              imageUrl: item['image'],
+                              rating: item['rating'] is double ? item['rating'] : 0.0,
+                              category: item['category'],
+                              accentColor: accentColor,
+                            );
+                          },
+                        ),
         ),
       ],
     );
   }
-
+  // Widget pour afficher un loader pendant le chargement des sections
+  Widget _buildSectionLoading(Color accentColor) {
+    return ListView.builder(
+      scrollDirection: Axis.horizontal,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: 3, // Nombre de skeletons à afficher
+      itemBuilder: (context, index) {
+        return Container(
+          width: 160,
+          margin: const EdgeInsets.only(right: 12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.grey.withOpacity(0.1),
+                spreadRadius: 1,
+                blurRadius: 5,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Image skeleton
+              Container(
+                height: 110,
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: Colors.grey[200],
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(12),
+                    topRight: Radius.circular(12),
+                  ),
+                ),
+                child: Center(
+                  child: SizedBox(
+                    width: 40,
+                    height: 40,
+                    child: CircularProgressIndicator(
+                      valueColor: AlwaysStoppedAnimation<Color>(accentColor.withOpacity(0.5)),
+                      strokeWidth: 2,
+                    ),
+                  ),
+                ),
+              ),
+              
+              // Texte skeleton
+              Padding(
+                padding: const EdgeInsets.all(10.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      height: 14,
+                      width: 120,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      height: 10,
+                      width: 80,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Container(
+                          height: 12,
+                          width: 60,
+                          decoration: BoxDecoration(
+                            color: Colors.grey[300],
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        ),
+                        Container(
+                          height: 12,
+                          width: 40,
+                          decoration: BoxDecoration(
+                            color: Colors.grey[300],
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+  
+  // Widget pour afficher un message d'erreur
+  Widget _buildSectionError(String errorMessage, Color accentColor) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16.0),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            spreadRadius: 1,
+            blurRadius: 5,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.error_outline, color: accentColor, size: 40),
+            const SizedBox(height: 8),
+            Text(
+              errorMessage,
+              style: TextStyle(color: accentColor),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            TextButton.icon(
+              onPressed: _refreshAllSections,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Réessayer'),
+              style: TextButton.styleFrom(
+                foregroundColor: accentColor,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  // Widget pour afficher un message quand il n'y a pas de données
+  Widget _buildEmptySection(Color accentColor) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16.0),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            spreadRadius: 1,
+            blurRadius: 5,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.search_off, color: accentColor.withOpacity(0.5), size: 40),
+            const SizedBox(height: 8),
+            Text(
+              'Aucun résultat trouvé',
+              style: TextStyle(color: accentColor.withOpacity(0.7)),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
   Widget _buildItemCard({
     required String id,
     required String type,
