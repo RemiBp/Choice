@@ -118,31 +118,36 @@ class _FeedScreenState extends State<FeedScreen> {
     }
   }
 
-  /// Effectue la requête HTTP pour récupérer les posts
+  /// Effectue la requête HTTP pour récupérer les posts avec algorithme amélioré
   Future<List<dynamic>> _getFeedData(String userId, int page, int limit) async {
     // Extraire le domaine et le protocole de l'URL complète
     final baseUrl = getBaseUrl();
     Uri url;
     
+    // Paramètres avec prioritization améliorée des posts des followers
+    final queryParams = {
+      'userId': userId,
+      'page': page.toString(),
+      'limit': limit.toString(),
+      'prioritizeFollowers': 'true',     // Prioriser les posts des followers
+      'followersWeight': '3',            // Donner plus de poids aux posts des followers
+      'sort': 'relevance',               // Trier par pertinence plutôt que juste par date
+      'includeFollowed': 'true',         // S'assurer d'inclure les posts des comptes suivis
+      'enhancedAlgorithm': 'true',       // Utiliser l'algorithme amélioré si disponible
+    };
+    
     if (baseUrl.startsWith('http://')) {
       // Si c'est http://
       final domain = baseUrl.replaceFirst('http://', '');
-      url = Uri.http(domain, '/api/posts', {
-        'userId': userId,
-        'page': page.toString(),
-        'limit': limit.toString()
-      });
+      url = Uri.http(domain, '/api/posts', queryParams);
     } else if (baseUrl.startsWith('https://')) {
       // Si c'est https://
       final domain = baseUrl.replaceFirst('https://', '');
-      url = Uri.https(domain, '/api/posts', {
-        'userId': userId,
-        'page': page.toString(),
-        'limit': limit.toString()
-      });
+      url = Uri.https(domain, '/api/posts', queryParams);
     } else {
       // Utiliser Uri.parse comme solution de secours
-      url = Uri.parse('$baseUrl/api/posts?userId=$userId&page=$page&limit=$limit');
+      final queryString = queryParams.entries.map((e) => '${e.key}=${e.value}').join('&');
+      url = Uri.parse('$baseUrl/api/posts?$queryString');
     }
     
     try {
@@ -1318,35 +1323,101 @@ class _FeedScreenState extends State<FeedScreen> {
                                 ],
                               ),
                             ),
-                            // Badge automatisé si le post est généré automatiquement
-                            if (isAutomated)
-                              Container(
-                                margin: const EdgeInsets.only(right: 8.0),
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: Colors.blue.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(
-                                    color: Colors.blue.withOpacity(0.3),
-                                    width: 1,
-                                  ),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(Icons.auto_awesome, size: 14, color: Colors.blue.shade700),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      'Auto',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w500,
-                                        color: Colors.blue.shade700,
+                            // Système de badges amélioré pour différents types de posts
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                // Badge pour post automatisé
+                                if (isAutomated)
+                                  Container(
+                                    margin: const EdgeInsets.only(right: 8.0),
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: Colors.blue.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                        color: Colors.blue.withOpacity(0.3),
+                                        width: 1,
                                       ),
                                     ),
-                                  ],
-                                ),
-                              ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.auto_awesome, size: 14, color: Colors.blue.shade700),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          'Auto',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w500,
+                                            color: Colors.blue.shade700,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  
+                                // Badge pour post de lieu/restaurant
+                                if (post['isProducerPost'] == true)
+                                  Container(
+                                    margin: const EdgeInsets.only(right: 8.0),
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: Colors.deepPurple.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                        color: Colors.deepPurple.withOpacity(0.3),
+                                        width: 1,
+                                      ),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.store, size: 14, color: Colors.deepPurple.shade700),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          isLeisureProducer ? 'Lieu' : 'Restaurant',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w500,
+                                            color: Colors.deepPurple.shade700,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  
+                                // Badge pour post d'événement
+                                if (post['is_event'] == true || referencedEventId != null)
+                                  Container(
+                                    margin: const EdgeInsets.only(right: 8.0),
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: Colors.amber.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                        color: Colors.amber.withOpacity(0.3),
+                                        width: 1,
+                                      ),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.event, size: 14, color: Colors.amber.shade700),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          'Événement',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w500,
+                                            color: Colors.amber.shade700,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                              ],
+                            ),
                             // Options menu
                             Material(
                               color: Colors.transparent,

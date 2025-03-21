@@ -2,6 +2,12 @@ import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'utils.dart';
+import 'package:cached_network_image/cached_network_image.dart'; // Pour les images
+import '../services/ai_service.dart'; // Import du service AI
+import 'producer_screen.dart'; // Pour les détails des restaurants
+import 'producerLeisure_screen.dart'; // Pour les producteurs de loisirs
+import 'eventLeisure_screen.dart'; // Pour les détails des événements
+import 'vibe_map_screen.dart'; // Pour la cartographie sensorielle
 
 class CopilotScreen extends StatefulWidget {
   final String userId;
@@ -17,6 +23,8 @@ class _CopilotScreenState extends State<CopilotScreen> {
   final ScrollController _scrollController = ScrollController();
   final List<Map<String, dynamic>> _conversations = [];
   bool _isLoading = false;
+  final AIService _aiService = AIService(); // Instance du service AI
+  List<ProfileData> _extractedProfiles = []; // Pour stocker les profils extraits
 
   @override
   void dispose() {
@@ -30,6 +38,7 @@ class _CopilotScreenState extends State<CopilotScreen> {
 
     setState(() {
       _isLoading = true;
+      _extractedProfiles = []; // Réinitialiser les profils extraits
       _conversations.add({
         'type': 'user',
         'content': question,
@@ -50,51 +59,51 @@ class _CopilotScreenState extends State<CopilotScreen> {
     });
 
     try {
-      final baseUrl = getBaseUrl();
-      final uri = Uri.parse('$baseUrl/api/copilot/query');
+      // Utiliser le service AI pour obtenir une réponse enrichie
+      AIQueryResponse aiResponse;
+      try {
+        // Premier essai - requête utilisateur standard
+        aiResponse = await _aiService.userQuery(widget.userId, question);
+      } catch (primaryError) {
+        print("⚠️ Premier essai échoué, tentative avec requête simple: $primaryError");
+        try {
+          // Deuxième essai - requête simple (fallback)
+          aiResponse = await _aiService.simpleQuery(question);
+        } catch (secondaryError) {
+          print("❌ Tous les essais ont échoué: $secondaryError");
+          throw secondaryError; // Relance l'erreur pour être attrapée par le bloc catch externe
+        }
+      }
       
-      final response = await http.post(
-        uri,
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({
-          'query': question,
-          'userId': widget.userId,
-        }),
-      );
-
-      if (response.statusCode == 200) {
-        final responseData = json.decode(response.body);
-        
+      // Enregistrer les profils extraits s'il y en a
+      if (aiResponse.profiles.isNotEmpty) {
         setState(() {
-          _conversations.add({
-            'type': 'copilot',
-            'content': responseData['response'],
-            'timestamp': DateTime.now().toIso8601String(),
-          });
-          _isLoading = false;
-        });
-
-        // Scroll to bottom after adding copilot response
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (_scrollController.hasClients) {
-            _scrollController.animateTo(
-              _scrollController.position.maxScrollExtent,
-              duration: const Duration(milliseconds: 300),
-              curve: Curves.easeOut,
-            );
-          }
-        });
-      } else {
-        setState(() {
-          _conversations.add({
-            'type': 'copilot',
-            'content': 'Désolé, je n\'ai pas pu traiter votre demande. Veuillez réessayer.',
-            'timestamp': DateTime.now().toIso8601String(),
-            'error': true,
-          });
-          _isLoading = false;
+          _extractedProfiles = aiResponse.profiles;
         });
       }
+
+      setState(() {
+        _conversations.add({
+          'type': 'copilot',
+          'content': aiResponse.response,
+          'timestamp': DateTime.now().toIso8601String(),
+          'hasProfiles': aiResponse.profiles.isNotEmpty,
+          'intent': aiResponse.intent,
+          'resultCount': aiResponse.resultCount,
+        });
+        _isLoading = false;
+      });
+
+      // Scroll to bottom after adding copilot response
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_scrollController.hasClients) {
+          _scrollController.animateTo(
+            _scrollController.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOut,
+          );
+        }
+      });
     } catch (e) {
       setState(() {
         _conversations.add({
@@ -105,6 +114,157 @@ class _CopilotScreenState extends State<CopilotScreen> {
         });
         _isLoading = false;
       });
+    }
+  }
+
+  // Navigue vers le profil d'un restaurant, loisir ou événement
+  void _navigateToProfile(String type, String id) {
+    print('📊 Navigation vers le profil de type $type avec ID: $id');
+    
+    try {
+      switch (type) {
+        case 'restaurant':
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => ProducerScreen(
+                producerId: id,
+                userId: widget.userId,
+              ),
+            ),
+          );
+          break;
+        case 'leisureProducer':
+          _fetchAndNavigateToLeisureProducer(id);
+          break;
+        case 'event':
+          _fetchAndNavigateToEvent(id);
+          break;
+        default:
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Type de profil non pris en charge: $type')),
+          );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erreur de navigation: $e')),
+      );
+    }
+  }
+
+  // Récupère les données d'un producteur de loisirs et navigue vers son profil
+  Future<void> _fetchAndNavigateToLeisureProducer(String id) async {
+    try {
+      // Afficher un indicateur de chargement
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return const Dialog(
+            backgroundColor: Colors.white,
+            child: Padding(
+              padding: EdgeInsets.all(20.0),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(width: 20),
+                  Text("Chargement des informations..."),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+      
+      final url = Uri.parse('${getBaseUrl()}/api/leisureProducers/$id');
+      final response = await http.get(url);
+      
+      // Fermer l'indicateur de chargement
+      Navigator.of(context).pop();
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ProducerLeisureScreen(producerData: data),
+          ),
+        );
+      } else {
+        throw Exception("Erreur ${response.statusCode}: ${response.body}");
+      }
+    } catch (e) {
+      // Fermer l'indicateur de chargement s'il est encore ouvert
+      if (Navigator.canPop(context)) {
+        Navigator.of(context).pop();
+      }
+      
+      // Afficher un message d'erreur
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Erreur lors du chargement: $e"),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  // Récupère les données d'un événement et navigue vers sa page
+  Future<void> _fetchAndNavigateToEvent(String id) async {
+    try {
+      // Afficher un indicateur de chargement
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return const Dialog(
+            backgroundColor: Colors.white,
+            child: Padding(
+              padding: EdgeInsets.all(20.0),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(width: 20),
+                  Text("Chargement de l'événement..."),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+      
+      final url = Uri.parse('${getBaseUrl()}/api/events/$id');
+      final response = await http.get(url);
+      
+      // Fermer l'indicateur de chargement
+      Navigator.of(context).pop();
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => EventLeisureScreen(eventData: data),
+          ),
+        );
+      } else {
+        throw Exception("Erreur ${response.statusCode}: ${response.body}");
+      }
+    } catch (e) {
+      // Fermer l'indicateur de chargement s'il est encore ouvert
+      if (Navigator.canPop(context)) {
+        Navigator.of(context).pop();
+      }
+      
+      // Afficher un message d'erreur
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Erreur lors du chargement: $e"),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
@@ -123,6 +283,29 @@ class _CopilotScreenState extends State<CopilotScreen> {
         foregroundColor: Colors.black,
         elevation: 1,
         actions: [
+          // Bouton de cartographie sensorielle
+          IconButton(
+            icon: Stack(
+              alignment: Alignment.center,
+              children: [
+                Icon(Icons.mood, color: Colors.deepPurple),
+                Positioned(
+                  top: 0,
+                  right: 0,
+                  child: Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: Colors.amber,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            tooltip: 'Cartographie sensorielle',
+            onPressed: () => _navigateToVibeMap(),
+          ),
           IconButton(
             icon: const Icon(Icons.info_outline),
             onPressed: () => _showHelpDialog(context),
@@ -134,6 +317,30 @@ class _CopilotScreenState extends State<CopilotScreen> {
           // Welcome card at the top
           if (_conversations.isEmpty)
             _buildWelcomeCard(),
+          
+          // Profils extraits par l'IA (si présents)
+          if (_extractedProfiles.isNotEmpty) ...[
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0),
+              child: Text(
+                '📍 Établissements et événements suggérés:',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+            ),
+            Container(
+              height: 180,
+              margin: const EdgeInsets.only(bottom: 10),
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                itemCount: _extractedProfiles.length,
+                padding: const EdgeInsets.symmetric(horizontal: 12.0),
+                itemBuilder: (context, index) {
+                  final profile = _extractedProfiles[index];
+                  return _buildProfileCard(profile);
+                },
+              ),
+            ),
+          ],
           
           // Conversation history
           Expanded(
@@ -161,6 +368,190 @@ class _CopilotScreenState extends State<CopilotScreen> {
           // Input area at the bottom
           _buildInputArea(),
         ],
+      ),
+    );
+  }
+
+  // Construire une carte pour un profil extrait
+  Widget _buildProfileCard(ProfileData profile) {
+    return GestureDetector(
+      onTap: () => _navigateToProfile(profile.type, profile.id),
+      child: Card(
+        elevation: 2,
+        margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Container(
+          width: 160,
+          padding: const EdgeInsets.all(8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Image du profil
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: profile.image != null && profile.image!.isNotEmpty
+                  ? CachedNetworkImage(
+                      imageUrl: profile.image!,
+                      height: 90,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                      placeholder: (context, url) => Container(
+                        height: 90,
+                        color: Colors.grey[200],
+                        child: const Center(
+                          child: SizedBox(
+                            width: 20, 
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2)
+                          ),
+                        ),
+                      ),
+                      errorWidget: (context, url, error) => Container(
+                        height: 90,
+                        color: Colors.grey[200],
+                        child: Center(
+                          child: Icon(
+                            _getIconForType(profile.type),
+                            color: Colors.grey[400],
+                            size: 30,
+                          ),
+                        ),
+                      ),
+                    )
+                  : Container(
+                      height: 90,
+                      color: Colors.grey[200],
+                      width: double.infinity,
+                      child: Center(
+                        child: Icon(
+                          _getIconForType(profile.type),
+                          color: Colors.grey[400],
+                          size: 30,
+                        ),
+                      ),
+                    ),
+              ),
+              
+              const SizedBox(height: 8),
+              
+              // Nom du profil
+              Text(
+                profile.name,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              
+              // Adresse si disponible
+              if (profile.address != null && profile.address!.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2.0),
+                  child: Text(
+                    profile.address!,
+                    style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              
+              // Note et badge de type
+              Padding(
+                padding: const EdgeInsets.only(top: 4.0),
+                child: Row(
+                  children: [
+                    if (profile.rating != null) ...[
+                      const Icon(Icons.star, color: Colors.amber, size: 14),
+                      Text(' ${profile.rating!.toStringAsFixed(1)}',
+                          style: const TextStyle(fontSize: 12)),
+                      const Spacer(),
+                    ] else
+                      const Spacer(),
+                    
+                    // Badge type
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: _getColorForType(profile.type).withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        _getTypeLabel(profile.type),
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: _getColorForType(profile.type),
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Obtenir l'icône correspondant au type
+  IconData _getIconForType(String type) {
+    switch (type) {
+      case 'restaurant':
+        return Icons.restaurant;
+      case 'leisureProducer':
+        return Icons.local_activity;
+      case 'event':
+        return Icons.event;
+      case 'user':
+        return Icons.person;
+      default:
+        return Icons.place;
+    }
+  }
+  
+  // Obtenir la couleur correspondant au type
+  Color _getColorForType(String type) {
+    switch (type) {
+      case 'restaurant':
+        return Colors.orange;
+      case 'leisureProducer':
+        return Colors.purple;
+      case 'event':
+        return Colors.green;
+      case 'user':
+        return Colors.blue;
+      default:
+        return Colors.grey;
+    }
+  }
+  
+  // Obtenir le libellé correspondant au type
+  String _getTypeLabel(String type) {
+    switch (type) {
+      case 'restaurant':
+        return 'Restaurant';
+      case 'leisureProducer':
+        return 'Loisir';
+      case 'event':
+        return 'Événement';
+      case 'user':
+        return 'Utilisateur';
+      default:
+        return type;
+    }
+  }
+
+  // Navigation vers la cartographie sensorielle
+  void _navigateToVibeMap() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => VibeMapScreen(userId: widget.userId),
       ),
     );
   }
@@ -279,6 +670,7 @@ class _CopilotScreenState extends State<CopilotScreen> {
   Widget _buildMessageBubble(Map<String, dynamic> message) {
     final isUser = message['type'] == 'user';
     final hasError = message['error'] == true;
+    final hasProfiles = message['hasProfiles'] == true;
     
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
@@ -313,24 +705,66 @@ class _CopilotScreenState extends State<CopilotScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    message['content'],
-                    style: TextStyle(
-                      color: isUser 
-                          ? Colors.white 
-                          : (hasError ? Colors.red.shade800 : Colors.black87),
-                      fontSize: 16,
-                    ),
-                  ),
+                  if (isUser)
+                    Text(
+                      message['content'],
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                      ),
+                    )
+                  else
+                    hasProfiles
+                      // Message avec des liens cliquables
+                      ? RichText(
+                          text: TextSpan(
+                            style: TextStyle(
+                              color: hasError ? Colors.red.shade800 : Colors.black87,
+                              fontSize: 16,
+                              height: 1.4,
+                            ),
+                            children: AIService.parseMessageWithLinks(
+                              message['content'],
+                              (type, id) => _navigateToProfile(type, id),
+                            ),
+                          ),
+                        )
+                      // Message simple sans liens
+                      : Text(
+                          message['content'],
+                          style: TextStyle(
+                            color: hasError ? Colors.red.shade800 : Colors.black87,
+                            fontSize: 16,
+                          ),
+                        ),
                   const SizedBox(height: 4),
-                  Text(
-                    _formatTimestamp(message['timestamp']),
-                    style: TextStyle(
-                      color: isUser 
-                          ? Colors.white70 
-                          : Colors.grey,
-                      fontSize: 12,
-                    ),
+                  Row(
+                    children: [
+                      Text(
+                        _formatTimestamp(message['timestamp']),
+                        style: TextStyle(
+                          color: isUser ? Colors.white70 : Colors.grey,
+                          fontSize: 12,
+                        ),
+                      ),
+                      if (!isUser && message['resultCount'] != null && message['resultCount'] > 0) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.deepPurple.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            '${message['resultCount']} résultats',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Colors.deepPurple[700],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ],
               ),
@@ -457,6 +891,12 @@ class _CopilotScreenState extends State<CopilotScreen> {
               'Découverte',
               'Explorez de nouveaux lieux et activités dans votre région.',
               Icons.explore,
+            ),
+            const SizedBox(height: 8),
+            _buildHelpItem(
+              'Cartographie sensorielle',
+              'Visualisez des lieux selon vos émotions et ambiances recherchées.',
+              Icons.mood,
             ),
             const SizedBox(height: 8),
             _buildHelpItem(

@@ -90,7 +90,7 @@ class _ChoiceAppState extends State<ChoiceApp> {
       darkTheme: ThemeManager.darkTheme,  // Thème sombre (style X/Twitter)
       themeMode: _themeMode,              // Mode de thème actuel
       debugShowCheckedModeBanner: false,
-      home: authService.isAuthenticated
+      home: authService.isAuthenticated && authService.userId != null && authService.accountType != null
           ? MainNavigation(
               userId: authService.userId!,
               accountType: authService.accountType!,
@@ -805,10 +805,15 @@ class _MainNavigationState extends State<MainNavigation> with WidgetsBindingObse
                   icon: const Icon(Icons.logout),
                   onPressed: () {
                     final authService = Provider.of<AuthService>(context, listen: false);
+                    // Créer une fonction vide de sauvegarde si toggleTheme est null
+                    final safeToggleTheme = widget.toggleTheme ?? (() {});
+                    
                     authService.logout().then((_) {
                       Navigator.of(context).pushAndRemoveUntil(
                         MaterialPageRoute(
-                          builder: (context) => LandingPage(toggleTheme: widget.toggleTheme!),
+                          builder: (context) => LandingPage(
+                            toggleTheme: safeToggleTheme,
+                          ),
                         ),
                         (route) => false,
                       );

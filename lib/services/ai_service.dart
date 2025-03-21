@@ -321,6 +321,46 @@ class AIService {
     }
   }
   
+  /// Génère une cartographie sensorielle basée sur une ambiance ou émotion
+  /// 
+  /// Exemple: vibe = "chaleureux et convivial", location = "Paris 11"
+  Future<Map<String, dynamic>?> generateVibeMap({
+    required String userId,
+    required String vibe,
+    String? location,
+  }) async {
+    try {
+      _log('Génération de cartographie sensorielle: "$vibe" ${location != null ? 'à $location' : ''} (userId: $userId)');
+      
+      final response = await http.post(
+        _formatUrl('api/ai/vibe-map'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'userId': userId,
+          'vibe': vibe,
+          'location': location,
+        }),
+      ).timeout(const Duration(seconds: 30));
+
+      _log('Statut de réponse: ${response.statusCode}');
+      
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        _log('Réponse reçue: ${response.body.length} caractères');
+        
+        // Gérer le cas où la réponse est directement à la racine
+        final responseData = data.containsKey('data') ? data['data'] : data;
+        return responseData;
+      } else {
+        _log('Erreur HTTP: ${response.statusCode}, Corps: ${response.body}');
+        return null;
+      }
+    } catch (e) {
+      _log('Exception lors de la génération de la cartographie sensorielle: $e');
+      return null;
+    }
+  }
+  
   /// Permet de tester la connexion à MongoDB et la disponibilité du service IA
   Future<bool> testMongoConnection() async {
     try {

@@ -18,12 +18,31 @@ class AuthService extends ChangeNotifier {
   factory AuthService() => _instance;
   AuthService._internal();
 
-  // Initialize auth state from storage
+  // Initialize auth state from storage and validate the session
   Future<void> initializeAuth() async {
     final prefs = await SharedPreferences.getInstance();
     _userId = prefs.getString('userId');
     _accountType = prefs.getString('accountType');
     _isAuthenticated = _userId != null;
+    
+    // If we have a stored user ID, validate it
+    if (_isAuthenticated && _accountType != 'guest') {
+      try {
+        final isValid = await validateSession();
+        if (!isValid) {
+          // If the session is invalid, clear auth data
+          _userId = null;
+          _accountType = null;
+          _isAuthenticated = false;
+          await prefs.remove('userId');
+          await prefs.remove('accountType');
+        }
+      } catch (e) {
+        print('Auth initialization error: $e');
+        // Keep the user logged in if we can't validate (for offline use)
+      }
+    }
+    
     notifyListeners();
   }
 
@@ -97,7 +116,7 @@ class AuthService extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Check if session is valid
+  // Check if session is valid with better error handling
   Future<bool> validateSession() async {
     if (!_isAuthenticated || _userId == null) return false;
     
@@ -105,25 +124,53 @@ class AuthService extends ChangeNotifier {
     if (_accountType == 'guest') return true;
 
     try {
+      final baseUrl = getBaseUrl();
+      Uri url;
+      
+      if (baseUrl.startsWith('http://')) {
+        final domain = baseUrl.replaceFirst('http://', '');
+        url = Uri.http(domain, '/api/newuser/validate');
+      } else if (baseUrl.startsWith('https://')) {
+        final domain = baseUrl.replaceFirst('https://', '');
+        url = Uri.https(domain, '/api/newuser/validate');
+      } else {
+        url = Uri.parse('$baseUrl/api/newuser/validate');
+      }
+      
       final response = await http.get(
-        Uri.parse('${getBaseUrl()}/api/newuser/validate'),
+        url,
         headers: {
           'Content-Type': 'application/json',
           'userId': _userId!
         },
+      ).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => throw Exception("Request timeout"),
       );
 
       if (response.statusCode == 200) {
+        // Session is valid
         return true;
+      } else {
+        print('Session invalid: ${response.statusCode} - ${response.body}');
+        // If session is invalid, logout
+        await logout();
+        return false;
       }
-
-      // If session is invalid, logout
-      await logout();
-      return false;
     } catch (e) {
       print('Session validation error: $e');
       // Ne pas déconnecter en cas d'erreur réseau pour permettre le mode hors ligne
       return true;
     }
+  }
+  
+  // Get current authentication status - useful for checking in UI
+  bool isUserAuthenticated() {
+    return _isAuthenticated && _userId != null;
+  }
+  
+  // Check if userId is valid (non-empty string that isn't just whitespace)
+  bool hasValidUserId() {
+    return _userId != null && _userId!.trim().isNotEmpty;
   }
 }

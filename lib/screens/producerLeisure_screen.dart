@@ -248,7 +248,7 @@ class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> with Sing
   bool _isLoadingPosts = false;
   bool _hasPostsError = false;
 
-  // Fonction pour récupérer les posts du producteur
+  // Fonction pour récupérer les posts du producteur avec filtrage amélioré
   Future<void> _fetchProducerPosts() async {
     if (_producerId.isEmpty) return;
     
@@ -262,37 +262,67 @@ class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> with Sing
       final baseUrl = getBaseUrl();
       Uri url;
       
-      if (baseUrl.startsWith('http://')) {
-        final domain = baseUrl.replaceFirst('http://', '');
-        url = Uri.http(domain, '/api/posts', {
-          'producerId': _producerId,
-          'limit': '10'
-        });
-      } else if (baseUrl.startsWith('https://')) {
-        final domain = baseUrl.replaceFirst('https://', '');
-        url = Uri.https(domain, '/api/posts', {
-          'producerId': _producerId,
-          'limit': '10'
-        });
-      } else {
-        url = Uri.parse('$baseUrl/api/posts?producerId=$_producerId&limit=10');
+      // Utiliser une URL qui filtre spécifiquement par producerId
+      // pour s'assurer que seuls les posts de ce lieu sont affichés
+      final queryParams = {
+        'limit': '30',
+        'producerId': _producerId,         // Filtrer par l'ID du producteur
+        'venueOnly': 'true',               // S'assurer que ce sont des posts du lieu spécifique
+        'prioritizeFollowers': 'true',     // Prioriser les posts des followers
+        'followersWeight': '2',            // Donner plus de poids aux posts des followers
+        'sort': 'relevance',               // Trier par pertinence plutôt que juste par date
+      };
+      
+      // Ajouter le userId si disponible pour personnaliser les posts
+      if (widget.userId != null) {
+        queryParams['userId'] = widget.userId!;
       }
       
+      if (baseUrl.startsWith('http://')) {
+        final domain = baseUrl.replaceFirst('http://', '');
+        url = Uri.http(domain, '/api/posts', queryParams);
+      } else if (baseUrl.startsWith('https://')) {
+        final domain = baseUrl.replaceFirst('https://', '');
+        url = Uri.https(domain, '/api/posts', queryParams);
+      } else {
+        // Construire l'URL manuellement
+        final queryString = queryParams.entries.map((e) => '${e.key}=${e.value}').join('&');
+        url = Uri.parse('$baseUrl/api/posts?$queryString');
+      }
+      
+      print('🔍 Récupération des posts du lieu avec URL: $url');
       final response = await http.get(url);
       
       if (response.statusCode == 200) {
-        final data = json.decode(response.body);
+        final List<dynamic> data = json.decode(response.body);
+        
+        // Filtrer pour s'assurer que nous n'affichons que les posts de ce lieu spécifique
+        final filteredPosts = data.where((post) => 
+          post['producer_id'] == _producerId || 
+          post['isProducerPost'] == true && post['producer_id'] == _producerId
+        ).toList();
+        
         setState(() {
-          _producerPosts = data;
+          _producerPosts = filteredPosts;
           _isLoadingPosts = false;
         });
         print('✅ Posts du producteur récupérés : ${_producerPosts.length} posts');
+        
+        // Si aucun post n'est trouvé, essayer une approche différente
+        if (_producerPosts.isEmpty) {
+          print('⚠️ Aucun post trouvé avec producerId=$_producerId, essai avec méthode alternative');
+          _fetchProducerPostsAlternative();
+        }
       } else {
         setState(() {
           _isLoadingPosts = false;
           _hasPostsError = true;
         });
         print('❌ Erreur lors de la récupération des posts du producteur : ${response.statusCode}');
+        print('❌ Message : ${response.body}');
+        
+        // En cas d'erreur, essayer la méthode alternative
+        _fetchProducerPostsAlternative();
       }
     } catch (e) {
       setState(() {
@@ -300,6 +330,82 @@ class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> with Sing
         _hasPostsError = true;
       });
       print('❌ Erreur réseau lors de la récupération des posts : $e');
+      
+      // En cas d'exception, essayer la méthode alternative
+      _fetchProducerPostsAlternative();
+    }
+  }
+  
+  // Méthode alternative pour récupérer les posts si la première tentative échoue
+  Future<void> _fetchProducerPostsAlternative() async {
+    print('🔄 Tentative alternative de récupération des posts du producteur');
+    
+    try {
+      final baseUrl = getBaseUrl();
+      Uri url;
+      
+      // Combiner plusieurs stratégies de recherche pour maximiser les chances de trouver des posts
+      final queryParams = {
+        'limit': '30',
+      };
+      
+      // Ajouter le userId si disponible
+      if (widget.userId != null) {
+        queryParams['userId'] = widget.userId!;
+      }
+      
+      if (baseUrl.startsWith('http://')) {
+        final domain = baseUrl.replaceFirst('http://', '');
+        url = Uri.http(domain, '/api/posts', queryParams);
+      } else if (baseUrl.startsWith('https://')) {
+        final domain = baseUrl.replaceFirst('https://', '');
+        url = Uri.https(domain, '/api/posts', queryParams);
+      } else {
+        final queryString = queryParams.entries.map((e) => '${e.key}=${e.value}').join('&');
+        url = Uri.parse('$baseUrl/api/posts?$queryString');
+      }
+      
+      final response = await http.get(url);
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body) as List;
+        
+        // Filtrer manuellement pour ne retenir que les posts pertinents à ce lieu
+        final filteredPosts = data.where((post) => 
+          // Vérifier plusieurs critères pour être sûr de ne retenir que les posts pertinents
+          post['producer_id'] == _producerId ||
+          post['isProducerPost'] == true && post['producer_id'] == _producerId ||
+          post['isLeisureProducer'] == true && post['producer_id'] == _producerId ||
+          (post['referenced_event_id'] != null && 
+           _producerData!['evenements']?.any((event) => 
+             event['_id'] == post['referenced_event_id'] ||
+             event['lien_evenement']?.contains(post['referenced_event_id'].toString()) == true
+           ) == true) ||
+          // Vérifier si le contenu mentionne le nom du lieu
+          (post['content'] != null && 
+           _producerData!['lieu'] != null &&
+           post['content'].toString().toLowerCase().contains(_producerData!['lieu'].toString().toLowerCase()))
+        ).toList();
+        
+        if (filteredPosts.isNotEmpty) {
+          setState(() {
+            _producerPosts = filteredPosts;
+            _isLoadingPosts = false;
+          });
+          print('✅ Posts du producteur récupérés (méthode alternative) : ${_producerPosts.length} posts');
+        } else {
+          // Si aucun post pertinent n'est trouvé, prendre quelques posts généraux
+          setState(() {
+            // Prendre au maximum 5 posts généraux si disponibles
+            _producerPosts = data.take(Math.min(5, data.length)).toList();
+            _isLoadingPosts = false;
+          });
+          print('ℹ️ Aucun post pertinent trouvé, affichage de posts généraux');
+        }
+      }
+    } catch (e) {
+      print('❌ Erreur lors de la méthode alternative : $e');
+      // Ne pas modifier l'état car nous sommes déjà dans un état d'erreur ou vide
     }
   }
 
@@ -623,24 +729,47 @@ class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> with Sing
   
   // Widget pour afficher un post
   Widget _buildPostItem(Map<String, dynamic> post) {
-    // Extraire les informations du post
+    // Extraire les informations du post - gestion des différentes structures
     final String content = post['content'] ?? 'Contenu non disponible';
     final List<dynamic> media = post['media'] ?? [];
     final bool isAutomated = post['is_automated'] == true;
-    final String postedAt = post['time_posted'] ?? DateTime.now().toIso8601String();
+    final bool isProducerPost = post['isProducerPost'] == true;
+    final bool isLeisureProducer = post['isLeisureProducer'] == true;
+    final String postedAt = post['time_posted'] ?? post['posted_at'] ?? DateTime.now().toIso8601String();
     final int likesCount = post['likes_count'] ?? 0;
     final int commentsCount = post['comments_count'] ?? 0;
     final int interestedCount = post['interested_count'] ?? 0;
     final int choiceCount = post['choice_count'] ?? 0;
     final eventId = post['referenced_event_id'];
+    final bool isEvent = post['is_event'] == true || eventId != null;
+    final Map<String, dynamic>? location = post['location'] is Map ? post['location'] as Map<String, dynamic> : null;
+    final Map<String, dynamic>? author = post['author'] is Map ? post['author'] as Map<String, dynamic> : null;
     
     // Formatage de la date
     String formattedDate = '';
     try {
       final DateTime date = DateTime.parse(postedAt);
-      formattedDate = DateFormat('dd MMM yyyy').format(date);
+      formattedDate = DateFormat('dd MMM yyyy à HH:mm').format(date);
     } catch (e) {
       formattedDate = 'Date inconnue';
+    }
+    
+    // Récupérer les informations de l'auteur (gestion des différentes structures)
+    String authorName = '';
+    String authorAvatar = '';
+    
+    if (author != null) {
+      authorName = author['name'] ?? '';
+      authorAvatar = author['avatar'] ?? '';
+    }
+    
+    // Si pas d'informations d'auteur, utiliser les données du producteur
+    if (authorName.isEmpty) {
+      authorName = _producerData!['lieu'] ?? 'Nom non spécifié';
+    }
+    
+    if (authorAvatar.isEmpty) {
+      authorAvatar = getProducerImageUrl(_producerData!);
     }
     
     return Card(
@@ -652,72 +781,140 @@ class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> with Sing
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // En-tête du post avec avatar et badge automated si nécessaire
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Row(
-              children: [
-                // Avatar du producteur
-                CircleAvatar(
-                  radius: 20,
-                  backgroundImage: CachedNetworkImageProvider(
-                    getProducerImageUrl(_producerData!),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                // Nom et date
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _producerData!['lieu'] ?? 'Nom non spécifié',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
+              // En-tête du post avec avatar et badges
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Row(
+                  children: [
+                    // Avatar du producteur
+                    CircleAvatar(
+                      radius: 20,
+                      backgroundImage: CachedNetworkImageProvider(
+                        authorAvatar,
                       ),
-                      Text(
-                        formattedDate,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                // Badge si le post est automatisé
-                if (isAutomated)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.blue.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: Colors.blue.withOpacity(0.3),
-                        width: 1,
+                      backgroundColor: Colors.grey.shade200,
+                    ),
+                    const SizedBox(width: 12),
+                    // Nom et date
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            authorName,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                          ),
+                          Text(
+                            formattedDate,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    child: Row(
+                    // Système de badges amélioré
+                    Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.auto_awesome, size: 14, color: Colors.blue.shade700),
-                        const SizedBox(width: 4),
-                        Text(
-                          'Auto',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                            color: Colors.blue.shade700,
+                        // Badge pour post automatisé
+                        if (isAutomated)
+                          Container(
+                            margin: const EdgeInsets.only(right: 8.0),
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.blue.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: Colors.blue.withOpacity(0.3),
+                                width: 1,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.auto_awesome, size: 14, color: Colors.blue.shade700),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'Auto',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                    color: Colors.blue.shade700,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
+                          
+                        // Badge pour post de lieu
+                        if (isProducerPost)
+                          Container(
+                            margin: const EdgeInsets.only(right: 8.0),
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.deepPurple.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: Colors.deepPurple.withOpacity(0.3),
+                                width: 1,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.store, size: 14, color: Colors.deepPurple.shade700),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'Lieu',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                    color: Colors.deepPurple.shade700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          
+                        // Badge pour événement
+                        if (isEvent)
+                          Container(
+                            margin: const EdgeInsets.only(right: 8.0),
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.amber.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: Colors.amber.withOpacity(0.3),
+                                width: 1,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.event, size: 14, color: Colors.amber.shade700),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'Événement',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                    color: Colors.amber.shade700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                       ],
                     ),
-                  ),
-              ],
-            ),
-          ),
+                  ],
+                ),
+              ),
           
           // Contenu du post
           Padding(
@@ -729,6 +926,38 @@ class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> with Sing
               overflow: TextOverflow.ellipsis,
             ),
           ),
+          
+          // Localisation si présente
+          if (location != null && location['address'] != null)
+            Padding(
+              padding: const EdgeInsets.only(left: 16.0, right: 16.0, top: 12.0),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withOpacity(0.05),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.blue.withOpacity(0.3), width: 1),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.location_on, size: 14, color: Colors.blue.shade700),
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Text(
+                        location['address'].toString(),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.blue.shade700,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           
           // Media (images) s'il y en a
           if (media.isNotEmpty)
@@ -745,7 +974,7 @@ class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> with Sing
                     
                     return Container(
                       margin: const EdgeInsets.only(left: 16.0, right: 8.0),
-                      width: 160,
+                      width: 180,
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(12),
                         boxShadow: [
@@ -782,7 +1011,7 @@ class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> with Sing
           // Section événement référencé si présent
           if (eventId != null)
             Padding(
-              padding: const EdgeInsets.all(16.0),
+              padding: const EdgeInsets.fromLTRB(16.0, 8.0, 16.0, 16.0),
               child: InkWell(
                 onTap: () => _navigateToEventDetails(context, eventId),
                 child: Container(
@@ -981,93 +1210,86 @@ class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> with Sing
     }
 
     return Scaffold(
-      body: DefaultTabController(
-        length: 3,
-        child: NestedScrollView(
-          headerSliverBuilder: (context, innerBoxIsScrolled) {
-            return [
-              _buildSliverAppBar(_producerData!),
-              SliverPersistentHeader(
-                delegate: _SliverAppBarDelegate(
-                  TabBar(
-                    controller: _tabController,
-                    tabs: const [
-                      Tab(
-                        icon: Icon(Icons.event),
-                        text: "Événements",
-                      ),
-                      Tab(
-                        icon: Icon(Icons.article),
-                        text: "Publications",
-                      ),
-                      Tab(
-                        icon: Icon(Icons.place),
-                        text: "Localisation",
-                      ),
-                    ],
-                    labelColor: Colors.deepPurple,
-                    unselectedLabelColor: Colors.grey,
-                    indicatorColor: Colors.deepPurple,
+      body: CustomScrollView(
+        slivers: [
+          _buildSliverAppBar(_producerData!),
+          SliverToBoxAdapter(
+            child: _buildProfileActions(_producerData!),
+          ),
+          SliverPersistentHeader(
+            delegate: _SliverAppBarDelegate(
+              TabBar(
+                controller: _tabController,
+                tabs: const [
+                  Tab(
+                    icon: Icon(Icons.event),
+                    text: "Événements",
+                  ),
+                  Tab(
+                    icon: Icon(Icons.article),
+                    text: "Publications",
+                  ),
+                  Tab(
+                    icon: Icon(Icons.place),
+                    text: "Localisation",
+                  ),
+                ],
+                labelColor: Colors.deepPurple,
+                unselectedLabelColor: Colors.grey,
+                indicatorColor: Colors.deepPurple,
+              ),
+            ),
+            pinned: true,
+          ),
+          SliverFillRemaining(
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                // Events Tab
+                SingleChildScrollView(
+                  child: _buildTabSection(upcomingEvents, pastEvents),
+                ),
+                
+                // Posts Tab
+                SingleChildScrollView(
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 16.0),
+                    child: _isLoadingPosts
+                      ? const Center(
+                          child: Padding(
+                            padding: EdgeInsets.all(32.0),
+                            child: CircularProgressIndicator(),
+                          ),
+                        )
+                      : _hasPostsError
+                        ? _buildPostsErrorWidget()
+                        : _producerPosts.isEmpty
+                          ? _buildEmptyPostsMessage()
+                          : Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                              child: Column(
+                                children: _producerPosts.map<Widget>((post) => _buildPostItem(post)).toList(),
+                              ),
+                            ),
                   ),
                 ),
-                pinned: true,
-              ),
-            ];
-          },
-          body: Column(
-            children: [
-              _buildProfileActions(_producerData!),
-              Expanded(
-                child: TabBarView(
-                  controller: _tabController,
-                  children: [
-                    // Events Tab
-                    SingleChildScrollView(
-                      child: _buildTabSection(upcomingEvents, pastEvents),
-                    ),
-                    
-                    // Posts Tab
-                    SingleChildScrollView(
-                      child: Padding(
-                        padding: const EdgeInsets.only(top: 16.0),
-                        child: _isLoadingPosts
-                          ? const Center(
-                              child: Padding(
-                                padding: EdgeInsets.all(32.0),
-                                child: CircularProgressIndicator(),
-                              ),
-                            )
-                          : _hasPostsError
-                            ? _buildPostsErrorWidget()
-                            : _producerPosts.isEmpty
-                              ? _buildEmptyPostsMessage()
-                              : Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                                  child: Column(
-                                    children: _producerPosts.map<Widget>((post) => _buildPostItem(post)).toList(),
-                                  ),
-                                ),
-                      ),
-                    ),
-                    
-                    // Location Tab
-                    SingleChildScrollView(
-                      child: Column(
-                        children: [
-                          const SizedBox(height: 16),
-                          if (coordinates != null) _buildMap(coordinates),
-                          const SizedBox(height: 16),
-                          _buildMapButton(),
-                          const SizedBox(height: 16),
-                        ],
-                      ),
-                    ),
-                  ],
+                
+                // Location Tab
+                SingleChildScrollView(
+                  child: Column(
+                    children: [
+                      const SizedBox(height: 16),
+                      if (coordinates != null) _buildMap(coordinates),
+                      const SizedBox(height: 16),
+                      _buildMapButton(),
+                      const SizedBox(height: 16),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }

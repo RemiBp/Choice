@@ -8,6 +8,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'dart:typed_data';
+import 'package:geolocator/geolocator.dart';
 import 'producerLeisure_screen.dart';
 import 'eventLeisure_screen.dart';
 import 'utils.dart';
@@ -22,8 +23,11 @@ class MapLeisureScreen extends StatefulWidget {
 }
 
 class _MapLeisureScreenState extends State<MapLeisureScreen> {
-  final LatLng _initialPosition = const LatLng(48.8566, 2.3522); // Paris
+  LatLng _initialPosition = const LatLng(48.8566, 2.3522); // Paris par défaut
   GoogleMapController? _mapController;
+  Position? _currentPosition; // Position GPS actuelle
+  bool _isUsingLiveLocation = false; // État de la localisation en direct
+  Timer? _locationUpdateTimer; // Timer pour la mise à jour périodique de la position
 
   Set<Marker> _markers = {};
   bool _isLoading = false;
@@ -54,6 +58,9 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
   void initState() {
     super.initState();
     _loadMarkerIcons();
+    
+    // Vérifier les permissions de localisation au démarrage
+    _checkLocationPermission();
     
     // Initialiser l'écouteur pour les calculs d'arrière-plan
     _receivePort.listen((data) {
@@ -101,6 +108,131 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
     });
   }
   
+  /// Vérifier et demander les permissions de localisation
+  Future<void> _checkLocationPermission() async {
+    try {
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          // Permission refusée, mais on peut continuer avec Paris comme position par défaut
+          _showSnackBar("Permissions de localisation refusées. Utilisation de la position par défaut.");
+          return;
+        }
+      }
+      
+      if (permission == LocationPermission.deniedForever) {
+        // L'utilisateur a refusé définitivement, proposer d'ouvrir les paramètres
+        _showSnackBar("Permissions de localisation définitivement refusées. Utilisez les paramètres pour les activer.");
+        return;
+      }
+      
+      // Si on arrive ici, on a les permissions
+      _getCurrentLocation();
+    } catch (e) {
+      print("❌ Erreur lors de la vérification des permissions: $e");
+    }
+  }
+  
+  /// Obtenir la position actuelle avec gestion adaptée pour iOS et Android
+  Future<void> _getCurrentLocation() async {
+    setState(() {
+      _isLoading = true;
+    });
+    
+    try {
+      // Options de localisation pour une bonne précision
+      Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 5),
+      );
+      
+      setState(() {
+        _currentPosition = position;
+        _initialPosition = LatLng(position.latitude, position.longitude);
+        _isUsingLiveLocation = true;
+      });
+      
+      if (_mapController != null) {
+        _mapController!.animateCamera(
+          CameraUpdate.newLatLngZoom(_initialPosition, 14.0),
+        );
+      }
+      
+      // Charger les producteurs proches de la position actuelle
+      _fetchNearbyProducers(position.latitude, position.longitude);
+      _showSnackBar("Position GPS obtenue. Recherche des lieux à proximité.");
+      
+      // Configurer les mises à jour de position périodiques si activées
+      _setupLocationTracking();
+      
+      // Informer l'utilisateur que le suivi en direct est activé
+      _showSnackBar("Localisation en direct activée. La carte s'adaptera à vos déplacements.");
+    } catch (e) {
+      print("❌ Erreur lors de l'obtention de la position: $e");
+      _showSnackBar("Impossible d'obtenir votre position. Vérifiez que le GPS est activé.");
+      setState(() {
+        _isUsingLiveLocation = false;
+      });
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+  
+  /// Configure les mises à jour périodiques de la position
+  void _setupLocationTracking() {
+    // Annuler l'ancien timer s'il existe
+    _locationUpdateTimer?.cancel();
+    
+    if (_isUsingLiveLocation) {
+      // Créer un nouveau timer pour mettre à jour la position toutes les 30 secondes
+      _locationUpdateTimer = Timer.periodic(const Duration(seconds: 30), (timer) async {
+        if (!mounted || !_isUsingLiveLocation) {
+          timer.cancel();
+          return;
+        }
+        
+        try {
+          Position position = await Geolocator.getCurrentPosition(
+            desiredAccuracy: LocationAccuracy.high,
+            timeLimit: const Duration(seconds: 5),
+          );
+          
+          // Ne mettre à jour que si la position a significativement changé (>50m)
+          if (_currentPosition != null) {
+            double distance = Geolocator.distanceBetween(
+              _currentPosition!.latitude, _currentPosition!.longitude,
+              position.latitude, position.longitude
+            );
+            
+            if (distance > 50) { // Seulement si déplacé de plus de 50 mètres
+              setState(() {
+                _currentPosition = position;
+                _initialPosition = LatLng(position.latitude, position.longitude);
+              });
+              
+              if (_mapController != null) {
+                _mapController!.animateCamera(
+                  CameraUpdate.newLatLng(_initialPosition),
+                );
+              }
+              
+              // Recharger les lieux à proximité de la nouvelle position
+              _fetchNearbyProducers(position.latitude, position.longitude);
+              print("📍 Position mise à jour: ${position.latitude}, ${position.longitude}");
+            }
+          }
+        } catch (e) {
+          print("❌ Erreur lors de la mise à jour périodique de la position: $e");
+        }
+      });
+      
+      print("✅ Suivi de localisation en direct activé");
+    }
+  }
+  
   /// Convertir les données de marqueurs reçues de l'isolate en objets Marker réels
   Set<Marker> _createMarkersFromData(List<dynamic> markersData) {
     Set<Marker> markers = {};
@@ -120,31 +252,46 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
         final bool isProducer = markerData['isProducer'];
         final String entityJson = markerData['entityJson'];
         
-        // Ajouter un léger décalage aux coordonnées pour éviter la superposition parfaite
-        final double offsetFactor = 0.0001; // ~10 mètres de décalage maximum
+        // Ajouter un décalage microscopique aléatoire aux coordonnées uniquement pour éviter une superposition parfaite
+        // Utiliser un décalage ultra-minimal pour préserver l'emplacement géographique exact
+        final double microOffsetFactor = 0.000001; // ~0.1 mètre de décalage maximum
         final math.Random random = math.Random(markerIndex); // Random déterministe basé sur l'index
         
-        // Appliquer un petit décalage unique à chaque marqueur
-        lat += random.nextDouble() * offsetFactor * 2 - offsetFactor;
-        lon += random.nextDouble() * offsetFactor * 2 - offsetFactor;
+        // Appliquer un décalage minuscule unique à chaque marqueur qui maintient les coordonnées quasi-exactes
+        lat += random.nextDouble() * microOffsetFactor * 2 - microOffsetFactor;
+        lon += random.nextDouble() * microOffsetFactor * 2 - microOffsetFactor;
+        
+        // Log détaillé pour débogage
+        print("  🔍 Position exacte (micro-décalage): [${lat.toStringAsFixed(8)}, ${lon.toStringAsFixed(8)}]");
         
         // Reconstruire l'entité à partir de son JSON
         Map<String, dynamic> entity = json.decode(entityJson);
         
-        // Utiliser des hues différentes selon l'index pour créer des marqueurs visuellement distincts
-        double markerHue = (markerIndex % 7) * 45.0; // 0, 45, 90, 135, 180, 225, 270
-        if (markerIndex == 0) markerHue = BitmapDescriptor.hueRed; // Premier marqueur toujours rouge
+        // Utiliser des hues basées sur la catégorie pour un meilleur repérage visuel
+        double markerHue;
+        if (category.contains('théâtre') || category.contains('theatre')) {
+          markerHue = BitmapDescriptor.hueRed;
+        } else if (category.contains('musique') || category.contains('concert')) {
+          markerHue = BitmapDescriptor.hueAzure;
+        } else if (category.contains('ciném') || category.contains('cinema')) {
+          markerHue = BitmapDescriptor.hueOrange;
+        } else if (category.contains('danse')) {
+          markerHue = BitmapDescriptor.hueGreen;
+        } else if (category.contains('expo')) {
+          markerHue = BitmapDescriptor.hueYellow;
+        } else if (category.contains('musée') || category.contains('musee')) {
+          markerHue = BitmapDescriptor.hueCyan;
+        } else if (category.contains('festival')) {
+          markerHue = BitmapDescriptor.hueMagenta;
+        } else {
+          markerHue = BitmapDescriptor.hueViolet;
+        }
         
-        // Créer l'icône du marqueur avec la teinte calculée
+        // Créer l'icône du marqueur avec la teinte basée sur la catégorie
         BitmapDescriptor markerIcon = BitmapDescriptor.defaultMarkerWithHue(markerHue);
         
         // Z-index unique et croissant pour chaque marqueur - utiliser une plage plus large
-        final double zIndex = 100.0 + (markerIndex * 2.0); // z-index 100.0, 102.0, 104.0, etc.
-        
-        // Appliquer un décalage beaucoup plus prononcé pour éviter un chevauchement parfait
-        final double enhancedOffsetFactor = 0.0005; // ~50 mètres de décalage
-        lat += math.cos(markerIndex * 0.3) * enhancedOffsetFactor; // Décalage circulaire
-        lon += math.sin(markerIndex * 0.3) * enhancedOffsetFactor;
+        final double zIndex = 100.0 + (markerIndex * 0.1); // z-index 100.0, 100.1, 100.2, etc.
         
         // Créer le marqueur avec tous les paramètres nécessaires pour garantir visibilité et interaction
         Marker marker = Marker(
@@ -152,9 +299,9 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
           position: LatLng(lat, lon),
           icon: markerIcon,
           visible: true,
-          flat: markerIndex % 2 == 0, // Alterner entre flat true/false pour diversifier le rendu
+          flat: false, // Désactiver flat pour meilleure visibilité
           alpha: 1.0, // Complètement opaque
-          zIndex: zIndex, // Z-index unique et beaucoup plus élevé
+          zIndex: zIndex, // Z-index unique et croissant
           anchor: const Offset(0.5, 1.0), // Ancrage standard pour les marqueurs Google
           consumeTapEvents: true, // Assure que les taps sont bien capturés
           onTap: () {
@@ -188,14 +335,24 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
           },
           infoWindow: InfoWindow(
             title: name,
-            snippet: isProducer 
-                ? entity['description']?.toString().substring(0, math.min(50, (entity['description']?.toString().length ?? 0))) ?? 'Pas de description'
-                : entity['catégorie'] ?? 'Pas de catégorie',
+            snippet: _buildInfoSnippet(entity, isProducer),
           ),
         );
         
         markers.add(marker);
         print("✅ Marqueur créé et visible pour: $name avec catégorie: $category, z-index: $zIndex");
+
+        // Ajouter des informations supplémentaires pour débogage
+        int nbEvents = 0;
+        if (entity['evenements'] != null && entity['evenements'] is List) {
+          nbEvents = entity['evenements'].length;
+        } else if (entity['nombre_evenements'] != null) {
+          nbEvents = entity['nombre_evenements'];
+        }
+
+        if (nbEvents > 0) {
+          print("   📅 Nombre d'événements: $nbEvents");
+        }
         
         // Incrémenter l'index pour le prochain marqueur
         markerIndex++;
@@ -207,10 +364,67 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
     return markers;
   }
   
+  /// Construit le texte informatif pour l'infoWindow du marqueur
+  String _buildInfoSnippet(Map<String, dynamic> entity, bool isProducer) {
+    String snippet = '';
+    
+    // Pour les producteurs, afficher la description + nombre d'événements
+    if (isProducer) {
+      // Description courte
+      if (entity['description'] != null) {
+        snippet = entity['description'].toString().substring(
+          0, math.min(40, entity['description'].toString().length)
+        );
+        if (entity['description'].toString().length > 40) snippet += '...';
+      } else {
+        snippet = 'Lieu de loisir';
+      }
+      
+      // Ajouter le nombre d'événements si disponible
+      int nbEvents = 0;
+      if (entity['evenements'] != null && entity['evenements'] is List) {
+        nbEvents = entity['evenements'].length;
+      } else if (entity['nombre_evenements'] != null) {
+        nbEvents = entity['nombre_evenements'];
+      }
+      
+      if (nbEvents > 0) {
+        snippet += ' • $nbEvents événement${nbEvents > 1 ? 's' : ''}';
+      }
+      
+      // Ajouter note si disponible
+      if (entity['note'] != null) {
+        snippet += ' • ${entity['note'].toStringAsFixed(1)}★';
+      }
+    } 
+    // Pour les événements, afficher catégorie + émotions
+    else {
+      // Catégorie
+      if (entity['catégorie'] != null) {
+        snippet = entity['catégorie'].toString();
+      } else {
+        snippet = 'Événement';
+      }
+      
+      // Prix si disponible
+      if (entity['prix_reduit'] != null) {
+        snippet += ' • ${entity['prix_reduit']}€';
+      }
+      
+      // Note si disponible
+      if (entity['note'] != null) {
+        snippet += ' • ${entity['note'].toStringAsFixed(1)}★';
+      }
+    }
+    
+    return snippet;
+  }
+  
   @override
   void dispose() {
     _receivePort.close();
     _mapController?.dispose();
+    _locationUpdateTimer?.cancel(); // Annuler le timer pour éviter les fuites de mémoire
     super.dispose();
   }
 
@@ -387,8 +601,8 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
       }
     }
     
-    // Utiliser un compteur pour z-index unique, commencer à un nombre élevé pour garantir la visibilité
-    double zIndexCounter = 1000.0;
+    // Utiliser un compteur pour z-index unique
+    double zIndexCounter = 100.0;
     
     // Calculer un score de pertinence pour chaque entité
     for (var entity in entities) {
@@ -424,22 +638,24 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
           continue;
         }
         
-        // Ajouter un léger décalage aléatoire aux coordonnées pour éviter la superposition
-        // On utilise l'index de l'entité pour créer un décalage déterministe mais unique
+        // Ajouter un décalage microscopique aux coordonnées - juste pour prévenir la superposition parfaite
         final int entityIndex = entities.indexOf(entity);
-        final double offsetFactor = 0.0001; // ~10 mètres de décalage maximum
+        final double offsetFactor = 0.000001; // ~0.1 mètre de décalage maximum (microscopique)
         final math.Random random = math.Random(entityIndex); // Random prévisible basé sur l'index
         
-        // Appliquer un décalage différent pour chaque marqueur
+        // Appliquer un décalage infime qui maintient les coordonnées géographiques quasi-exactes
         lat += random.nextDouble() * offsetFactor * 2 - offsetFactor;
         lon += random.nextDouble() * offsetFactor * 2 - offsetFactor;
+        
+        // Log détaillé pour le débogage
+        print("  🔍 Position exacte (micro-décalage): [${lat.toStringAsFixed(8)}, ${lon.toStringAsFixed(8)}]");
         
         final String id = entity['_id'];
         final String name = isProducers
             ? entity['lieu'] ?? 'Sans nom'
             : entity['intitulé'] ?? 'Événement sans nom';
             
-        // Récupérer la catégorie de l'entité
+        // Récupérer la catégorie de l'entité pour couleur thématique
         String entityCategory = '';
         if (isProducers) {
           entityCategory = entity['catégorie']?.toString().toLowerCase() ?? '';
@@ -447,49 +663,50 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
           entityCategory = entity['catégorie']?.toString().toLowerCase() ?? '';
         }
         
-        print('✅ Création du marqueur pour: $name [lat=$lat, lon=$lon] avec décalage');
-        
-        // Utiliser une couleur basée sur l'index de l'entité pour diversifier visuellement les marqueurs
+        // Assigner une couleur basée sur la catégorie pour un repérage plus intuitif
         double markerHue;
-        if (entityIndex % 8 == 0) markerHue = BitmapDescriptor.hueRed;
-        else if (entityIndex % 8 == 1) markerHue = BitmapDescriptor.hueOrange; 
-        else if (entityIndex % 8 == 2) markerHue = BitmapDescriptor.hueYellow;
-        else if (entityIndex % 8 == 3) markerHue = BitmapDescriptor.hueGreen;
-        else if (entityIndex % 8 == 4) markerHue = BitmapDescriptor.hueCyan;
-        else if (entityIndex % 8 == 5) markerHue = BitmapDescriptor.hueAzure;
-        else if (entityIndex % 8 == 6) markerHue = BitmapDescriptor.hueBlue;
-        else markerHue = BitmapDescriptor.hueViolet;
+        if (entityCategory.contains('théâtre') || entityCategory.contains('theatre')) {
+          markerHue = BitmapDescriptor.hueRed;
+        } else if (entityCategory.contains('musique') || entityCategory.contains('concert')) {
+          markerHue = BitmapDescriptor.hueAzure;
+        } else if (entityCategory.contains('ciném') || entityCategory.contains('cinema')) {
+          markerHue = BitmapDescriptor.hueOrange;
+        } else if (entityCategory.contains('danse')) {
+          markerHue = BitmapDescriptor.hueGreen;
+        } else if (entityCategory.contains('expo')) {
+          markerHue = BitmapDescriptor.hueYellow;
+        } else if (entityCategory.contains('musée') || entityCategory.contains('musee')) {
+          markerHue = BitmapDescriptor.hueCyan;
+        } else if (entityCategory.contains('festival')) {
+          markerHue = BitmapDescriptor.hueMagenta;
+        } else {
+          markerHue = BitmapDescriptor.hueViolet;
+        }
         
-        // Augmenter le décalage des coordonnées pour éviter la superposition parfaite
-        final double enhancedOffsetFactor = 0.0005; // ~50 mètres de décalage maximum
-        lat += math.cos(entityIndex * 0.3) * enhancedOffsetFactor; // Motif circulaire pour la distribution
-        lon += math.sin(entityIndex * 0.3) * enhancedOffsetFactor; // Variation sinusoïdale pour éviter l'alignement
+        // Z-index unique et croissant pour chaque marqueur (incréments plus petits)
+        final double zIndex = 100.0 + (zIndexCounter * 0.1);
+        zIndexCounter++;
         
-        // Z-index beaucoup plus élevé et espacé pour garantir séparation visuelle
-        final double zIndex = 100.0 + (entityIndex * 2.0); // z-index 100.0, 102.0, 104.0, etc.
-        
-        // Créer l'icône du marqueur avec la couleur calculée
+        // Créer l'icône du marqueur avec la couleur basée sur la catégorie
         BitmapDescriptor markerIcon = BitmapDescriptor.defaultMarkerWithHue(markerHue);
         
-        // Log pour confirmer création du marqueur avec informations détaillées
-        print("✅ Marqueur créé pour: $name avec catégorie: $entityCategory (index: $entityIndex, hue: $markerHue, z-index: $zIndex)");
+        // Log pour confirmer création du marqueur
+        print("✅ Marqueur créé pour: $name avec catégorie: $entityCategory (hue: $markerHue, z-index: $zIndex)");
         
-        // Créer le marqueur avec tous les paramètres nécessaires pour garantir visibilité et séparation
+        // Créer le marqueur avec tous les paramètres nécessaires pour garantir visibilité et interaction
         Marker marker = Marker(
           markerId: MarkerId(id),
           position: LatLng(lat, lon),
           icon: markerIcon,
           visible: true,
-          flat: entityIndex % 2 == 0, // Alterner entre flat true/false pour éviter superposition visuelle
+          flat: false, // Désactiver flat pour meilleure visibilité 3D
           alpha: 1.0, // Complètement opaque
-          zIndex: zIndex, // Z-index unique beaucoup plus élevé
+          zIndex: zIndex, // Z-index unique croissant
           anchor: const Offset(0.5, 1.0), // Ancrage standard pour les marqueurs Google
           consumeTapEvents: true, // Assure que les taps sont bien capturés
           infoWindow: InfoWindow(
             title: name,
-            snippet: isProducers 
-                ? entity['description']?.toString().substring(0, math.min(50, (entity['description']?.toString().length ?? 0))) ?? 'Pas de description'
-                : entity['catégorie'] ?? 'Pas de catégorie',
+            snippet: _buildInfoSnippet(entity, isProducers),
           ),
           onTap: () {
             // Afficher les détails directement sans passer par infoWindow
@@ -2040,6 +2257,7 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
             ),
           // Bouton pour la position actuelle
           Container(
+            margin: const EdgeInsets.only(bottom: 8),
             decoration: BoxDecoration(
               boxShadow: [
                 BoxShadow(
@@ -2050,15 +2268,57 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
               ],
             ),
             child: FloatingActionButton(
-              backgroundColor: Colors.white,
-              foregroundColor: Colors.purple,
+              backgroundColor: _isUsingLiveLocation ? Colors.green : Colors.white,
+              foregroundColor: _isUsingLiveLocation ? Colors.white : Colors.purple,
               heroTag: "locateLeisureBtn",
               child: const Icon(Icons.my_location),
               onPressed: () {
-                if (_mapController != null) {
-                  _mapController!.animateCamera(
-                    CameraUpdate.newLatLngZoom(_initialPosition, 12.0),
-                  );
+                if (_currentPosition != null) {
+                  // Si on a déjà une position, se centrer dessus
+                  setState(() {
+                    _initialPosition = LatLng(_currentPosition!.latitude, _currentPosition!.longitude);
+                  });
+                  if (_mapController != null) {
+                    _mapController!.animateCamera(
+                      CameraUpdate.newLatLngZoom(_initialPosition, 14.0),
+                    );
+                    _fetchNearbyProducers(_initialPosition.latitude, _initialPosition.longitude);
+                  }
+                } else {
+                  // Sinon essayer d'obtenir la position actuelle
+                  _getCurrentLocation();
+                }
+              },
+            ),
+          ),
+          // Bouton pour activer/désactiver la localisation en direct
+          Container(
+            decoration: BoxDecoration(
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.2),
+                  blurRadius: 6,
+                  offset: const Offset(0, 2),
+                )
+              ],
+            ),
+            child: FloatingActionButton.extended(
+              heroTag: "liveLocationBtn",
+              backgroundColor: _isUsingLiveLocation ? Colors.blue : Colors.grey.shade200,
+              foregroundColor: _isUsingLiveLocation ? Colors.white : Colors.grey.shade700,
+              icon: Icon(_isUsingLiveLocation ? Icons.gps_fixed : Icons.gps_not_fixed),
+              label: Text(_isUsingLiveLocation ? "GPS Actif" : "GPS Inactif", 
+                style: const TextStyle(fontSize: 12)),
+              onPressed: () {
+                if (_isUsingLiveLocation) {
+                  // Désactiver la localisation en direct
+                  setState(() {
+                    _isUsingLiveLocation = false;
+                  });
+                  _showSnackBar("Localisation en direct désactivée.");
+                } else {
+                  // Activer la localisation en direct
+                  _getCurrentLocation();
                 }
               },
             ),
@@ -2402,9 +2662,15 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            "Catégorie lieu",
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          Row(
+            children: [
+              const Icon(Icons.theater_comedy, size: 18, color: Colors.purple),
+              const SizedBox(width: 8),
+              const Text(
+                "Catégorie lieu",
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+            ],
           ),
           const SizedBox(height: 8),
           // Utiliser un ListView.builder avec hauteur fixe pour rendre la liste défilante

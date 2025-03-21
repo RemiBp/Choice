@@ -36,8 +36,9 @@ class _SliverAppBarDelegate extends SliverPersistentHeaderDelegate {
 
 class ProfileScreen extends StatefulWidget {
   final String userId;
+  final String viewMode;
 
-  const ProfileScreen({Key? key, required this.userId}) : super(key: key);
+  const ProfileScreen({Key? key, required this.userId, this.viewMode = 'private'}) : super(key: key);
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
