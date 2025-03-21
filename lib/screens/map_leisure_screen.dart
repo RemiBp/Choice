@@ -142,9 +142,9 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
         final double zIndex = 100.0 + (markerIndex * 2.0); // z-index 100.0, 102.0, 104.0, etc.
         
         // Appliquer un décalage beaucoup plus prononcé pour éviter un chevauchement parfait
-        final double offsetFactor = 0.0005; // ~50 mètres de décalage
-        lat += math.cos(markerIndex * 0.3) * offsetFactor; // Décalage circulaire
-        lon += math.sin(markerIndex * 0.3) * offsetFactor;
+        final double enhancedOffsetFactor = 0.0005; // ~50 mètres de décalage
+        lat += math.cos(markerIndex * 0.3) * enhancedOffsetFactor; // Décalage circulaire
+        lon += math.sin(markerIndex * 0.3) * enhancedOffsetFactor;
         
         // Créer le marqueur avec tous les paramètres nécessaires pour garantir visibilité et interaction
         Marker marker = Marker(
@@ -438,6 +438,14 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
         final String name = isProducers
             ? entity['lieu'] ?? 'Sans nom'
             : entity['intitulé'] ?? 'Événement sans nom';
+            
+        // Récupérer la catégorie de l'entité
+        String entityCategory = '';
+        if (isProducers) {
+          entityCategory = entity['catégorie']?.toString().toLowerCase() ?? '';
+        } else {
+          entityCategory = entity['catégorie']?.toString().toLowerCase() ?? '';
+        }
         
         print('✅ Création du marqueur pour: $name [lat=$lat, lon=$lon] avec décalage');
         
@@ -453,9 +461,9 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
         else markerHue = BitmapDescriptor.hueViolet;
         
         // Augmenter le décalage des coordonnées pour éviter la superposition parfaite
-        final double offsetFactor = 0.0005; // ~50 mètres de décalage maximum
-        lat += math.cos(entityIndex * 0.3) * offsetFactor; // Motif circulaire pour la distribution
-        lon += math.sin(entityIndex * 0.3) * offsetFactor; // Variation sinusoïdale pour éviter l'alignement
+        final double enhancedOffsetFactor = 0.0005; // ~50 mètres de décalage maximum
+        lat += math.cos(entityIndex * 0.3) * enhancedOffsetFactor; // Motif circulaire pour la distribution
+        lon += math.sin(entityIndex * 0.3) * enhancedOffsetFactor; // Variation sinusoïdale pour éviter l'alignement
         
         // Z-index beaucoup plus élevé et espacé pour garantir séparation visuelle
         final double zIndex = 100.0 + (entityIndex * 2.0); // z-index 100.0, 102.0, 104.0, etc.
@@ -464,7 +472,7 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
         BitmapDescriptor markerIcon = BitmapDescriptor.defaultMarkerWithHue(markerHue);
         
         // Log pour confirmer création du marqueur avec informations détaillées
-        print("✅ Marqueur créé pour: $name avec catégorie: $category (index: $entityIndex, hue: $markerHue, z-index: $zIndex)");
+        print("✅ Marqueur créé pour: $name avec catégorie: $entityCategory (index: $entityIndex, hue: $markerHue, z-index: $zIndex)");
         
         // Créer le marqueur avec tous les paramètres nécessaires pour garantir visibilité et séparation
         Marker marker = Marker(
