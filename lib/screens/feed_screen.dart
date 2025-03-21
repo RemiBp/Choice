@@ -1,3226 +1,1532 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:video_player/video_player.dart';
-import 'package:expandable_text/expandable_text.dart';
-import 'package:intl/intl.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:shimmer/shimmer.dart';
+import 'package:video_player/video_player.dart';
+import 'package:visibility_detector/visibility_detector.dart';
+import 'package:carousel_slider/carousel_slider.dart';
 import 'package:animations/animations.dart';
-
-// Models
+import 'package:google_fonts/google_fonts.dart';
 import '../models/post.dart';
-import '../models/media.dart';
-import '../models/comment.dart';
-
-// Services
 import '../services/api_service.dart';
-import '../utils/constants.dart';
-
-// Screens
-import 'producer_screen.dart';
-import 'profile_screen.dart';
-import 'eventLeisure_screen.dart';
-import 'producerLeisure_screen.dart';
+import '../services/dialogic_ai_feed_service.dart';
+import 'feed_screen_controller.dart';
 import 'reels_view_screen.dart';
-
-// Widgets
-import '../widgets/animations/like_animation.dart';
+import 'post_detail_screen.dart';
+import 'producer_screen.dart';
+import 'producerLeisure_screen.dart';
 
 class FeedScreen extends StatefulWidget {
   final String userId;
 
-  const FeedScreen({
-    Key? key,
-    required this.userId,
-  }) : super(key: key);
+  const FeedScreen({Key? key, required this.userId}) : super(key: key);
 
   @override
-  State<FeedScreen> createState() => _FeedScreenState();
+  _FeedScreenState createState() => _FeedScreenState();
 }
 
-class _FeedScreenState extends State<FeedScreen> {
-  final ApiService _apiService = ApiService();
-  final List<dynamic> _posts = [];
-  bool _isLoading = false;
-  bool _hasMorePosts = true;
-  int _currentPage = 1;
-  final int _postsPerPage = 10;
+class _FeedScreenState extends State<FeedScreen> with SingleTickerProviderStateMixin {
+  late final FeedScreenController _controller;
   final ScrollController _scrollController = ScrollController();
+  late TabController _tabController;
+  
+  // Video controllers for posts containing videos
+  final Map<String, VideoPlayerController> _videoControllers = {};
+  
+  // Controller for AI message response input
+  final TextEditingController _aiResponseController = TextEditingController();
+  
+  // Track visible posts for auto-playing videos
+  String? _currentlyPlayingVideoId;
   
   @override
   void initState() {
     super.initState();
-    _fetchFeed();
+    // Initialize controller with required userId
+    _controller = FeedScreenController(userId: widget.userId);
     
-    // Add scroll listener for infinite scrolling
-    _scrollController.addListener(() {
-      if (_scrollController.position.pixels >= 
-          _scrollController.position.maxScrollExtent * 0.8 && 
-          !_isLoading && 
-          _hasMorePosts) {
-        _loadMorePosts();
-      }
-    });
+    // Set up tab controller for feed filters
+    _tabController = TabController(length: 5, vsync: this);
+    _tabController.addListener(_handleTabChange);
+    
+    // Load initial feed content
+    _controller.loadFeed();
+    
+    // Add scroll listener for pagination
+    _scrollController.addListener(_handleScroll);
   }
-
+  
+  void _handleTabChange() {
+    if (_tabController.indexIsChanging) {
+      return;
+    }
+    
+    FeedContentType newFilter;
+    switch (_tabController.index) {
+      case 0:
+        newFilter = FeedContentType.all;
+        break;
+      case 1:
+        newFilter = FeedContentType.restaurants;
+        break;
+      case 2:
+        newFilter = FeedContentType.leisure;
+        break;
+      case 3:
+        newFilter = FeedContentType.userPosts;
+        break;
+      case 4:
+        newFilter = FeedContentType.aiDialogic;
+        break;
+      default:
+        newFilter = FeedContentType.all;
+    }
+    
+    _controller.filterFeed(newFilter);
+  }
+  
+  void _handleScroll() {
+    if (_scrollController.position.pixels >= 
+        _scrollController.position.maxScrollExtent - 200 && 
+        _controller.hasMorePosts) {
+      _controller.loadMore();
+    }
+  }
+  
   @override
   void dispose() {
+    // Clean up video controllers
+    for (var controller in _videoControllers.values) {
+      controller.dispose();
+    }
+    _videoControllers.clear();
+    
+    _tabController.dispose();
     _scrollController.dispose();
+    _aiResponseController.dispose();
     super.dispose();
   }
-
-  /// Récupère les données du feed depuis le backend pour la première fois
-  void _fetchFeed() async {
-    setState(() {
-      _isLoading = true;
-    });
-    
-    try {
-      final newPosts = await _getFeedData(widget.userId, _currentPage, _postsPerPage);
-      setState(() {
-        _posts.addAll(newPosts);
-        _isLoading = false;
-        _hasMorePosts = newPosts.length == _postsPerPage;
-      });
-    } catch (e) {
-      setState(() {
-        _isLoading = false;
-      });
-      print('❌ Error fetching feed: $e');
-    }
-  }
   
-  /// Charge plus de posts quand l'utilisateur scrolle
-  void _loadMorePosts() async {
-    if (_isLoading) return;
-    
-    setState(() {
-      _isLoading = true;
-      _currentPage++;
-    });
-    
-    try {
-      final newPosts = await _getFeedData(widget.userId, _currentPage, _postsPerPage);
-      setState(() {
-        _posts.addAll(newPosts);
-        _isLoading = false;
-        _hasMorePosts = newPosts.length == _postsPerPage;
-      });
-    } catch (e) {
-      setState(() {
-        _isLoading = false;
-        _currentPage--; // Revert page increase on error
-      });
-      print('❌ Error loading more posts: $e');
-    }
-  }
-
-  /// Effectue la requête HTTP pour récupérer les posts avec algorithme amélioré
-  Future<List<dynamic>> _getFeedData(String userId, int page, int limit) async {
-    // Extraire le domaine et le protocole de l'URL complète
-    final baseUrl = getBaseUrl();
-    Uri url;
-    
-    // Paramètres avec prioritization améliorée des posts des followers
-    final queryParams = {
-      'userId': userId,
-      'page': page.toString(),
-      'limit': limit.toString(),
-      'prioritizeFollowers': 'true',     // Prioriser les posts des followers
-      'followersWeight': '3',            // Donner plus de poids aux posts des followers
-      'sort': 'relevance',               // Trier par pertinence plutôt que juste par date
-      'includeFollowed': 'true',         // S'assurer d'inclure les posts des comptes suivis
-      'enhancedAlgorithm': 'true',       // Utiliser l'algorithme amélioré si disponible
-    };
-    
-    if (baseUrl.startsWith('http://')) {
-      // Si c'est http://
-      final domain = baseUrl.replaceFirst('http://', '');
-      url = Uri.http(domain, '/api/posts', queryParams);
-    } else if (baseUrl.startsWith('https://')) {
-      // Si c'est https://
-      final domain = baseUrl.replaceFirst('https://', '');
-      url = Uri.https(domain, '/api/posts', queryParams);
-    } else {
-      // Utiliser Uri.parse comme solution de secours
-      final queryString = queryParams.entries.map((e) => '${e.key}=${e.value}').join('&');
-      url = Uri.parse('$baseUrl/api/posts?$queryString');
-    }
-    
-    try {
-      print('🔍 Requête vers : $url');
-      final response = await http.get(url);
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        print('📩 Réponse reçue : ${data.length} posts');
-        return data;
-      } else {
-        print('❌ Erreur lors de la récupération du feed : ${response.body}');
-        return [];
-      }
-    } catch (e) {
-      print('❌ Erreur réseau : $e');
-      return [];
-    }
-  }
-
-  /// Récupère les informations d'un auteur (producteur ou utilisateur)
-  Future<Map<String, dynamic>?> _fetchUserProfile(String userId) async {
-    // Extraire le domaine et le protocole de l'URL complète
-    final baseUrl = getBaseUrl();
-    Uri url;
-    
-    if (baseUrl.startsWith('http://')) {
-      // Si c'est http://
-      final domain = baseUrl.replaceFirst('http://', '');
-      url = Uri.http(domain, '/api/users/$userId');
-    } else if (baseUrl.startsWith('https://')) {
-      // Si c'est https://
-      final domain = baseUrl.replaceFirst('https://', '');
-      url = Uri.https(domain, '/api/users/$userId');
-    } else {
-      // Utiliser Uri.parse comme solution de secours
-      url = Uri.parse('$baseUrl/api/users/$userId');
-    }
-    
-    try {
-      print('🔍 Requête utilisateur vers : $url');
-      final response = await http.get(url);
-
-      if (response.statusCode == 200) {
-        print('📩 Profil utilisateur récupéré avec succès');
-        return json.decode(response.body);
-      } else {
-        print('❌ Erreur lors de la récupération du profil utilisateur : ${response.body}');
-        return null;
-      }
-    } catch (e) {
-      print('❌ Erreur réseau pour le profil utilisateur : $e');
-      return null;
-    }
-  }
-
-  // Cache pour éviter des appels répétés à l'API pour les mêmes auteurs
-  final Map<String, Map<String, dynamic>> _authorCache = {};
-
-  // Liste pour suivre les IDs des producers qui ont échoué
-  final Set<String> _failedProducerIds = <String>{};
-  
-  Future<Map<String, dynamic>?> _fetchAuthorDetails(String authorId, bool isProducer, {bool isLeisureProducer = false}) async {
-    // Vérifier si l'auteur est déjà dans le cache
-    final cacheKey = '${isProducer ? (isLeisureProducer ? "leisure" : "producer") : "user"}_$authorId';
-    if (_authorCache.containsKey(cacheKey)) {
-      // Silencieux pour réduire les logs
-      return _authorCache[cacheKey];
-    }
-    
-    // URL par défaut fiable pour les placeholders
-    final placeholderUrl = 'https://storage.googleapis.com/choice-app/images/placeholder.jpg';
-    
-    // Si c'est un producer et qu'on a eu des erreurs précédentes, essayer directement en tant que leisure
-    String endpoint;
-    if (isProducer && _failedProducerIds.contains(authorId)) {
-      endpoint = 'leisureProducers';
-      isLeisureProducer = true;
-    } else {
-      endpoint = isLeisureProducer ? 'leisureProducers' : (isProducer ? 'producers' : 'users');
-    }
-    
-    // Extraire le domaine et le protocole de l'URL complète
-    final baseUrl = getBaseUrl();
-    Uri url;
-    
-    if (baseUrl.startsWith('http://')) {
-      final domain = baseUrl.replaceFirst('http://', '');
-      url = Uri.http(domain, '/api/$endpoint/$authorId');
-    } else if (baseUrl.startsWith('https://')) {
-      final domain = baseUrl.replaceFirst('https://', '');
-      url = Uri.https(domain, '/api/$endpoint/$authorId');
-    } else {
-      url = Uri.parse('$baseUrl/api/$endpoint/$authorId');
-    }
-
-    try {
-      final response = await http.get(url);
-
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> authorData = json.decode(response.body);
-        
-        // S'assurer que les URLs sont valides pour éviter les erreurs de résolution
-        if (authorData.containsKey('photo') && authorData['photo'] == null) {
-          authorData['photo'] = placeholderUrl;
-        }
-        if (authorData.containsKey('photo_url') && authorData['photo_url'] == null) {
-          authorData['photo_url'] = placeholderUrl;
-        }
-        if (authorData.containsKey('image') && authorData['image'] == null) {
-          authorData['image'] = placeholderUrl;
-        }
-        
-        // Ajouter un indicateur du type de producteur dans les données retournées
-        authorData['_producerType'] = endpoint;
-        
-        // Stocker dans le cache pour éviter des appels répétés
-        _authorCache[cacheKey] = authorData;
-        
-        return authorData;
-      } else {
-        // Fallback : si la requête sur "producers" échoue, essaye "leisureProducers"
-        if (!isLeisureProducer && isProducer && endpoint != 'leisureProducers') {
-          // Ajouter l'ID à la liste des producers qui ont échoué
-          _failedProducerIds.add(authorId);
-          
-          endpoint = 'leisureProducers';
-          
-          // Construire une nouvelle URL pour le fallback
-          if (baseUrl.startsWith('http://')) {
-            final domain = baseUrl.replaceFirst('http://', '');
-            url = Uri.http(domain, '/api/$endpoint/$authorId');
-          } else if (baseUrl.startsWith('https://')) {
-            final domain = baseUrl.replaceFirst('https://', '');
-            url = Uri.https(domain, '/api/$endpoint/$authorId');
-          } else {
-            url = Uri.parse('$baseUrl/api/$endpoint/$authorId');
-          }
-          
-          final fallbackResponse = await http.get(url);
-
-          if (fallbackResponse.statusCode == 200) {
-            final Map<String, dynamic> authorData = json.decode(fallbackResponse.body);
-            
-            // S'assurer que les URLs sont valides
-            if (authorData.containsKey('photo') && authorData['photo'] == null) {
-              authorData['photo'] = placeholderUrl;
-            }
-            if (authorData.containsKey('photo_url') && authorData['photo_url'] == null) {
-              authorData['photo_url'] = placeholderUrl;
-            }
-            if (authorData.containsKey('image') && authorData['image'] == null) {
-              authorData['image'] = placeholderUrl;
-            }
-            
-            // Marquer ce producteur comme un leisure producer
-            authorData['_producerType'] = 'leisureProducers';
-            
-            // Mise à jour des posts pour refléter ce changement
-            final postIndex = _posts.indexWhere((post) => post['producer_id'] == authorId);
-            if (postIndex != -1) {
-              setState(() {
-                _posts[postIndex]['is_leisure_producer'] = true;
-              });
-            }
-            
-            // Stocker dans le cache avec le bon type
-            _authorCache[cacheKey] = authorData;
-            return authorData;
-          }
-        }
-      }
-    } catch (e) {
-      // En cas d'erreur, retourner un objet minimal pour éviter les crashs
-      Map<String, dynamic> fallbackData = {
-        'name': isProducer ? 'Producteur' : 'Utilisateur',
-        'photo': placeholderUrl,
-        'photo_url': placeholderUrl,
-        'image': placeholderUrl,
-        '_producerType': endpoint
-      };
-      
-      _authorCache[cacheKey] = fallbackData;
-      return fallbackData;
-    }
-
-    // Retourne un objet minimal si toutes les tentatives échouent
-    Map<String, dynamic> fallbackData = {
-      'name': isProducer ? 'Producteur' : 'Utilisateur',
-      'photo': placeholderUrl,
-      'photo_url': placeholderUrl,
-      'image': placeholderUrl,
-      '_producerType': endpoint
-    };
-    
-    _authorCache[cacheKey] = fallbackData;
-    return fallbackData;
-  }
-
-  /// Like un post
-  Future<void> _likePost(String postId, Map<String, dynamic> post) async {
-    // Extraire le domaine et le protocole de l'URL complète
-    final baseUrl = getBaseUrl();
-    Uri url;
-    
-    if (baseUrl.startsWith('http://')) {
-      // Si c'est http://
-      final domain = baseUrl.replaceFirst('http://', '');
-      url = Uri.http(domain, '/api/posts/$postId/like');
-    } else if (baseUrl.startsWith('https://')) {
-      // Si c'est https://
-      final domain = baseUrl.replaceFirst('https://', '');
-      url = Uri.https(domain, '/api/posts/$postId/like');
-    } else {
-      // Utiliser Uri.parse comme solution de secours
-      url = Uri.parse('$baseUrl/api/posts/$postId/like');
-    }
-    
-    final body = {
-      'userId': widget.userId,
-    };
-
-    try {
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode(body),
-      );
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        setState(() {
-          post['isLiked'] = data['isLiked'] ?? true;
-          post['likesCount'] = data['likesCount'] ?? (post['likesCount'] ?? 0) + 1;
-        });
-        print('✅ Post liké avec succès');
-      } else {
-        print('❌ Erreur lors du like du post : ${response.body}');
-      }
-    } catch (e) {
-      print('❌ Erreur réseau lors du like du post : $e');
-    }
-  }
-
-  Future<void> _markInterested(String targetId, Map<String, dynamic> post, {bool isLeisureProducer = false}) async {
-    // Vérification que le post provient d'un producer
-    final bool isProducer = post['producer_id'] != null;
-    if (!isProducer) {
-      print('⚠️ Interest/Choice uniquement pour les posts de producers');
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Option uniquement disponible pour les publications de producteurs')),
-      );
-      return;
-    }
-
-    // Afficher l'indicateur de chargement
-    setState(() {
-      post['isLoading'] = true;
-    });
-
-    // Extraire le domaine et le protocole de l'URL complète
-    final baseUrl = getBaseUrl();
-    Uri url;
-    
-    if (baseUrl.startsWith('http://')) {
-      // Si c'est http://
-      final domain = baseUrl.replaceFirst('http://', '');
-      url = Uri.http(domain, '/api/choicexinterest/interested');
-    } else if (baseUrl.startsWith('https://')) {
-      // Si c'est https://
-      final domain = baseUrl.replaceFirst('https://', '');
-      url = Uri.https(domain, '/api/choicexinterest/interested');
-    } else {
-      // Utiliser Uri.parse comme solution de secours
-      url = Uri.parse('$baseUrl/api/choicexinterest/interested');
-    }
-    
-    // Format de données attendu par le backend - simplifié pour correspondre à l'API
-    final body = {
-      'userId': widget.userId,
-      'targetId': targetId, // ID du producer ou de l'événement
-    };
-
-    try {
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode(body),
-      );
-
-      if (response.statusCode == 200) {
-        final responseData = json.decode(response.body);
-        // Convertir explicitement en booléen pour éviter les erreurs de type 'Null is not a subtype of bool'
-        final bool updatedInterested = responseData['interested'] == true;
-        setState(() {
-          post['interested'] = updatedInterested;
-          post['isLoading'] = false;
-        });
-        
-        // Feedback à l'utilisateur
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(updatedInterested ? 'Ajouté à vos intérêts' : 'Retiré de vos intérêts'),
-            backgroundColor: updatedInterested ? Colors.green : Colors.grey,
-            behavior: SnackBarBehavior.floating,
-            duration: const Duration(seconds: 2),
-          ),
-        );
-        
-        // Mettre à jour le profil utilisateur pour refléter le changement
-        _updateUserProfile();
-        
-        print('✅ Interested mis à jour avec succès');
-      } else {
-        setState(() {
-          post['isLoading'] = false;
-        });
-        print('❌ Erreur lors de la mise à jour d\'Interested : ${response.body}');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erreur lors de la mise à jour : ${response.statusCode}'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } catch (e) {
-      setState(() {
-        post['isLoading'] = false;
-      });
-      print('❌ Erreur réseau lors de la mise à jour d\'Interested : $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Erreur réseau : $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
-  Future<void> _markChoice(String targetId, Map<String, dynamic> post, {bool isLeisureProducer = false}) async {
-    // Vérification que le post provient d'un producer
-    final bool isProducer = post['producer_id'] != null;
-    if (!isProducer) {
-      print('⚠️ Interest/Choice uniquement pour les posts de producers');
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Option uniquement disponible pour les publications de producteurs')),
-      );
+  // Initialize video controller for a specific post
+  Future<void> _initializeVideoController(String postId, String videoUrl) async {
+    if (_videoControllers.containsKey(postId)) {
       return;
     }
     
-    // Afficher l'indicateur de chargement
-    setState(() {
-      post['isLoading'] = true;
-    });
-    
-    // Extraire le domaine et le protocole de l'URL complète
-    final baseUrl = getBaseUrl();
-    Uri url;
-    
-    if (baseUrl.startsWith('http://')) {
-      // Si c'est http://
-      final domain = baseUrl.replaceFirst('http://', '');
-      url = Uri.http(domain, '/api/choicexinterest/choice');
-    } else if (baseUrl.startsWith('https://')) {
-      // Si c'est https://
-      final domain = baseUrl.replaceFirst('https://', '');
-      url = Uri.https(domain, '/api/choicexinterest/choice');
-    } else {
-      // Utiliser Uri.parse comme solution de secours
-      url = Uri.parse('$baseUrl/api/choicexinterest/choice');
-    }
-    
-    // Format de données attendu par le backend - simplifié pour correspondre à l'API
-    final body = {
-      'userId': widget.userId,
-      'targetId': targetId,
-      // Optionnel: ajout d'un commentaire si nécessaire
-      // 'comment': 'Ajouté depuis le feed'
-    };
-
     try {
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode(body),
-      );
-
-      if (response.statusCode == 200) {
-        final responseData = json.decode(response.body);
-        // Convertir explicitement en booléen pour éviter les erreurs de type 'Null is not a subtype of bool'
-        final bool updatedChoice = responseData['choice'] == true;
-        setState(() {
-          post['choice'] = updatedChoice;
-          post['isLoading'] = false;
-        });
-        
-        // Feedback à l'utilisateur
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(updatedChoice ? 'Ajouté à vos choix' : 'Retiré de vos choix'),
-            backgroundColor: updatedChoice ? Colors.green : Colors.grey,
-            behavior: SnackBarBehavior.floating,
-            duration: const Duration(seconds: 2),
-          ),
-        );
-        
-        // Mettre à jour le profil utilisateur pour refléter le changement
-        _updateUserProfile();
-        
-        print('✅ Choice mis à jour avec succès');
-      } else {
-        setState(() {
-          post['isLoading'] = false;
-        });
-        print('❌ Erreur lors de la mise à jour de Choice : ${response.body}');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erreur lors de la mise à jour : ${response.statusCode}'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } catch (e) {
-      setState(() {
-        post['isLoading'] = false;
-      });
-      print('❌ Erreur réseau lors de la mise à jour de Choice : $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Erreur réseau : $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
-  /// Mettre à jour le profil utilisateur après un changement d'interest/choice
-  Future<void> _updateUserProfile() async {
-    try {
-      // Récupérer les intérêts et choix mis à jour de l'utilisateur
-      // Extraire le domaine et le protocole de l'URL complète
-      final baseUrl = getBaseUrl();
-      Uri url;
+      final controller = VideoPlayerController.networkUrl(Uri.parse(videoUrl));
+      _videoControllers[postId] = controller;
       
-      if (baseUrl.startsWith('http://')) {
-        // Si c'est http://
-        final domain = baseUrl.replaceFirst('http://', '');
-        url = Uri.http(domain, '/api/users/${widget.userId}');
-      } else if (baseUrl.startsWith('https://')) {
-        // Si c'est https://
-        final domain = baseUrl.replaceFirst('https://', '');
-        url = Uri.https(domain, '/api/users/${widget.userId}');
-      } else {
-        // Utiliser Uri.parse comme solution de secours
-        url = Uri.parse('$baseUrl/api/users/${widget.userId}');
-      }
-      
-      final response = await http.get(url);
-      
-      if (response.statusCode == 200) {
-        final userData = json.decode(response.body);
-        print('✅ Profil utilisateur mis à jour avec succès');
-        print('📋 Intérêts: ${userData['interests']?.length ?? 0}');
-        print('📋 Choices: ${userData['choices']?.length ?? 0}');
-        
-        // On pourrait mettre à jour un state global ici ou déclencher une mise à jour de l'interface
-        // par exemple, rafraîchir la liste des posts pour refléter les nouveaux états
-        
-        // Montrer un toast de confirmation à l'utilisateur
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Vos préférences ont été mises à jour dans votre profil'),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 2),
-          ),
-        );
-      } else {
-        print('❌ Erreur lors de la mise à jour du profil : ${response.body}');
-      }
-    } catch (e) {
-      print('❌ Erreur réseau lors de la mise à jour du profil : $e');
-    }
-  }
-
-  /// Récupère les informations d'un événement
-  Future<Map<String, dynamic>?> _fetchEventDetails(String eventId) async {
-    // Extraire le domaine et le protocole de l'URL complète
-    final baseUrl = getBaseUrl();
-    Uri url;
-    
-    if (baseUrl.startsWith('http://')) {
-      // Si c'est http://
-      final domain = baseUrl.replaceFirst('http://', '');
-      url = Uri.http(domain, '/api/events/$eventId');
-    } else if (baseUrl.startsWith('https://')) {
-      // Si c'est https://
-      final domain = baseUrl.replaceFirst('https://', '');
-      url = Uri.https(domain, '/api/events/$eventId');
-    } else {
-      // Utiliser Uri.parse comme solution de secours
-      url = Uri.parse('$baseUrl/api/events/$eventId');
-    }
-    
-    try {
-      print('🔍 Requête événement vers : $url');
-      final response = await http.get(url);
-      if (response.statusCode == 200) {
-        return json.decode(response.body);
-      } else {
-        print('❌ Erreur lors de la récupération des détails de l\'événement : ${response.body}');
-        return null;
-      }
-    } catch (e) {
-      print('❌ Erreur réseau pour l\'événement : $e');
-      return null;
-    }
-  }
-
-  /// Ajoute un commentaire
-  Future<void> _addComment(String postId, String comment) async {
-    // Extraire le domaine et le protocole de l'URL complète
-    final baseUrl = getBaseUrl();
-    Uri url;
-    
-    if (baseUrl.startsWith('http://')) {
-      // Si c'est http://
-      final domain = baseUrl.replaceFirst('http://', '');
-      url = Uri.http(domain, '/api/posts/$postId/comments');
-    } else if (baseUrl.startsWith('https://')) {
-      // Si c'est https://
-      final domain = baseUrl.replaceFirst('https://', '');
-      url = Uri.https(domain, '/api/posts/$postId/comments');
-    } else {
-      // Utiliser Uri.parse comme solution de secours
-      url = Uri.parse('$baseUrl/api/posts/$postId/comments');
-    }
-    
-    try {
-      final response = await http.post(
-        url,
-        body: json.encode({'comment': comment}),
-        headers: {'Content-Type': 'application/json'},
-      );
-      if (response.statusCode == 200) {
-        print('✅ Commentaire ajouté avec succès');
-        
-        // Update the comments of the specific post
-        final postIndex = _posts.indexWhere((p) => p['_id'] == postId);
-        if (postIndex != -1) {
-          final updatedPost = json.decode(response.body)['post'];
-          setState(() {
-            _posts[postIndex] = updatedPost;
-          });
-        }
-      } else {
-        print('❌ Erreur lors de l\'ajout du commentaire : ${response.body}');
-      }
-    } catch (e) {
-      print('❌ Erreur réseau pour l\'ajout du commentaire : $e');
-    }
-  }
-
-  /// Like un commentaire
-  Future<void> _likeComment(String postId, String commentId) async {
-    // Extraire le domaine et le protocole de l'URL complète
-    final baseUrl = getBaseUrl();
-    Uri url;
-    
-    if (baseUrl.startsWith('http://')) {
-      // Si c'est http://
-      final domain = baseUrl.replaceFirst('http://', '');
-      url = Uri.http(domain, '/api/posts/$postId/comments/$commentId/like');
-    } else if (baseUrl.startsWith('https://')) {
-      // Si c'est https://
-      final domain = baseUrl.replaceFirst('https://', '');
-      url = Uri.https(domain, '/api/posts/$postId/comments/$commentId/like');
-    } else {
-      // Utiliser Uri.parse comme solution de secours
-      url = Uri.parse('$baseUrl/api/posts/$postId/comments/$commentId/like');
-    }
-    
-    try {
-      final response = await http.post(url);
-      if (response.statusCode == 200) {
-        print('✅ Commentaire liké avec succès');
-        
-        // Update the comments of the specific post
-        final postIndex = _posts.indexWhere((p) => p['_id'] == postId);
-        if (postIndex != -1) {
-          final updatedPost = json.decode(response.body)['post'];
-          setState(() {
-            _posts[postIndex] = updatedPost;
-          });
-        }
-      } else {
-        print('❌ Erreur lors du like du commentaire : ${response.body}');
-      }
-    } catch (e) {
-      print('❌ Erreur réseau pour le like du commentaire : $e');
-    }
-  }
-
-  Future<VideoPlayerController> _initializeVideoController(String videoUrl) async {
-    final controller = VideoPlayerController.networkUrl(Uri.parse(videoUrl));
-
-    try {
       await controller.initialize();
-      controller.setLooping(true); // Permet à la vidéo de boucler automatiquement.
-      controller.setVolume(0); // Désactive le son si vous le souhaitez.
-      controller.play(); // Lance automatiquement la lecture de la vidéo.
-      return controller;
-    } catch (e) {
-      debugPrint('Erreur lors de l\'initialisation de la vidéo : $e');
-      throw Exception('Impossible de charger la vidéo');
-    }
-  }
-
-  // Navigation intelligente vers les profils producteurs avec vérification du type
-  void _navigateToDetails(String id, bool isProducer, {bool isLeisureProducer = false}) {
-    try {
-      // Vérifier d'abord si c'est un loisir ou un restaurant
-      if (isProducer) {
-        // Si on pense que c'est un leisure producer, essayer cette route en premier
-        if (isLeisureProducer) {
-          _tryNavigateToLeisureProducer(id);
-        } else {
-          _tryNavigateToRestaurantProducer(id);
-        }
-      } else {
-        // Navigation vers EventLeisureScreen si ce n'est pas un producteur
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => EventLeisureScreen(eventId: id),
-          ),
-        ).then((_) {
-          _refreshVisiblePosts();
-        });
-        
-        // Feedback à l'utilisateur
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Navigation vers l\'événement'),
-            duration: Duration(seconds: 1),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+      controller.setLooping(true);
+      controller.setVolume(0.0); // Muted by default
+      
+      // Only auto-play if this post is currently visible
+      if (_currentlyPlayingVideoId == postId) {
+        controller.play();
+      }
+      
+      // Ensure the widget rebuilds after controller is initialized
+      if (mounted) {
+        setState(() {});
       }
     } catch (e) {
-      print('❌ Erreur lors de la navigation : $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Erreur de navigation : $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      print('❌ Error initializing video controller: $e');
     }
   }
   
-  // Tente de naviguer vers un restaurant producer
-  void _tryNavigateToRestaurantProducer(String id) async {
-    try {
-      // Extraire le domaine et le protocole de l'URL complète
-      final baseUrl = getBaseUrl();
-      Uri url;
-      
-      if (baseUrl.startsWith('http://')) {
-        // Si c'est http://
-        final domain = baseUrl.replaceFirst('http://', '');
-        url = Uri.http(domain, '/api/producers/$id');
-      } else if (baseUrl.startsWith('https://')) {
-        // Si c'est https://
-        final domain = baseUrl.replaceFirst('https://', '');
-        url = Uri.https(domain, '/api/producers/$id');
-      } else {
-        // Utiliser Uri.parse comme solution de secours
-        url = Uri.parse('$baseUrl/api/producers/$id');
-      }
-      
-      final response = await http.get(url);
-      
-      if (response.statusCode == 200) {
-        // C'est bien un restaurant, on navigue vers ProducerScreen
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ProducerScreen(producerId: id, userId: widget.userId),
-          ),
-        ).then((_) {
-          _refreshVisiblePosts();
-        });
-        
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Navigation vers le restaurant'),
-            duration: Duration(seconds: 1),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      } else {
-        // Si ce n'est pas un restaurant, essayer comme leisure producer
-        print('❌ Erreur restaurant producer : ${response.statusCode}. Tentative en tant que leisure producer.');
-        _tryNavigateToLeisureProducer(id);
-      }
-    } catch (e) {
-      print('❌ Erreur lors de la navigation vers restaurant producer : $e');
-      // En cas d'erreur, essayer comme leisure producer
-      _tryNavigateToLeisureProducer(id);
-    }
-  }
-  
-  // Tente de naviguer vers un leisure producer
-  void _tryNavigateToLeisureProducer(String id) async {
-    try {
-      // Extraire le domaine et le protocole de l'URL complète
-      final baseUrl = getBaseUrl();
-      Uri url;
-      
-      if (baseUrl.startsWith('http://')) {
-        // Si c'est http://
-        final domain = baseUrl.replaceFirst('http://', '');
-        url = Uri.http(domain, '/api/leisureProducers/$id');
-      } else if (baseUrl.startsWith('https://')) {
-        // Si c'est https://
-        final domain = baseUrl.replaceFirst('https://', '');
-        url = Uri.https(domain, '/api/leisureProducers/$id');
-      } else {
-        // Utiliser Uri.parse comme solution de secours
-        url = Uri.parse('$baseUrl/api/leisureProducers/$id');
-      }
-      
-      final response = await http.get(url);
-      
-      if (response.statusCode == 200) {
-        // C'est bien un leisure producer, on navigue vers ProducerLeisureScreen
-        final producerData = json.decode(response.body);
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ProducerLeisureScreen(producerData: producerData),
-          ),
-        ).then((_) {
-          _refreshVisiblePosts();
-        });
-        
-        // Mettre à jour le flag dans les posts concernés
-        final postIndex = _posts.indexWhere((post) => post['producer_id'] == id);
-        if (postIndex != -1) {
-          setState(() {
-            _posts[postIndex]['is_leisure_producer'] = true;
-          });
-        }
-        
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Navigation vers le lieu de loisir'),
-            duration: Duration(seconds: 1),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      } else {
-        // Si les deux tentatives échouent, afficher un message d'erreur
-        print('❌ Erreur également pour leisure producer : ${response.statusCode}');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Producteur non trouvé (ID: $id)'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } catch (e) {
-      print('❌ Erreur lors de la navigation vers leisure producer : $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Erreur de connexion : $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-  
-  // Rafraîchit les posts visibles actuellement à l'écran
-  void _refreshVisiblePosts() {
-    if (_posts.isNotEmpty) {
-      // Calculer quels posts sont actuellement visibles
-      final firstVisibleIndex = 0; // Simplification - normalement calculé à partir du ScrollController
-      final lastVisibleIndex = (_posts.length > 5) ? 5 : _posts.length - 1; // Prendre les 5 premiers posts ou moins
-      
-      for (int i = firstVisibleIndex; i <= lastVisibleIndex; i++) {
-        final String postId = _posts[i]['_id']?.toString() ?? '';
-        if (postId.isNotEmpty) {
-          _refreshPostData(postId);
-        }
-      }
-    }
-  }
-  
-  // Rafraîchit les données d'un post spécifique
-  Future<void> _refreshPostData(String postId) async {
-    try {
-      // Extraire le domaine et le protocole de l'URL complète
-      final baseUrl = getBaseUrl();
-      Uri url;
-      
-      if (baseUrl.startsWith('http://')) {
-        // Si c'est http://
-        final domain = baseUrl.replaceFirst('http://', '');
-        url = Uri.http(domain, '/api/posts/$postId');
-      } else if (baseUrl.startsWith('https://')) {
-        // Si c'est https://
-        final domain = baseUrl.replaceFirst('https://', '');
-        url = Uri.https(domain, '/api/posts/$postId');
-      } else {
-        // Utiliser Uri.parse comme solution de secours
-        url = Uri.parse('$baseUrl/api/posts/$postId');
-      }
-      
-      final response = await http.get(url);
-      
-      if (response.statusCode == 200) {
-        final updatedPost = json.decode(response.body);
-        setState(() {
-          final postIndex = _posts.indexWhere((post) => post['_id'] == postId);
-          if (postIndex != -1) {
-            _posts[postIndex] = updatedPost;
-          }
-        });
-      }
-    } catch (e) {
-      print('❌ Erreur lors du rafraîchissement du post $postId: $e');
-    }
-  }
-
-  /// Formate la date et l'heure du post
-  String _formatPostedTime(String postedAt) {
-    final DateTime postedDate = DateTime.parse(postedAt);
-    final Duration difference = DateTime.now().difference(postedDate);
-
-    if (difference.inMinutes < 60) {
-      return "${difference.inMinutes} min";
-    } else if (difference.inHours < 24) {
-      return "${difference.inHours} h";
-    } else {
-      return DateFormat('dd MMM, yyyy').format(postedDate);
-    }
-  }
-
-  /// Construit un bouton d'interaction style Instagram avec compteur proéminent
-  Widget _buildInteractionButton({
-    required IconData icon,
-    Color? iconColor,
-    required int count,
-    int? showFollowerCount,
-    required VoidCallback onTap,
-    VoidCallback? onLongPress,
-  }) {
-    final bool isActive = iconColor != null;
-    final baseColor = iconColor ?? Colors.grey.shade700;
+  // Handle post visibility changes for auto-playing videos
+  void _handlePostVisibilityChanged(String postId, double visibleFraction, String? videoUrl) {
+    if (videoUrl == null) return;
     
-    return InkWell(
-      borderRadius: BorderRadius.circular(12),
-      onTap: onTap,
-      onLongPress: onLongPress,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
-        decoration: BoxDecoration(
-          color: isActive ? baseColor.withOpacity(0.08) : Colors.transparent,
-          borderRadius: BorderRadius.circular(16),
-          border: isActive ? Border.all(color: baseColor.withOpacity(0.2), width: 0.5) : null,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Icône avec animation avancée
-            TweenAnimationBuilder<double>(
-              tween: Tween<double>(
-                begin: 0.9,
-                end: isActive ? 1.2 : 1.0,
-              ),
-              duration: const Duration(milliseconds: 300),
-              curve: Curves.elasticOut,
-              builder: (_, value, __) {
-                return Transform.scale(
-                  scale: value,
-                  child: Icon(
-                    icon,
-                    color: isActive 
-                      ? baseColor 
-                      : count > 0 
-                        ? Colors.grey.shade700 
-                        : Colors.grey.shade400,
-                    size: 26,
-                  ),
-                );
-              },
-            ),
-            
-            // Compteur principal plus grand et plus visible
-            if (count > 0)
-              GestureDetector(
-                onTap: onLongPress ?? onTap,
-                child: Container(
-                  margin: const EdgeInsets.only(top: 6),
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: isActive ? baseColor.withOpacity(0.15) : Colors.grey.shade100,
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: isActive ? [
-                      BoxShadow(
-                        color: baseColor.withOpacity(0.2),
-                        blurRadius: 4,
-                        spreadRadius: 0,
-                      )
-                    ] : null,
-                  ),
-                  child: Text(
-                    '$count',
-                    style: GoogleFonts.poppins(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: isActive ? baseColor : Colors.grey.shade700,
-                    ),
-                  ),
+    if (visibleFraction > 0.7) {
+      // Post is mostly visible, play its video
+      if (_currentlyPlayingVideoId != postId) {
+        // Pause current video
+        if (_currentlyPlayingVideoId != null && 
+            _videoControllers.containsKey(_currentlyPlayingVideoId)) {
+          _videoControllers[_currentlyPlayingVideoId]!.pause();
+        }
+        
+        // Set new currently playing video
+        _currentlyPlayingVideoId = postId;
+        
+        // Initialize and play the video if needed
+        if (!_videoControllers.containsKey(postId)) {
+          _initializeVideoController(postId, videoUrl).then((_) {
+            if (_currentlyPlayingVideoId == postId && 
+                _videoControllers.containsKey(postId)) {
+              _videoControllers[postId]!.play();
+            }
+          });
+        } else if (_videoControllers.containsKey(postId)) {
+          _videoControllers[postId]!.play();
+        }
+      }
+    } else if (visibleFraction < 0.2 && 
+               _currentlyPlayingVideoId == postId && 
+               _videoControllers.containsKey(postId)) {
+      // Post is barely visible, pause its video
+      _videoControllers[postId]!.pause();
+      _currentlyPlayingVideoId = null;
+    }
+  }
+  
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.grey[100],
+      body: NestedScrollView(
+        headerSliverBuilder: (context, innerBoxIsScrolled) {
+          return [
+            SliverAppBar(
+              floating: true,
+              snap: true,
+              title: Text(
+                'Choice',
+                style: GoogleFonts.poppins(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 24,
+                  color: Colors.deepPurple[700],
                 ),
               ),
-              
-            // Compteur secondaire (followers) amélioré
-            if (showFollowerCount != null && showFollowerCount > 0)
-              GestureDetector(
-                onTap: onLongPress ?? onTap,
-                child: Container(
-                  margin: const EdgeInsets.only(top: 4),
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: Colors.purple.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: Colors.purple.withOpacity(0.3),
-                      width: 0.5,
+              backgroundColor: Colors.white,
+              elevation: 2,
+              actions: [
+                IconButton(
+                  icon: Icon(Icons.search, color: Colors.deepPurple[700]),
+                  onPressed: () {
+                    // Handle search
+                  },
+                ),
+                IconButton(
+                  icon: Icon(Icons.notifications_none, color: Colors.deepPurple[700]),
+                  onPressed: () {
+                    // Handle notifications
+                  },
+                ),
+              ],
+              bottom: TabBar(
+                controller: _tabController,
+                isScrollable: true,
+                indicatorColor: Colors.deepPurple,
+                labelColor: Colors.deepPurple[700],
+                unselectedLabelColor: Colors.grey[600],
+                tabs: const [
+                  Tab(text: 'Pour vous'),
+                  Tab(text: 'Restaurants'),
+                  Tab(text: 'Loisirs'),
+                  Tab(text: 'Amis'),
+                  Tab(text: 'Découvrir'),
+                ],
+              ),
+            ),
+          ];
+        },
+        body: AnimatedBuilder(
+          animation: _controller,
+          builder: (context, _) {
+            if (_controller.loadState == FeedLoadState.initial) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            
+            if (_controller.loadState == FeedLoadState.error) {
+              return Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      'Erreur : ${_controller.errorMessage}',
+                      style: TextStyle(color: Colors.red[700]),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: () => _controller.refreshFeed(),
+                      child: const Text('Réessayer'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.deepPurple,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }
+            
+            if (_controller.feedItems.isEmpty) {
+              return Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.feed, size: 48, color: Colors.grey[400]),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Aucun contenu disponible',
+                      style: TextStyle(color: Colors.grey[700]),
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: () => _controller.refreshFeed(),
+                      child: const Text('Actualiser'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.deepPurple,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }
+            
+            return RefreshIndicator(
+              onRefresh: () => _controller.refreshFeed(),
+              color: Colors.deepPurple,
+              child: ListView.builder(
+                controller: _scrollController,
+                padding: const EdgeInsets.only(top: 8, bottom: 20),
+                itemCount: _controller.feedItems.length + 
+                  (_controller.loadState == FeedLoadState.loadingMore ? 1 : 0),
+                itemBuilder: (context, index) {
+                  if (index >= _controller.feedItems.length) {
+                    return const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(16.0),
+                        child: CircularProgressIndicator(),
+                      ),
+                    );
+                  }
+                  
+                  final item = _controller.feedItems[index];
+                  
+                  // Handle different types of feed items
+                  if (item is DialogicAIMessage) {
+                    return _buildAIMessageCard(item);
+                  } else if (item is Post) {
+                    return _buildPostCard(item);
+                  } else if (item is Map<String, dynamic>) {
+                    return _buildDynamicPostCard(item);
+                  }
+                  
+                  return const SizedBox.shrink();
+                },
+              ),
+            );
+          },
+        ),
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          // Handle creating a new post
+        },
+        backgroundColor: Colors.deepPurple,
+        child: const Icon(Icons.add, color: Colors.white),
+      ),
+    );
+  }
+  
+  // Build card for AI messages in feed
+  Widget _buildAIMessageCard(DialogicAIMessage message) {
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.deepPurple.shade50,
+              Colors.deepPurple.shade100,
+            ],
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // AI Avatar and indicator
+              Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.deepPurple.shade200,
+                    ),
+                    child: const Center(
+                      child: Icon(
+                        Icons.emoji_objects_outlined,
+                        color: Colors.white,
+                        size: 24,
+                      ),
                     ),
                   ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
+                  const SizedBox(width: 12),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      FaIcon(
-                        FontAwesomeIcons.userGroup,
-                        size: 9,
-                        color: Colors.purple.shade700,
+                      const Text(
+                        'Choice AI',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
                       ),
-                      const SizedBox(width: 3),
                       Text(
-                        '$showFollowerCount amis',
-                        style: GoogleFonts.poppins(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.purple.shade700,
+                        'Assistant personnel',
+                        style: TextStyle(
+                          color: Colors.grey[600],
+                          fontSize: 12,
                         ),
                       ),
                     ],
                   ),
+                ],
+              ),
+              
+              const SizedBox(height: 12),
+              
+              // Message content
+              Text(
+                message.content,
+                style: const TextStyle(
+                  fontSize: 16,
+                  height: 1.4,
                 ),
               ),
-          ],
+              
+              // Suggestions chips if interactive
+              if (message.isInteractive && message.suggestions.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: message.suggestions.map((suggestion) {
+                    return ActionChip(
+                      label: Text(suggestion),
+                      backgroundColor: Colors.white,
+                      side: BorderSide(color: Colors.deepPurple.shade200),
+                      labelStyle: TextStyle(color: Colors.deepPurple.shade700),
+                      onPressed: () async {
+                        // Show response input when user taps a suggestion
+                        final response = await _showAIResponseInput(suggestion);
+                        if (response != null && response.isNotEmpty) {
+                          final aiResponse = await _controller.interactWithAiMessage(response);
+                          
+                          // Insert AI response in feed after this message
+                          if (mounted) {
+                            setState(() {
+                              final index = _controller.feedItems.indexOf(message);
+                              if (index != -1) {
+                                _controller.feedItems.insert(index + 1, aiResponse);
+                              }
+                            });
+                          }
+                        }
+                      },
+                    );
+                  }).toList(),
+                ),
+              ],
+              
+              // Input field for direct response if interactive
+              if (message.isInteractive) ...[
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _aiResponseController,
+                  decoration: InputDecoration(
+                    hintText: 'Répondre à Choice AI...',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(20),
+                      borderSide: BorderSide.none,
+                    ),
+                    filled: true,
+                    fillColor: Colors.white,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.send),
+                      color: Colors.deepPurple,
+                      onPressed: () async {
+                        final text = _aiResponseController.text.trim();
+                        if (text.isNotEmpty) {
+                          final aiResponse = await _controller.interactWithAiMessage(text);
+                          _aiResponseController.clear();
+                          
+                          // Insert AI response in feed
+                          if (mounted) {
+                            setState(() {
+                              final index = _controller.feedItems.indexOf(message);
+                              if (index != -1) {
+                                _controller.feedItems.insert(index + 1, aiResponse);
+                              }
+                            });
+                          }
+                        }
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
         ),
       ),
     );
   }
-
-  /// Construit la carte d'un post avec un design ultra-moderne, style Instagram
-  Widget _buildPostCard(Map<String, dynamic> post) {
-    final String postId = post['_id']?.toString() ?? '';
-    final String content = post['content']?.toString() ?? 'Contenu non disponible';
-    final String postedAt = post['time_posted']?.toString() ?? post['posted_at']?.toString() ?? DateTime.now().toIso8601String();
+  
+  // Build card for regular Post objects
+  Widget _buildPostCard(Post post) {
+    final hasMedia = post.media.isNotEmpty;
+    final firstMediaIsVideo = hasMedia && post.media.first.type == 'video';
+    final videoUrl = firstMediaIsVideo ? post.media.first.url : null;
     
-    // Gestion des médias avec support pour tableaux d'objets structurés
-    List<dynamic> mediaList = post['media'] as List? ?? [];
-    String? mediaUrl;
-    String? videoUrl;
+    // Track post view for AI context
+    _controller.trackPostView(post);
     
-    if (mediaList.isNotEmpty) {
-      final firstMedia = mediaList[0];
-      // Vérifier si c'est un objet structuré (nouveau format) ou une simple URL (ancien format)
-      if (firstMedia is Map) {
-        final mediaType = firstMedia['type']?.toString().toLowerCase() ?? '';
-        final mediaUrlFromObj = firstMedia['url']?.toString() ?? '';
-        
-        if (mediaType == 'image' || mediaUrlFromObj.endsWith('.jpg') || 
-            mediaUrlFromObj.endsWith('.png') || mediaUrlFromObj.endsWith('.jpeg')) {
-          mediaUrl = mediaUrlFromObj;
-        } else if (mediaType == 'video' || mediaUrlFromObj.endsWith('.mp4') || 
-                  mediaUrlFromObj.endsWith('.mov') || mediaUrlFromObj.endsWith('.avi')) {
-          videoUrl = mediaUrlFromObj;
+    return VisibilityDetector(
+      key: Key('post-${post.id}'),
+      onVisibilityChanged: (info) {
+        if (videoUrl != null) {
+          _handlePostVisibilityChanged(post.id, info.visibleFraction, videoUrl);
         }
-      } else if (firstMedia is String) {
-        // Format simple - juste une URL
-        final mediaUrlStr = firstMedia.toString();
-        if (mediaUrlStr.endsWith('.jpg') || mediaUrlStr.endsWith('.png') || mediaUrlStr.endsWith('.jpeg')) {
-          mediaUrl = mediaUrlStr;
-        } else if (mediaUrlStr.endsWith('.mp4') || mediaUrlStr.endsWith('.mov') || mediaUrlStr.endsWith('.avi')) {
-          videoUrl = mediaUrlStr;
-        }
-      }
-    }
-    
-    final String? producerId = post['producer_id']?.toString();
-    final String? userId = post['user_id']?.toString();
-    final String? eventId = post['event_id']?.toString();
-    final String? referencedEventId = post['referenced_event_id']?.toString();
-    final bool isProducer = producerId != null;
-    final bool isLeisureProducer = post['is_leisure_producer'] == true || post['isLeisureProducer'] == true;
-    final bool isAutomated = post['is_automated'] == true;
-    final String targetId = isLeisureProducer ? (eventId ?? referencedEventId ?? '') : (producerId ?? '');
-    final List<dynamic> comments = post['comments'] ?? [];
-    final bool isLiked = post['isLiked'] == true;
-    final int likesCount = post['likesCount'] ?? post['likes_count'] ?? 0;
-
-    return StatefulBuilder(
-      builder: (BuildContext context, StateSetter setState) {
-        // Variables d'état local
-        bool showLikeAnimation = false;
-        return Container(
-          margin: const EdgeInsets.only(bottom: 16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.04),
-                offset: const Offset(0, 2),
-                blurRadius: 10,
-              ),
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Header avec avatar et nom
-                // Header avec avatar et nom
-                if (producerId != null || userId != null)
-                FutureBuilder<Map<String, dynamic>?>(
-                  future: isProducer
-                      ? _fetchAuthorDetails(producerId!, true, isLeisureProducer: isLeisureProducer)
-                      : _fetchUserProfile(userId!),
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return Padding(
-                        padding: const EdgeInsets.all(14.0),
-                        child: Row(
-                          children: [
-                            Shimmer.fromColors(
-                              baseColor: Colors.grey[300]!,
-                              highlightColor: Colors.grey[100]!,
-                              child: const CircleAvatar(
-                                radius: 22,
-                                backgroundColor: Colors.white,
+      },
+      child: Card(
+        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        elevation: 1,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Post header with author info
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  GestureDetector(
+                    onTap: () {
+                      // Navigate to author profile
+                      if (post.isProducerPost) {
+                        if (post.isLeisureProducer) {
+                          // Navigate to leisure producer profile
+                        } else {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => ProducerScreen(
+                                producerId: post.authorId,
+                                userId: widget.userId,
                               ),
                             ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Shimmer.fromColors(
-                                    baseColor: Colors.grey[300]!,
-                                    highlightColor: Colors.grey[100]!,
-                                    child: Container(
-                                      height: 14,
-                                      width: 120,
-                                      decoration: BoxDecoration(
-                                        color: Colors.white,
-                                        borderRadius: BorderRadius.circular(10),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Shimmer.fromColors(
-                                    baseColor: Colors.grey[300]!,
-                                    highlightColor: Colors.grey[100]!,
-                                    child: Container(
-                                      height: 10,
-                                      width: 80,
-                                      decoration: BoxDecoration(
-                                        color: Colors.white,
-                                        borderRadius: BorderRadius.circular(10),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            )
-                          ],
-                        ),
-                      );
-                    } else if (snapshot.hasError || snapshot.data == null) {
-                      return const Padding(
-                        padding: EdgeInsets.all(12.0),
-                        child: Text(
-                          'Auteur non disponible',
-                          style: TextStyle(color: Colors.red),
-                        ),
-                      );
-                    }
-
-                    final authorData = snapshot.data!;
-                    final String name = _extractAuthorName(authorData, isProducer, isLeisureProducer);
-                    final String avatarUrl = isProducer
-                        ? (authorData['photo'] ?? authorData['image'] ?? authorData['photo_url'] ?? authorData['avatar'] ?? 'https://storage.googleapis.com/choice-app/images/placeholder.jpg')
-                        : (authorData['photo_url'] ?? authorData['photo'] ?? authorData['avatar'] ?? 'https://storage.googleapis.com/choice-app/images/placeholder.jpg');
-
-                    return InkWell(
-                      onTap: () => isProducer
-                          ? _navigateToDetails(producerId!, true, isLeisureProducer: isLeisureProducer)
-                          : Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => ProfileScreen(userId: userId!),
-                              ),
-                            ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(14.0),
-                        child: Row(
-                          children: [
-                            // Avatar avec Animation Hero
-                            Hero(
-                              tag: 'avatar-${isProducer ? producerId : userId}',
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  border: Border.all(
-                                    color: isProducer
-                                        ? Colors.amber.withOpacity(0.5)
-                                        : Colors.blue.withOpacity(0.3),
-                                    width: 2,
-                                  ),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: isProducer
-                                          ? Colors.amber.withOpacity(0.1)
-                                          : Colors.blue.withOpacity(0.1),
-                                      blurRadius: 8,
-                                      spreadRadius: 1,
-                                    ),
-                                  ],
-                                ),
-                                child: CircleAvatar(
-                                  backgroundImage: CachedNetworkImageProvider(avatarUrl),
-                                  radius: 22,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    name,
-                                    style: GoogleFonts.poppins(
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 15,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  Text(
-                                    _formatPostedTime(postedAt),
-                                    style: GoogleFonts.poppins(
-                                      fontSize: 12,
-                                      color: Colors.grey[600],
-                                      fontWeight: FontWeight.w400,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            // Système de badges amélioré pour différents types de posts
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                // Badge pour post automatisé
-                                if (isAutomated)
-                                  Container(
-                                    margin: const EdgeInsets.only(right: 8.0),
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                    decoration: BoxDecoration(
-                                      color: Colors.blue.withOpacity(0.1),
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(
-                                        color: Colors.blue.withOpacity(0.3),
-                                        width: 1,
-                                      ),
-                                    ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(Icons.auto_awesome, size: 14, color: Colors.blue.shade700),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          'Auto',
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w500,
-                                            color: Colors.blue.shade700,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  
-                                // Badge pour post de lieu/restaurant
-                                if (post['isProducerPost'] == true)
-                                  Container(
-                                    margin: const EdgeInsets.only(right: 8.0),
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                    decoration: BoxDecoration(
-                                      color: Colors.deepPurple.withOpacity(0.1),
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(
-                                        color: Colors.deepPurple.withOpacity(0.3),
-                                        width: 1,
-                                      ),
-                                    ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(Icons.store, size: 14, color: Colors.deepPurple.shade700),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          isLeisureProducer ? 'Lieu' : 'Restaurant',
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w500,
-                                            color: Colors.deepPurple.shade700,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  
-                                // Badge pour post d'événement
-                                if (post['is_event'] == true || referencedEventId != null)
-                                  Container(
-                                    margin: const EdgeInsets.only(right: 8.0),
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                    decoration: BoxDecoration(
-                                      color: Colors.amber.withOpacity(0.1),
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(
-                                        color: Colors.amber.withOpacity(0.3),
-                                        width: 1,
-                                      ),
-                                    ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(Icons.event, size: 14, color: Colors.amber.shade700),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          'Événement',
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w500,
-                                            color: Colors.amber.shade700,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                              ],
-                            ),
-                            // Options menu
-                            Material(
-                              color: Colors.transparent,
-                              child: InkWell(
-                                borderRadius: BorderRadius.circular(50),
-                                onTap: () {
-                                  showModalBottomSheet(
-                                    context: context,
-                                    shape: const RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                                    ),
-                                    builder: (context) => Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Container(
-                                          margin: const EdgeInsets.symmetric(vertical: 10),
-                                          width: 40,
-                                          height: 4,
-                                          decoration: BoxDecoration(
-                                            color: Colors.grey[300],
-                                            borderRadius: BorderRadius.circular(10),
-                                          ),
-                                        ),
-                                        ListTile(
-                                          leading: const Icon(FontAwesomeIcons.shareNodes, size: 20),
-                                          title: Text('Partager', style: GoogleFonts.poppins()),
-                                          onTap: () {
-                                            Navigator.pop(context);
-                                            // Logique de partage
-                                          },
-                                        ),
-                                        ListTile(
-                                          leading: const Icon(FontAwesomeIcons.flag, size: 20),
-                                          title: Text('Signaler', style: GoogleFonts.poppins()),
-                                          onTap: () {
-                                            Navigator.pop(context);
-                                            // Logique de signalement
-                                          },
-                                        ),
-                                        const SizedBox(height: 10),
-                                      ],
-                                    ),
-                                  );
-                                },
-                                child: Padding(
-                                  padding: const EdgeInsets.all(8.0),
-                                  child: Icon(
-                                    FontAwesomeIcons.ellipsisVertical,
-                                    size: 20,
-                                    color: Colors.grey[700],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
+                          );
+                        }
+                      } else {
+                        // Navigate to user profile
+                      }
+                    },
+                    child: CircleAvatar(
+                      backgroundImage: CachedNetworkImageProvider(
+                        post.authorAvatar.isNotEmpty
+                            ? post.authorAvatar
+                            : 'https://via.placeholder.com/150',
                       ),
-                    );
-                  },
-                ),
-
-              // Texte du post avec ExpandableText
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
-                child: ExpandableText(
-                  content,
-                  expandText: 'voir plus',
-                  collapseText: 'voir moins',
-                  maxLines: 3,
-                  linkColor: Colors.blue,
-                  style: GoogleFonts.poppins(
-                    fontSize: 14.5,
-                    color: Colors.black87,
-                    height: 1.3,
-                  ),
-                  linkStyle: GoogleFonts.poppins(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.blue[600],
-                  ),
-                  animation: true,
-                  animationDuration: const Duration(milliseconds: 200),
-                ),
-              ),
-
-              // Badge pour les posts automatisés
-              if (isAutomated)
-                Container(
-                  margin: const EdgeInsets.only(left: 16.0, bottom: 8.0),
-                  padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 5.0),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: Colors.blue.withOpacity(0.3),
-                      width: 1,
+                      radius: 20,
                     ),
                   ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.auto_awesome, size: 14, color: Colors.blue.shade700),
-                      const SizedBox(width: 6),
-                      Text(
-                        'Post généré automatiquement',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                          color: Colors.blue.shade700,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-              // Section pour événement référencé si présent
-              if (referencedEventId != null)
-                FutureBuilder<Map<String, dynamic>?>(
-                  future: _fetchEventDetails(referencedEventId),
-                  builder: (context, snapshot) {
-                    Widget eventWidget;
-                    
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      // Afficher un skeleton loader pendant le chargement
-                      eventWidget = Container(
-                        margin: const EdgeInsets.only(top: 8, bottom: 4, left: 16, right: 16),
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.grey[100],
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Shimmer.fromColors(
-                          baseColor: Colors.grey[300]!,
-                          highlightColor: Colors.grey[100]!,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Container(
-                                    width: 24,
-                                    height: 24,
-                                    decoration: BoxDecoration(
-                                      color: Colors.white,
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Container(
-                                    width: 150,
-                                    height: 16,
-                                    decoration: BoxDecoration(
-                                      color: Colors.white,
-                                      borderRadius: BorderRadius.circular(4),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              Container(
-                                width: double.infinity,
-                                height: 12,
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    } else if (snapshot.hasData && snapshot.data != null) {
-                      // Afficher les détails de l'événement
-                      final eventData = snapshot.data!;
-                      final String eventTitle = eventData['intitulé'] ?? eventData['title'] ?? 'Événement';
-                      final String eventDate = eventData['date_debut'] ?? eventData['date'] ?? '';
-                      final String eventLocation = eventData['lieu'] ?? '';
-                      
-                      eventWidget = InkWell(
-                      onTap: () {
-                        if (referencedEventId != null) {
-                          _safeNavigateToEventDetails(context, referencedEventId);
-                        }
-                      },
-                      child: Container(
-                          margin: const EdgeInsets.only(top: 8, bottom: 4, left: 16, right: 16),
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.purple.withOpacity(0.05),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: Colors.purple.withOpacity(0.3),
-                              width: 1,
-                            ),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Icon(
-                                    Icons.event,
-                                    color: Colors.purple.shade700,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(
-                                      eventTitle,
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w600,
-                                        color: Colors.purple.shade700,
-                                      ),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                  Icon(
-                                    Icons.arrow_forward_ios,
-                                    size: 16,
-                                    color: Colors.purple.shade700,
-                                  ),
-                                ],
-                              ),
-                              if (eventDate.isNotEmpty || eventLocation.isNotEmpty)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 8.0, left: 4.0),
-                                  child: Row(
-                                    children: [
-                                      if (eventDate.isNotEmpty) ...[
-                                        Icon(
-                                          Icons.calendar_today,
-                                          size: 14,
-                                          color: Colors.purple.shade400,
-                                        ),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          eventDate,
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: Colors.purple.shade400,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 12),
-                                      ],
-                                      if (eventLocation.isNotEmpty) ...[
-                                        Icon(
-                                          Icons.location_on,
-                                          size: 14,
-                                          color: Colors.purple.shade400,
-                                        ),
-                                        const SizedBox(width: 4),
-                                        Expanded(
-                                          child: Text(
-                                            eventLocation,
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              color: Colors.purple.shade400,
-                                            ),
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                      );
-                    } else {
-                      // Afficher un bouton simple en cas d'erreur
-                      eventWidget = InkWell(
-                        onTap: () {
-                          if (referencedEventId != null) {
-                            _safeNavigateToEventDetails(context, referencedEventId);
-                          }
-                        },
-                        child: Container(
-                          margin: const EdgeInsets.only(top: 8, bottom: 4, left: 16, right: 16),
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.purple.withOpacity(0.05),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: Colors.purple.withOpacity(0.3),
-                              width: 1,
-                            ),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.event,
-                                color: Colors.purple.shade700,
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  'Voir l\'événement associé',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                    color: Colors.purple.shade700,
-                                  ),
-                                ),
-                              ),
-                              Icon(
-                                Icons.arrow_forward_ios,
-                                size: 16,
-                                color: Colors.purple.shade700,
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    }
-                    
-                    return eventWidget;
-                  },
-                ),
-                
-              // Media (vidéo ou image)
-              if (videoUrl != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8.0),
-                  child: GestureDetector(
-                    onDoubleTap: () {
-                      setState(() {
-                        showLikeAnimation = true;
-                      });
-                      _likePost(postId, post);
-                      
-                      Future.delayed(const Duration(milliseconds: 800), () {
-                        if (mounted) {
-                          setState(() {
-                            showLikeAnimation = false;
-                          });
-                        }
-                      });
-                    },
-                    child: Stack(
-                      alignment: Alignment.center,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.zero, // Instagram-style full width
-                          child: FutureBuilder<VideoPlayerController>(
-                            future: _initializeVideoController(videoUrl),
-                            builder: (context, snapshot) {
-                              if (snapshot.connectionState == ConnectionState.done &&
-                                  snapshot.hasData) {
-                                final controller = snapshot.data!;
-                                return GestureDetector(
-                                  onTap: () {
-                                    if (videoUrl != null) {
-                                      _safeOpenMediaInReelsMode(context, videoUrl, true, post);
-                                    }
-                                  },
-                                  child: AspectRatio(
-                                    aspectRatio: controller.value.aspectRatio,
-                                    child: Stack(
-                                      alignment: Alignment.center,
-                                      children: [
-                                        // Video player
-                                        VideoPlayer(controller),
-                                        
-                                        // Video progress
-                                        Positioned(
-                                          bottom: 0,
-                                          left: 0,
-                                          right: 0,
-                                          child: VideoProgressIndicator(
-                                            controller, 
-                                            allowScrubbing: true,
-                                            padding: const EdgeInsets.symmetric(vertical: 2.0, horizontal: 0),
-                                            colors: VideoProgressColors(
-                                              playedColor: Colors.blue[400]!,
-                                              bufferedColor: Colors.grey[300]!,
-                                              backgroundColor: Colors.black.withOpacity(0.2),
-                                            ),
-                                          ),
-                                        ),
-                                        
-                                        // Bouton plein écran
-                                        Container(
-                                          padding: const EdgeInsets.all(12),
-                                          decoration: BoxDecoration(
-                                            gradient: RadialGradient(
-                                              colors: [
-                                                Colors.black.withOpacity(0.4),
-                                                Colors.black.withOpacity(0.0),
-                                              ],
-                                              radius: 0.8,
-                                            ),
-                                            shape: BoxShape.circle,
-                                          ),
-                                          child: const FaIcon(
-                                            FontAwesomeIcons.expand,
-                                            color: Colors.white,
-                                            size: 24,
-                                          ),
-                                        ),
-                                        
-                                        // Bouton mute/unmute
-                                        Positioned(
-                                          top: 12,
-                                          right: 12,
-                                          child: GestureDetector(
-                                            onTap: () {
-                                              setState(() {
-                                                controller.setVolume(controller.value.volume > 0 ? 0 : 1.0);
-                                              });
-                                            },
-                                            child: Container(
-                                              padding: const EdgeInsets.all(8),
-                                              decoration: BoxDecoration(
-                                                color: Colors.black.withOpacity(0.5),
-                                                shape: BoxShape.circle,
-                                              ),
-                                              child: FaIcon(
-                                                controller.value.volume > 0 
-                                                  ? FontAwesomeIcons.volumeHigh 
-                                                  : FontAwesomeIcons.volumeXmark,
-                                                color: Colors.white,
-                                                size: 14,
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                );
-                              } else if (snapshot.hasError) {
-                                return Container(
-                                  height: 300,
-                                  width: double.infinity,
-                                  color: Colors.black12,
-                                  child: Center(
-                                    child: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        const FaIcon(FontAwesomeIcons.circleExclamation, color: Colors.red),
-                                        const SizedBox(height: 8),
-                                        Text(
-                                          'Erreur de chargement',
-                                          style: GoogleFonts.poppins(color: Colors.red),
-                                        )
-                                      ],
-                                    ),
-                                  ),
-                                );
-                              } else {
-                                return Container(
-                                  height: 300,
-                                  width: double.infinity,
-                                  color: Colors.black12,
-                                  child: Center(
-                                    child: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        const SizedBox(
-                                          width: 40, 
-                                          height: 40,
-                                          child: CircularProgressIndicator(
-                                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                                            strokeWidth: 2,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 12),
-                                        Text(
-                                          'Chargement de la vidéo...',
-                                          style: GoogleFonts.poppins(
-                                            color: Colors.white,
-                                            fontSize: 14,
-                                          ),
-                                        )
-                                      ],
-                                    ),
-                                  ),
-                                );
-                              }
-                            },
+                        Text(
+                          post.authorName,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
                           ),
                         ),
-                        // Animation cœur
-                        if (showLikeAnimation)
-                          LikeAnimation(
-                            isAnimating: showLikeAnimation,
-                            child: Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.2),
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(
-                                Icons.favorite,
-                                color: Colors.white,
-                                size: 80,
-                                shadows: [
-                                  Shadow(color: Colors.black45, blurRadius: 25),
-                                ],
-                              ),
-                            ),
-                            duration: const Duration(milliseconds: 800),
+                        Text(
+                          _formatTimestamp(post.postedAt),
+                          style: TextStyle(
+                            color: Colors.grey[600],
+                            fontSize: 12,
                           ),
+                        ),
                       ],
                     ),
                   ),
-                )
-              else if (mediaUrl != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8.0),
-                  child: GestureDetector(
-                    onDoubleTap: () {
-                      setState(() {
-                        showLikeAnimation = true;
-                      });
-                      _likePost(postId, post);
-                      
-                      Future.delayed(const Duration(milliseconds: 800), () {
-                        if (mounted) {
-                          setState(() {
-                            showLikeAnimation = false;
-                          });
-                        }
-                      });
+                  IconButton(
+                    icon: Icon(Icons.more_horiz, color: Colors.grey[700]),
+                    onPressed: () {
+                      // Show post options
+                      _showPostOptions(post);
                     },
-                    child: Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        GestureDetector(
-                          onTap: () {
-                            if (mediaUrl != null) {
-                              _safeOpenMediaInReelsMode(context, mediaUrl, false, post);
-                            }
-                          },
-                          child: CachedNetworkImage(
-                            imageUrl: mediaUrl,
-                            width: double.infinity,
+                  ),
+                ],
+              ),
+            ),
+            
+            // Post content
+            if (post.content.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Text(
+                  post.content,
+                  style: const TextStyle(fontSize: 16, height: 1.3),
+                ),
+              ),
+            
+            // Post media
+            if (hasMedia) ...[
+              if (post.media.length == 1) ...[
+                // Single media item
+                GestureDetector(
+                  onTap: () {
+                    // Open media in fullscreen
+                    if (firstMediaIsVideo && videoUrl != null) {
+                      _openReelsView(post, videoUrl);
+                    } else {
+                      _openPostDetail(post);
+                    }
+                  },
+                  child: Container(
+                    constraints: const BoxConstraints(
+                      minHeight: 200,
+                      maxHeight: 400,
+                    ),
+                    width: double.infinity,
+                    child: firstMediaIsVideo
+                        ? _buildVideoPlayer(post.id, videoUrl!)
+                        : CachedNetworkImage(
+                            imageUrl: post.media.first.url,
                             fit: BoxFit.cover,
-                            placeholder: (context, url) => Container(
-                              color: Colors.grey[200],
-                              height: 300,
-                              width: double.infinity,
-                              child: Center(
-                                child: Shimmer.fromColors(
-                                  baseColor: Colors.grey[300]!,
-                                  highlightColor: Colors.grey[100]!,
-                                  child: Container(
-                                    width: double.infinity,
-                                    height: 300,
-                                    color: Colors.white,
-                                  ),
-                                ),
+                            placeholder: (context, url) => Shimmer.fromColors(
+                              baseColor: Colors.grey[300]!,
+                              highlightColor: Colors.grey[100]!,
+                              child: Container(
+                                color: Colors.white,
+                                height: 300,
                               ),
                             ),
                             errorWidget: (context, url, error) => Container(
                               color: Colors.grey[200],
                               height: 300,
-                              width: double.infinity,
-                              child: Center(
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(Icons.broken_image, color: Colors.grey[400], size: 40),
-                                    const SizedBox(height: 8),
-                                    Text(
-                                      'Image indisponible',
-                                      style: GoogleFonts.poppins(
-                                        color: Colors.grey[500],
-                                        fontSize: 14,
-                                      ),
-                                    ),
-                                  ],
-                                ),
+                              child: const Center(
+                                child: Icon(Icons.error, color: Colors.grey),
                               ),
                             ),
+                          ),
+                  ),
+                ),
+              ] else ...[
+                // Multiple media items
+                CarouselSlider.builder(
+                  itemCount: post.media.length,
+                  options: CarouselOptions(
+                    height: 350,
+                    enableInfiniteScroll: false,
+                    enlargeCenterPage: true,
+                    viewportFraction: 1.0,
+                  ),
+                  itemBuilder: (context, index, _) {
+                    final media = post.media[index];
+                    final isVideo = media.type == 'video';
+                    
+                    return GestureDetector(
+                      onTap: () {
+                        if (isVideo) {
+                          _openReelsView(post, media.url);
+                        } else {
+                          _openPostDetail(post);
+                        }
+                      },
+                      child: Container(
+                        width: double.infinity,
+                        color: Colors.black,
+                        child: isVideo
+                            ? _buildVideoPlayer('${post.id}-$index', media.url)
+                            : CachedNetworkImage(
+                                imageUrl: media.url,
+                                fit: BoxFit.contain,
+                                placeholder: (context, url) => 
+                                    const Center(child: CircularProgressIndicator()),
+                                errorWidget: (context, url, error) => 
+                                    const Center(child: Icon(Icons.error)),
+                              ),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ],
+            
+            // Interaction buttons
+            Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _buildInteractionButton(
+                    icon: Icons.favorite,
+                    iconColor: Colors.red,
+                    label: 'Like',
+                    count: post.likesCount ?? 0,
+                    isActive: post.isLiked ?? false,
+                    onPressed: () {
+                      _controller.likePost(post);
+                    },
+                  ),
+                  
+                  // Only show interest button for producer posts
+                  if (post.isProducerPost)
+                    _buildInteractionButton(
+                      icon: Icons.star,
+                      iconColor: Colors.amber,
+                      label: 'Intéressé',
+                      count: post.interestedCount,
+                      isActive: post.isInterested,
+                      onPressed: () {
+                        _controller.markInterested(
+                          post.id, 
+                          post,
+                          isLeisureProducer: post.isLeisureProducer,
+                        );
+                      },
+                    ),
+                  
+                  // Only show choice button for producer posts
+                  if (post.isProducerPost)
+                    _buildInteractionButton(
+                      icon: Icons.check_box,
+                      iconColor: Colors.green,
+                      label: 'Choice',
+                      count: post.choiceCount,
+                      isActive: post.isChoice,
+                      onPressed: () {
+                        _controller.markChoice(
+                          post.id, 
+                          post,
+                          isLeisureProducer: post.isLeisureProducer,
+                        );
+                      },
+                    ),
+                  
+                  _buildInteractionButton(
+                    icon: Icons.chat_bubble_outline,
+                    iconColor: Colors.blue,
+                    label: 'Comment',
+                    count: post.comments.length,
+                    onPressed: () {
+                      _openPostDetail(post);
+                    },
+                  ),
+                  
+                  _buildInteractionButton(
+                    icon: Icons.share,
+                    iconColor: Colors.purple,
+                    label: 'Share',
+                    onPressed: () {
+                      // Handle share
+                    },
+                  ),
+                ],
+              ),
+            ),
+            
+            // Preview of comments if there are any
+            if (post.comments.isNotEmpty) ...[
+              Divider(color: Colors.grey[200]),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Commentaires récents',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey[700],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    ...post.comments.take(2).map((comment) => Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          CircleAvatar(
+                            radius: 14,
+                            backgroundImage: CachedNetworkImageProvider(
+                              comment.authorAvatar.isNotEmpty
+                                  ? comment.authorAvatar
+                                  : 'https://via.placeholder.com/150',
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  comment.authorName,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                                Text(
+                                  comment.content,
+                                  style: const TextStyle(fontSize: 13),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    )).toList(),
+                    
+                    // Show more comments button if there are more than 2
+                    if (post.comments.length > 2)
+                      TextButton(
+                        onPressed: () {
+                          _openPostDetail(post);
+                        },
+                        child: Text(
+                          'Voir les ${post.comments.length - 2} autres commentaires',
+                          style: TextStyle(
+                            color: Colors.deepPurple[700],
                           ),
                         ),
-                        // Animation cœur
-                        if (showLikeAnimation)
-                          LikeAnimation(
-                            isAnimating: showLikeAnimation,
-                            child: Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.2),
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(
-                                Icons.favorite,
-                                color: Colors.white,
-                                size: 80,
-                                shadows: [
-                                  Shadow(color: Colors.black45, blurRadius: 25),
-                                ],
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+  
+  // Build card for Map-based post object (dynamic structure from backend)
+  Widget _buildDynamicPostCard(Map<String, dynamic> post) {
+    final String postId = post['_id'] ?? '';
+    final String content = post['content'] ?? '';
+    
+    // Determine if this is a producer post
+    final bool isProducerPost = post['isProducerPost'] == true || 
+                              post['producer_id'] != null;
+    final bool isLeisureProducer = post['isLeisureProducer'] == true;
+    
+    // Get author info
+    String authorName = '';
+    String authorAvatar = '';
+    String authorId = '';
+    
+    if (post['author'] is Map) {
+      final author = post['author'] as Map;
+      authorName = author['name'] ?? '';
+      authorAvatar = author['avatar'] ?? '';
+      authorId = author['id'] ?? '';
+    } else {
+      authorName = post['author_name'] ?? '';
+      authorAvatar = post['author_avatar'] ?? post['author_photo'] ?? '';
+      authorId = post['author_id'] ?? post['user_id'] ?? '';
+    }
+    
+    // Handle media
+    List<Map<String, dynamic>> mediaItems = [];
+    if (post['media'] is List) {
+      for (var media in post['media']) {
+        if (media is Map) {
+          final url = media['url'] ?? '';
+          final type = media['type'] ?? 'image';
+          if (url.isNotEmpty) {
+            mediaItems.add({
+              'url': url,
+              'type': type,
+            });
+          }
+        }
+      }
+    }
+    
+    // Get post timestamp
+    DateTime postedAt = DateTime.now();
+    if (post['posted_at'] != null) {
+      try {
+        postedAt = DateTime.parse(post['posted_at'].toString());
+      } catch (e) {
+        print('❌ Error parsing timestamp: $e');
+      }
+    } else if (post['time_posted'] != null) {
+      try {
+        postedAt = DateTime.parse(post['time_posted'].toString());
+      } catch (e) {
+        print('❌ Error parsing timestamp: $e');
+      }
+    }
+    
+    // Get counts
+    final int likesCount = post['likes_count'] ?? post['likesCount'] ?? 
+                        (post['likes'] is List ? (post['likes'] as List).length : 0);
+    final int interestedCount = post['interested_count'] ?? post['interestedCount'] ?? 0;
+    final int choiceCount = post['choice_count'] ?? post['choiceCount'] ?? 0;
+    final int commentsCount = post['comments_count'] ?? post['commentsCount'] ?? 
+                           (post['comments'] is List ? (post['comments'] as List).length : 0);
+    
+    // Check active states
+    final bool isLiked = post['isLiked'] == true;
+    final bool isInterested = post['interested'] == true || post['isInterested'] == true;
+    final bool isChoice = post['choice'] == true || post['isChoice'] == true;
+    
+    // Track post view for AI context
+    _controller.trackPostView(post);
+    
+    // Get first media URL for video handling
+    String? firstVideoUrl;
+    if (mediaItems.isNotEmpty && mediaItems.first['type'] == 'video') {
+      firstVideoUrl = mediaItems.first['url'];
+    }
+    
+    return VisibilityDetector(
+      key: Key('dynamic-post-$postId'),
+      onVisibilityChanged: (info) {
+        if (firstVideoUrl != null) {
+          _handlePostVisibilityChanged(postId, info.visibleFraction, firstVideoUrl);
+        }
+      },
+      child: Card(
+        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        elevation: 1,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Post header with author info
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  GestureDetector(
+                    onTap: () {
+                      // Navigate to author profile based on type
+                      if (isProducerPost) {
+                        if (isLeisureProducer) {
+                          // Navigate to leisure producer profile
+                        } else {
+                          // Navigate to restaurant producer profile
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => ProducerScreen(
+                                producerId: authorId,
+                                userId: widget.userId,
                               ),
                             ),
-                            duration: const Duration(milliseconds: 800),
+                          );
+                        }
+                      } else {
+                        // Navigate to user profile
+                      }
+                    },
+                    child: CircleAvatar(
+                      backgroundImage: CachedNetworkImageProvider(
+                        authorAvatar.isNotEmpty
+                            ? authorAvatar
+                            : 'https://via.placeholder.com/150',
+                      ),
+                      radius: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          authorName,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
                           ),
-                        // Bouton plein écran
-                        Positioned(
-                          bottom: 12,
-                          right: 12,
-                          child: GestureDetector(
-                            onTap: () {
-                              if (mediaUrl != null) {
-                                _safeOpenMediaInReelsMode(context, mediaUrl, false, post);
-                              }
-                            },
-                            child: Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: Colors.black.withOpacity(0.3),
-                                shape: BoxShape.circle,
-                              ),
-                              child: const FaIcon(
-                                FontAwesomeIcons.expand,
-                                color: Colors.white,
-                                size: 14,
-                              ),
-                            ),
+                        ),
+                        Text(
+                          _formatTimestamp(postedAt),
+                          style: TextStyle(
+                            color: Colors.grey[600],
+                            fontSize: 12,
                           ),
                         ),
                       ],
                     ),
                   ),
+                  IconButton(
+                    icon: Icon(Icons.more_horiz, color: Colors.grey[700]),
+                    onPressed: () {
+                      // Show post options
+                      _showPostOptions(post);
+                    },
+                  ),
+                ],
+              ),
+            ),
+            
+            // Post content
+            if (content.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Text(
+                  content,
+                  style: const TextStyle(fontSize: 16, height: 1.3),
                 ),
-
-              // Compteurs d'interactions Instagram-style avec preview des profils
-              if (likesCount > 0 || (isProducer && ((post['follower_interests_count'] ?? 0) > 0 || (post['entity_interests_count'] ?? 0) > 0 || (post['entity_choices_count'] ?? 0) > 0)))
-                Padding(
-                  padding: const EdgeInsets.only(left: 16.0, right: 16.0, top: 12.0, bottom: 4.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Like count avec avatars
-                      if (likesCount > 0)
-                        GestureDetector(
-                          onTap: () => _showInteractionsList(context, postId, 'like', 'post'),
-                          child: Row(
-                            children: [
-                              // Icône animée
-                              TweenAnimationBuilder<double>(
-                                tween: Tween<double>(begin: 0.9, end: isLiked ? 1.1 : 1.0),
-                                duration: const Duration(milliseconds: 300),
-                                curve: Curves.elasticOut,
-                                builder: (_, value, __) {
-                                  return Transform.scale(
-                                    scale: value,
-                                    child: Container(
-                                      padding: const EdgeInsets.all(4),
-                                      decoration: BoxDecoration(
-                                        color: Colors.red.withOpacity(0.1),
-                                        shape: BoxShape.circle,
-                                      ),
-                                      child: const FaIcon(
-                                        FontAwesomeIcons.solidHeart,
-                                        size: 12,
-                                        color: Colors.red,
-                                      ),
-                                    ),
-                                  );
-                                },
+              ),
+            
+            // Post media
+            if (mediaItems.isNotEmpty) ...[
+              if (mediaItems.length == 1) ...[
+                // Single media item
+                GestureDetector(
+                  onTap: () {
+                    // Open media in fullscreen
+                    if (mediaItems.first['type'] == 'video') {
+                      _openReelsView(post, mediaItems.first['url']);
+                    } else {
+                      _openDynamicPostDetail(post);
+                    }
+                  },
+                  child: Container(
+                    constraints: const BoxConstraints(
+                      minHeight: 200,
+                      maxHeight: 400,
+                    ),
+                    width: double.infinity,
+                    child: mediaItems.first['type'] == 'video'
+                        ? _buildVideoPlayer(postId, mediaItems.first['url'])
+                        : CachedNetworkImage(
+                            imageUrl: mediaItems.first['url'],
+                            fit: BoxFit.cover,
+                            placeholder: (context, url) => Shimmer.fromColors(
+                              baseColor: Colors.grey[300]!,
+                              highlightColor: Colors.grey[100]!,
+                              child: Container(
+                                color: Colors.white,
+                                height: 300,
                               ),
-                              const SizedBox(width: 8),
-                              // Texte avec nombre de likes cliquable
-                              RichText(
-                                text: TextSpan(
-                                  children: [
-                                    TextSpan(
-                                      text: '$likesCount ',
-                                      style: GoogleFonts.poppins(
-                                        fontWeight: FontWeight.w700,
-                                        fontSize: 13,
-                                        color: Colors.black87,
-                                      ),
-                                    ),
-                                    TextSpan(
-                                      text: 'J\'aime${likesCount > 1 ? 's' : ''}',
-                                      style: GoogleFonts.poppins(
-                                        fontWeight: FontWeight.w500,
-                                        fontSize: 13,
-                                        color: Colors.black87,
-                                      ),
-                                    ),
-                                  ],
-                                ),
+                            ),
+                            errorWidget: (context, url, error) => Container(
+                              color: Colors.grey[200],
+                              height: 300,
+                              child: const Center(
+                                child: Icon(Icons.error, color: Colors.grey),
                               ),
-                            ],
-                          ),
-                        ),
-                      
-                      // Séparateur
-                      if (likesCount > 0 && isProducer && 
-                         ((post['follower_interests_count'] ?? 0) > 0 || (post['entity_interests_count'] ?? 0) > 0 || (post['entity_choices_count'] ?? 0) > 0))
-                        const SizedBox(height: 8),
-                      
-                      // Intérêts count avec indication des amis (pour les posts de producteurs)
-                      if (isProducer && ((post['entity_interests_count'] ?? 0) > 0 || (post['follower_interests_count'] ?? 0) > 0))
-                        GestureDetector(
-                          onTap: () => _showInteractionsList(
-                            context, 
-                            targetId, 
-                            'interest', 
-                            isLeisureProducer ? 'event' : 'producer'
-                          ),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 6),
-                            child: Row(
-                              children: [
-                                // Icône animée
-                                TweenAnimationBuilder<double>(
-                                  tween: Tween<double>(begin: 0.9, end: post['interested'] == true ? 1.1 : 1.0),
-                                  duration: const Duration(milliseconds: 300),
-                                  curve: Curves.elasticOut,
-                                  builder: (_, value, __) {
-                                    return Transform.scale(
-                                      scale: value,
-                                      child: Container(
-                                        padding: const EdgeInsets.all(4),
-                                        decoration: BoxDecoration(
-                                          color: Colors.amber.withOpacity(0.1),
-                                          shape: BoxShape.circle,
-                                        ),
-                                        child: const FaIcon(
-                                          FontAwesomeIcons.solidStar,
-                                          size: 12,
-                                          color: Colors.amber,
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                ),
-                                const SizedBox(width: 8),
-                                // Texte avec détail
-                                Expanded(
-                                  child: RichText(
-                                    text: TextSpan(
-                                      children: [
-                                        TextSpan(
-                                          text: '${post['entity_interests_count'] ?? 0} ',
-                                          style: GoogleFonts.poppins(
-                                            fontWeight: FontWeight.w700,
-                                            fontSize: 13,
-                                            color: Colors.black87,
-                                          ),
-                                        ),
-                                        TextSpan(
-                                          text: 'personne${(post['entity_interests_count'] ?? 0) > 1 ? 's' : ''} intéressée${(post['entity_interests_count'] ?? 0) > 1 ? 's' : ''}',
-                                          style: GoogleFonts.poppins(
-                                            fontWeight: FontWeight.w500,
-                                            fontSize: 13,
-                                            color: Colors.black87,
-                                          ),
-                                        ),
-                                        if ((post['follower_interests_count'] ?? 0) > 0)
-                                          TextSpan(
-                                            text: ' dont ${post['follower_interests_count']} ami${(post['follower_interests_count'] ?? 0) > 1 ? 's' : ''}',
-                                            style: GoogleFonts.poppins(
-                                              fontWeight: FontWeight.w700,
-                                              fontSize: 13,
-                                              color: Colors.purple[700],
-                                            ),
-                                          ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ],
                             ),
                           ),
-                        ),
-                      
-                      // Choices count (pour les posts de producteurs)
-                      if (isProducer && (post['entity_choices_count'] ?? 0) > 0)
-                        GestureDetector(
-                          onTap: () => _showInteractionsList(
-                            context, 
-                            targetId, 
-                            'choice', 
-                            isLeisureProducer ? 'event' : 'producer'
-                          ),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 6),
-                            child: Row(
-                              children: [
-                                // Icône animée
-                                TweenAnimationBuilder<double>(
-                                  tween: Tween<double>(begin: 0.9, end: post['choice'] == true ? 1.1 : 1.0),
-                                  duration: const Duration(milliseconds: 300),
-                                  curve: Curves.elasticOut,
-                                  builder: (_, value, __) {
-                                    return Transform.scale(
-                                      scale: value,
-                                      child: Container(
-                                        padding: const EdgeInsets.all(4),
-                                        decoration: BoxDecoration(
-                                          color: Colors.green.withOpacity(0.1),
-                                          shape: BoxShape.circle,
-                                        ),
-                                        child: const FaIcon(
-                                          FontAwesomeIcons.solidCircleCheck,
-                                          size: 12,
-                                          color: Colors.green,
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                ),
-                                const SizedBox(width: 8),
-                                // Texte avec détail
-                                RichText(
-                                  text: TextSpan(
-                                    children: [
-                                      TextSpan(
-                                        text: '${post['entity_choices_count'] ?? 0} ',
-                                        style: GoogleFonts.poppins(
-                                          fontWeight: FontWeight.w700,
-                                          fontSize: 13,
-                                          color: Colors.black87,
-                                        ),
-                                      ),
-                                      TextSpan(
-                                        text: 'choix',
-                                        style: GoogleFonts.poppins(
-                                          fontWeight: FontWeight.w500,
-                                          fontSize: 13,
-                                          color: Colors.black87,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                    ],
                   ),
                 ),
-
-              // Barre d'interactions Instagram-style
-              Container(
-                decoration: BoxDecoration(
-                  border: Border(
-                    top: BorderSide(color: Colors.grey.shade200, width: 0.5),
+              ] else ...[
+                // Multiple media items
+                CarouselSlider.builder(
+                  itemCount: mediaItems.length,
+                  options: CarouselOptions(
+                    height: 350,
+                    enableInfiniteScroll: false,
+                    enlargeCenterPage: true,
+                    viewportFraction: 1.0,
                   ),
+                  itemBuilder: (context, index, _) {
+                    final media = mediaItems[index];
+                    final isVideo = media['type'] == 'video';
+                    
+                    return GestureDetector(
+                      onTap: () {
+                        if (isVideo) {
+                          _openReelsView(post, media['url']);
+                        } else {
+                          _openDynamicPostDetail(post);
+                        }
+                      },
+                      child: Container(
+                        width: double.infinity,
+                        color: Colors.black,
+                        child: isVideo
+                            ? _buildVideoPlayer('$postId-$index', media['url'])
+                            : CachedNetworkImage(
+                                imageUrl: media['url'],
+                                fit: BoxFit.contain,
+                                placeholder: (context, url) => 
+                                    const Center(child: CircularProgressIndicator()),
+                                errorWidget: (context, url, error) => 
+                                    const Center(child: Icon(Icons.error)),
+                              ),
+                      ),
+                    );
+                  },
                 ),
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              ],
+            ],
+            
+            // Interaction buttons
+            Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _buildInteractionButton(
+                    icon: Icons.favorite,
+                    iconColor: Colors.red,
+                    label: 'Like',
+                    count: likesCount,
+                    isActive: isLiked,
+                    onPressed: () {
+                      _controller.likePost(post);
+                    },
+                  ),
+                  
+                  // Only show interest button for producer posts
+                  if (isProducerPost)
+                    _buildInteractionButton(
+                      icon: Icons.star,
+                      iconColor: Colors.amber,
+                      label: 'Intéressé',
+                      count: interestedCount,
+                      isActive: isInterested,
+                      onPressed: () {
+                        _controller.markInterested(
+                          post['target_id'] ?? post['producer_id'] ?? '',
+                          post,
+                          isLeisureProducer: isLeisureProducer,
+                        );
+                      },
+                    ),
+                  
+                  // Only show choice button for producer posts
+                  if (isProducerPost)
+                    _buildInteractionButton(
+                      icon: Icons.check_box,
+                      iconColor: Colors.green,
+                      label: 'Choice',
+                      count: choiceCount,
+                      isActive: isChoice,
+                      onPressed: () {
+                        _controller.markChoice(
+                          post['target_id'] ?? post['producer_id'] ?? '',
+                          post,
+                          isLeisureProducer: isLeisureProducer,
+                        );
+                      },
+                    ),
+                  
+                  _buildInteractionButton(
+                    icon: Icons.chat_bubble_outline,
+                    iconColor: Colors.blue,
+                    label: 'Comment',
+                    count: commentsCount,
+                    onPressed: () {
+                      _openDynamicPostDetail(post);
+                    },
+                  ),
+                  
+                  _buildInteractionButton(
+                    icon: Icons.share,
+                    iconColor: Colors.purple,
+                    label: 'Share',
+                    onPressed: () {
+                      // Handle share
+                    },
+                  ),
+                ],
+              ),
+            ),
+            
+            // Preview of comments if there are any
+            if (post['comments'] is List && (post['comments'] as List).isNotEmpty) ...[
+              Divider(color: Colors.grey[200]),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Likes - style Instagram
-                    _buildInteractionButton(
-                      icon: isLiked ? Icons.favorite : Icons.favorite_border,
-                      iconColor: isLiked ? Colors.red : null,
-                      count: likesCount,
-                      onTap: () => _likePost(postId, post),
-                      onLongPress: likesCount > 0 
-                        ? () => _showInteractionsList(context, postId, 'like', 'post')
-                        : null,
+                    Text(
+                      'Commentaires récents',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey[700],
+                      ),
                     ),
+                    const SizedBox(height: 8),
+                    ...(post['comments'] as List).take(2).map((comment) {
+                      final String commentContent = comment['content'] ?? '';
+                      final String commentAuthor = comment['author_name'] ?? '';
+                      final String commentAvatar = comment['author_avatar'] ?? '';
+                      
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            CircleAvatar(
+                              radius: 14,
+                              backgroundImage: CachedNetworkImageProvider(
+                                commentAvatar.isNotEmpty
+                                    ? commentAvatar
+                                    : 'https://via.placeholder.com/150',
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    commentAuthor,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                  Text(
+                                    commentContent,
+                                    style: const TextStyle(fontSize: 13),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
                     
-                    // Interests - avec étoile brillante
-                    if (isProducer)
-                      _buildInteractionButton(
-                        icon: post['interested'] == true ? Icons.star : Icons.star_border, 
-                        iconColor: post['interested'] == true ? Colors.amber : null,
-                        count: post['entity_interests_count'] ?? 0,
-                        showFollowerCount: post['follower_interests_count'] ?? 0,
-                        onTap: () => _markInterested(targetId, post, isLeisureProducer: isLeisureProducer),
-                        onLongPress: () => _showInteractionsList(
-                          context, 
-                          targetId, 
-                          'interest', 
-                          isLeisureProducer ? 'event' : 'producer'
+                    // Show more comments button if there are more than 2
+                    if ((post['comments'] as List).length > 2)
+                      TextButton(
+                        onPressed: () {
+                          _openDynamicPostDetail(post);
+                        },
+                        child: Text(
+                          'Voir les ${(post['comments'] as List).length - 2} autres commentaires',
+                          style: TextStyle(
+                            color: Colors.deepPurple[700],
+                          ),
                         ),
                       ),
-                    
-                    // Choices - coche animée
-                    if (isProducer)
-                      _buildInteractionButton(
-                        icon: post['choice'] == true ? Icons.check_circle : Icons.check_circle_outline,
-                        iconColor: post['choice'] == true ? Colors.green : null,
-                        count: post['entity_choices_count'] ?? 0,
-                        onTap: () => _markChoice(targetId, post, isLeisureProducer: isLeisureProducer),
-                        onLongPress: () => _showInteractionsList(
-                          context, 
-                          targetId, 
-                          'choice', 
-                          isLeisureProducer ? 'event' : 'producer'
-                        ),
-                      ),
-                    
-                    // Commentaires
-                    _buildInteractionButton(
-                      icon: Icons.chat_bubble_outline,
-                      count: comments.length,
-                      onTap: () => _showCommentsSheet(context, post),
-                    ),
                   ],
                 ),
               ),
             ],
-          ),
-        );
-      },
+          ],
+        ),
+      ),
     );
   }
   
-  /// Navigue vers la page de détails d'un événement avec null safety
-  void _safeNavigateToEventDetails(BuildContext context, String? eventId) {
-    if (eventId == null) return;
-    _navigateToEventDetails(context, eventId);
-  }
-  
-  /// Navigue vers la page de détails d'un événement
-  Future<void> _navigateToEventDetails(BuildContext context, String eventId) async {
-    setState(() {
-      _isLoading = true;
-    });
-    print('🔍 Navigation vers l\'événement avec ID : $eventId');
-
-    try {
-      // Extraction de l'ID proprement
-      final cleanId = eventId.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
-      print('🔍 ID extrait : $cleanId');
-      
-      if (cleanId.isEmpty) {
-        throw Exception("ID d'événement invalide");
-      }
-      
-      // Extraire le domaine et le protocole de l'URL complète
-      final baseUrl = getBaseUrl();
-      Uri url;
-      
-      // Construire l'URL avec le chemin normalisé
-      final apiPath = '/api/events/$cleanId';
-      
-      if (baseUrl.startsWith('http://')) {
-        // Si c'est http://
-        final domain = baseUrl.replaceFirst('http://', '');
-        url = Uri.http(domain, apiPath);
-      } else if (baseUrl.startsWith('https://')) {
-        // Si c'est https://
-        final domain = baseUrl.replaceFirst('https://', '');
-        url = Uri.https(domain, apiPath);
-      } else {
-        // Utiliser Uri.parse comme solution de secours
-        url = Uri.parse('$baseUrl$apiPath');
-      }
-      
-      final response = await http.get(url);
-
-      // Si première tentative échoue, essayer un chemin alternatif
-      if (response.statusCode != 200) {
-        print('⚠️ Premier appel API a échoué, tentative avec un autre endpoint...');
-        final alternativeApiPath = '/api/evenements/$cleanId';
-            
-        if (baseUrl.startsWith('http://')) {
-          url = Uri.http(baseUrl.replaceFirst('http://', ''), alternativeApiPath);
-        } else {
-          url = Uri.https(baseUrl.replaceFirst('https://', ''), alternativeApiPath);
-        }
-        
-        final secondResponse = await http.get(url);
-        
-        if (secondResponse.statusCode == 200) {
-          // Utiliser les données de la deuxième tentative
-          final data = json.decode(secondResponse.body);
-          setState(() {
-            _isLoading = false;
-          });
-          
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => EventLeisureScreen(
-                eventData: data,
+  // Build interaction button with animation
+  Widget _buildInteractionButton({
+    required IconData icon,
+    required Color iconColor,
+    required String label,
+    int count = 0,
+    bool isActive = false,
+    required VoidCallback onPressed,
+  }) {
+    return InkWell(
+      onTap: onPressed,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: Column(
+          children: [
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeInOut,
+              transform: isActive 
+                  ? Matrix4.diagonal3Values(1.1, 1.1, 1.0)
+                  : Matrix4.identity(),
+              child: Icon(
+                icon,
+                color: isActive ? iconColor : Colors.grey[600],
+                size: 20,
               ),
             ),
-          );
-          return;
-        }
-      } else {
-        // La première requête a réussi
-        final data = json.decode(response.body);
-        setState(() {
-          _isLoading = false;
-        });
-        
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => EventLeisureScreen(
-              eventData: data,
-            ),
-          ),
-        );
-        return;
-      }
-      
-      // Si on arrive ici, les deux tentatives ont échoué
-      setState(() {
-        _isLoading = false;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Événement introuvable. ID: $cleanId"),
-          backgroundColor: Colors.red,
-        ),
-      );
-    } catch (e) {
-      // Gestion des erreurs réseau
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Erreur réseau : $e"),
-          backgroundColor: Colors.red,
-        ),
-      );
-      setState(() {
-        _isLoading = false;
-      });
-    }
-  }
-
-  /// Ouvre une image/vidéo en mode "reels" pour navigation verticale avec null safety
-  void _safeOpenMediaInReelsMode(BuildContext context, String? mediaUrl, bool isVideo, Map<String, dynamic> post) {
-    if (mediaUrl == null) return;
-    _openMediaInReelsMode(context, mediaUrl, isVideo, post);
-  }
-
-  /// Ouvre une image/vidéo en mode "reels" pour navigation verticale
-  void _openMediaInReelsMode(BuildContext context, String mediaUrl, bool isVideo, Map<String, dynamic> post) {
-    Navigator.of(context).push(
-      PageRouteBuilder(
-        transitionDuration: const Duration(milliseconds: 300),
-        pageBuilder: (context, animation, secondaryAnimation) {
-          final curveTween = CurveTween(curve: Curves.easeOut);
-          final fadeTween = Tween<double>(begin: 0.0, end: 1.0);
-          final fadeAnimation = animation.drive(fadeTween.chain(curveTween));
-          
-          return FadeTransition(
-            opacity: fadeAnimation,
-            child: ReelsViewScreen(
-              initialMediaUrl: mediaUrl, 
-              isVideo: isVideo,
-              postData: post,
-              userId: widget.userId,
-              onLike: _likePost,
-              onInterested: _markInterested,
-              onChoice: _markChoice,
-              onComment: () => _showCommentsSheet(context, post),
-            ),
-          );
-        },
-        opaque: false,
-        barrierColor: Colors.black87,
-      ),
-    );
-  }
-
-  /// Affiche la liste des utilisateurs ayant interagi avec un post ou une entité
-  void _showInteractionsList(BuildContext context, String id, String type, String entityType) {
-    // Afficher un dialogue de chargement
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => const Center(
-        child: CircularProgressIndicator(),
-      ),
-    );
-    
-    _fetchInteractionsList(context, id, type, entityType);
-  }
-
-  /// Récupère la liste des utilisateurs ayant interagi avec un post ou une entité
-  Future<void> _fetchInteractionsList(BuildContext context, String id, String type, String entityType) async {
-    try {
-      final baseUrl = getBaseUrl();
-      Uri url;
-      
-      if (entityType == 'post') {
-        // Pour les interactions sur des posts (likes)
-        if (baseUrl.startsWith('http://')) {
-          final domain = baseUrl.replaceFirst('http://', '');
-          url = Uri.http(domain, '/api/posts/$id/interactions/$type');
-        } else if (baseUrl.startsWith('https://')) {
-          final domain = baseUrl.replaceFirst('https://', '');
-          url = Uri.https(domain, '/api/posts/$id/interactions/$type');
-        } else {
-          url = Uri.parse('$baseUrl/api/posts/$id/interactions/$type');
-        }
-      } else {
-        // Pour les interactions sur des entités (producer/event)
-        if (baseUrl.startsWith('http://')) {
-          final domain = baseUrl.replaceFirst('http://', '');
-          url = Uri.http(domain, '/api/posts/entity/$entityType/$id/interactions/$type');
-        } else if (baseUrl.startsWith('https://')) {
-          final domain = baseUrl.replaceFirst('https://', '');
-          url = Uri.https(domain, '/api/posts/entity/$entityType/$id/interactions/$type');
-        } else {
-          url = Uri.parse('$baseUrl/api/posts/entity/$entityType/$id/interactions/$type');
-        }
-      }
-      
-      final response = await http.get(
-        url,
-        headers: {'userId': widget.userId},
-      );
-      
-      // Fermer le dialogue de chargement
-      Navigator.pop(context);
-      
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final List<dynamic> allUsers = data['allUsers'] ?? [];
-        final List<dynamic> followedUsers = data['followedUsers'] ?? [];
-        
-        _showUsersListModal(context, allUsers, followedUsers, type);
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: ${response.statusCode}')),
-        );
-      }
-    } catch (e) {
-      // Fermer le dialogue de chargement en cas d'erreur
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur de connexion: $e')),
-      );
-    }
-  }
-  
-  /// Modal pour afficher les utilisateurs ayant interagi
-  void _showUsersListModal(
-    BuildContext context, 
-    List<dynamic> allUsers, 
-    List<dynamic> followedUsers,
-    String interactionType
-  ) {
-    String interactionTitle;
-    Color headerColor;
-    IconData interactionIcon;
-    
-    switch (interactionType) {
-      case 'like':
-        interactionTitle = 'J\'aime';
-        headerColor = Colors.red;
-        interactionIcon = Icons.favorite;
-        break;
-      case 'interest':
-        interactionTitle = 'Intéressés';
-        headerColor = Colors.amber;
-        interactionIcon = Icons.star;
-        break;
-      case 'choice':
-        interactionTitle = 'Choix';
-        headerColor = Colors.green;
-        interactionIcon = Icons.check_circle;
-        break;
-      default:
-        interactionTitle = 'Interactions';
-        headerColor = Colors.blue;
-        interactionIcon = Icons.thumb_up;
-    }
-    
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) {
-        return DraggableScrollableSheet(
-          initialChildSize: 0.7,
-          minChildSize: 0.5,
-          maxChildSize: 0.9,
-          builder: (context, scrollController) {
-            return DefaultTabController(
-              length: 2,
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.1),
-                      blurRadius: 10,
-                      spreadRadius: 5,
-                    ),
-                  ],
-                ),
-                child: Column(
-                  children: [
-                    // Handle pour faire glisser
-                    Container(
-                      margin: const EdgeInsets.symmetric(vertical: 8),
-                      width: 40,
-                      height: 5,
-                      decoration: BoxDecoration(
-                        color: Colors.grey[300],
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                    
-                    // Titre avec icône
-                    Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(interactionIcon, color: headerColor),
-                          const SizedBox(width: 8),
-                          Text(
-                            interactionTitle,
-                            style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              color: headerColor,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    
-                    // Tabs
-                    Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 16),
-                      decoration: BoxDecoration(
-                        color: Colors.grey[200],
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: TabBar(
-                        indicator: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(20),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.grey.withOpacity(0.2),
-                              blurRadius: 4,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        labelColor: headerColor,
-                        unselectedLabelColor: Colors.grey,
-                        tabs: [
-                          Tab(text: 'Tous (${allUsers.length})'),
-                          Tab(text: 'Vos contacts (${followedUsers.length})'),
-                        ],
-                      ),
-                    ),
-                    
-                    const SizedBox(height: 16),
-                    
-                    // Contenu des tabs
-                    Expanded(
-                      child: TabBarView(
-                        children: [
-                          // Tab 1: Tous les utilisateurs
-                          allUsers.isEmpty
-                              ? const Center(child: Text('Aucun utilisateur'))
-                              : ListView.builder(
-                                  controller: scrollController,
-                                  itemCount: allUsers.length,
-                                  itemBuilder: (context, index) {
-                                    final user = allUsers[index];
-                                    return _buildUserListItem(user, headerColor);
-                                  },
-                                ),
-                                
-                          // Tab 2: Utilisateurs suivis
-                          followedUsers.isEmpty
-                              ? const Center(child: Text('Aucun de vos contacts'))
-                              : ListView.builder(
-                                  controller: scrollController,
-                                  itemCount: followedUsers.length,
-                                  itemBuilder: (context, index) {
-                                    final user = followedUsers[index];
-                                    return _buildUserListItem(user, headerColor);
-                                  },
-                                ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
+            const SizedBox(height: 2),
+            Text(
+              count > 0 ? '$count' : label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+                color: isActive ? iconColor : Colors.grey[700],
               ),
-            );
-          },
-        );
-      },
+            ),
+          ],
+        ),
+      ),
     );
   }
   
-  /// Item de la liste des utilisateurs
-  Widget _buildUserListItem(Map<String, dynamic> user, Color accentColor) {
-    final String name = user['name'] ?? 'Utilisateur';
-    final String? avatarUrl = user['photo_url'] ?? user['photo'] ?? 'https://via.placeholder.com/40';
-    final String? userId = user['_id'];
-    
-    return ListTile(
-      leading: Hero(
-        tag: 'user-avatar-${userId ?? 'unknown'}',
-        child: CircleAvatar(
-          backgroundImage: CachedNetworkImageProvider(avatarUrl ?? 'https://via.placeholder.com/40'),
-          radius: 20,
+  // Build video player widget
+  Widget _buildVideoPlayer(String postId, String videoUrl) {
+    if (!_videoControllers.containsKey(postId)) {
+      _initializeVideoController(postId, videoUrl);
+      
+      return const Center(
+        child: CircularProgressIndicator(
+          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
         ),
-      ),
-      title: Text(
-        name,
-        style: const TextStyle(fontWeight: FontWeight.bold),
-      ),
-      trailing: userId != null && userId != widget.userId
-          ? OutlinedButton(
+      );
+    }
+    
+    final controller = _videoControllers[postId]!;
+    
+    if (!controller.value.isInitialized) {
+      return const Center(
+        child: CircularProgressIndicator(
+          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+        ),
+      );
+    }
+    
+    return Stack(
+      alignment: Alignment.bottomRight,
+      children: [
+        AspectRatio(
+          aspectRatio: controller.value.aspectRatio,
+          child: VideoPlayer(controller),
+        ),
+        Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.5),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: IconButton(
+              icon: Icon(
+                controller.value.volume > 0 
+                    ? Icons.volume_up 
+                    : Icons.volume_off,
+                color: Colors.white,
+              ),
               onPressed: () {
-                // Logique pour suivre/ne plus suivre
+                setState(() {
+                  if (controller.value.volume > 0) {
+                    controller.setVolume(0);
+                  } else {
+                    controller.setVolume(1.0);
+                  }
+                });
               },
-              style: OutlinedButton.styleFrom(
-                side: BorderSide(color: accentColor),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20),
-                ),
-              ),
-              child: const Text('Suivre'),
-            )
-          : null,
-      onTap: userId != null
-          ? () {
-              Navigator.pop(context); // Fermer le modal
-              
-              // Naviguer vers le profil de l'utilisateur
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => ProfileScreen(userId: userId),
-                ),
-              );
-            }
-          : null,
+            ),
+          ),
+        ),
+      ],
     );
   }
-
-  // Instagram-style comments sheet
-  void _showCommentsSheet(BuildContext context, Map<String, dynamic> post) {
-    final String postId = post['_id'];
-    final List<dynamic> comments = post['comments'] ?? [];
-    final TextEditingController commentController = TextEditingController();
+  
+  // Open reels view in fullscreen
+  void _openReelsView(dynamic post, String mediaUrl) {
+    // Pause any playing videos
+    if (_currentlyPlayingVideoId != null && 
+        _videoControllers.containsKey(_currentlyPlayingVideoId)) {
+      _videoControllers[_currentlyPlayingVideoId]!.pause();
+    }
     
+    // Extract necessary data for reels view
+    Map<String, dynamic> postData;
+    if (post is Post) {
+      postData = {
+        '_id': post.id,
+        'author_name': post.authorName,
+        'author_photo': post.authorAvatar,
+        'content': post.content,
+        'comments': post.comments,
+        'isLiked': post.isLiked,
+        'likesCount': post.likesCount,
+        'interested': post.isInterested,
+        'entity_interests_count': post.interestedCount,
+        'choice': post.isChoice,
+        'entity_choices_count': post.choiceCount,
+        'isProducerPost': post.isProducerPost,
+        'is_leisure_producer': post.isLeisureProducer,
+        'producer_id': post.isProducerPost ? post.authorId : null,
+      };
+    } else {
+      postData = post as Map<String, dynamic>;
+    }
+    
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ReelsViewScreen(
+          initialMediaUrl: mediaUrl,
+          isVideo: mediaUrl.toLowerCase().endsWith('.mp4') ||
+                 mediaUrl.contains('video'),
+          postData: postData,
+          userId: widget.userId,
+          onLike: (postId, data) {
+            _controller.likePost(data);
+          },
+          onInterested: (targetId, data, {isLeisureProducer = false}) {
+            _controller.markInterested(targetId, data, isLeisureProducer: isLeisureProducer);
+          },
+          onChoice: (targetId, data, {isLeisureProducer = false}) {
+            _controller.markChoice(targetId, data, isLeisureProducer: isLeisureProducer);
+          },
+          onComment: () {
+            // Navigate to comments section
+          },
+        ),
+      ),
+    );
+  }
+  
+  // Open post detail screen
+  void _openPostDetail(Post post) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => PostDetailScreen(
+          post: post,
+          userId: widget.userId,
+        ),
+      ),
+    );
+  }
+  
+  // Open dynamic post detail
+  void _openDynamicPostDetail(Map<String, dynamic> post) {
+    // TODO: Implement post detail screen for dynamic posts
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Détails du post bientôt disponibles')),
+    );
+  }
+  
+  // Show post options
+  void _showPostOptions(dynamic post) {
     showModalBottomSheet(
       context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setState) {
-            return DraggableScrollableSheet(
-              initialChildSize: 0.6, // Start at half screen
-              minChildSize: 0.4, // Min half screen
-              maxChildSize: 0.9, // Almost full screen max
-              expand: false,
-              builder: (context, scrollController) {
-                return Column(
-                  children: [
-                    Container(
-                      margin: const EdgeInsets.symmetric(vertical: 8),
-                      width: 40,
-                      height: 5,
-                      decoration: BoxDecoration(
-                        color: Colors.grey[300],
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Text(
-                        'Commentaires (${comments.length})',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 18,
-                        ),
-                      ),
-                    ),
-                    Expanded(
-                      child: comments.isEmpty
-                          ? const Center(child: Text('Aucun commentaire pour le moment'))
-                          : ListView.builder(
-                              controller: scrollController,
-                              itemCount: comments.length,
-                              itemBuilder: (context, index) {
-                                final comment = comments[index];
-                                return _buildCommentSection(postId, comment);
-                              },
-                            ),
-                    ),
-                    Padding(
-                      padding: EdgeInsets.only(
-                        bottom: MediaQuery.of(context).viewInsets.bottom + 8,
-                        left: 16,
-                        right: 16,
-                        top: 8,
-                      ),
-                      child: Row(
-                        children: [
-                          const CircleAvatar(
-                            radius: 18,
-                            backgroundImage: NetworkImage('https://via.placeholder.com/36'),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: TextField(
-                              controller: commentController,
-                              decoration: const InputDecoration(
-                                hintText: 'Ajouter un commentaire...',
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.all(Radius.circular(20)),
-                                  borderSide: BorderSide.none,
-                                ),
-                                filled: true,
-                                fillColor: Color(0xFFEEEEEE),
-                                contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                              ),
-                            ),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.send, color: Colors.blue),
-                            onPressed: () async {
-                              if (commentController.text.isNotEmpty) {
-                                final newComment = commentController.text;
-                                commentController.clear();
-                                
-                                // Close keyboard
-                                FocusScope.of(context).unfocus();
-                                
-                                await _addComment(postId, newComment);
-                                
-                                // Update UI with new comment list
-                                final updatedPost = _posts.firstWhere((p) => p['_id'] == postId);
-                                setState(() {
-                                  // This updates the StatefulBuilder state
-                                  comments.clear();
-                                  comments.addAll(updatedPost['comments'] ?? []);
-                                });
-                              }
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                );
+      builder: (context) => Container(
+        padding: const EdgeInsets.symmetric(vertical: 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.bookmark_border),
+              title: const Text('Enregistrer'),
+              onTap: () {
+                Navigator.pop(context);
+                // Handle save post
               },
-            );
-          },
-        );
-      },
+            ),
+            ListTile(
+              leading: const Icon(Icons.share),
+              title: const Text('Partager'),
+              onTap: () {
+                Navigator.pop(context);
+                // Handle share post
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.report_outlined),
+              title: const Text('Signaler'),
+              onTap: () {
+                Navigator.pop(context);
+                // Handle report post
+              },
+            ),
+          ],
+        ),
+      ),
     );
   }
-
-  Widget _buildCommentSection(String postId, Map<String, dynamic> comment) {
-    final bool isLiked = comment['isLiked'] == true;
+  
+  // Dialog to get AI response
+  Future<String?> _showAIResponseInput(String suggestion) async {
+    final TextEditingController controller = TextEditingController(text: suggestion);
     
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          CircleAvatar(
-            radius: 18,
-            backgroundImage: NetworkImage(
-              comment['authorAvatar'] ?? 'https://via.placeholder.com/36'
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                RichText(
-                  text: TextSpan(
-                    children: [
-                      TextSpan(
-                        text: comment['author'] ?? 'Anonyme',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.black,
-                        ),
-                      ),
-                      TextSpan(
-                        text: ' ${comment['content'] ?? ''}',
-                        style: const TextStyle(color: Colors.black),
-                      ),
-                    ],
-                  ),
+    return showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.deepPurple.shade200,
+              ),
+              child: const Center(
+                child: Icon(
+                  Icons.emoji_objects_outlined,
+                  color: Colors.white,
+                  size: 24,
                 ),
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    Text(
-                      _formatPostedTime(comment['posted_at'] ?? DateTime.now().toIso8601String()),
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey,
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    GestureDetector(
-                      onTap: () => _likeComment(postId, comment['_id'] ?? ''),
-                      child: Text(
-                        'J\'aime',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: isLiked ? Colors.red : Colors.grey,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    GestureDetector(
-                      onTap: () {
-                        // Reply functionality
-                      },
-                      child: const Text(
-                        'Répondre',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.grey,
-                        ),
-                      ),
-                    ),
-                  ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Text(
+                'Interroger Choice AI',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
                 ),
-              ],
+              ),
             ),
+          ],
+        ),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: 'Posez votre question...',
+            border: OutlineInputBorder(),
           ),
-          IconButton(
-            icon: Icon(
-              isLiked ? Icons.favorite : Icons.favorite_border,
-              size: 16,
-              color: isLiked ? Colors.red : Colors.grey,
+          maxLines: 3,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, controller.text),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.deepPurple,
             ),
-            onPressed: () => _likeComment(postId, comment['_id'] ?? ''),
+            child: const Text('Envoyer'),
           ),
         ],
       ),
     );
   }
-
-  // Fonction pour extraire intelligemment le nom d'un auteur en fonction de son type
-  String _extractAuthorName(Map<String, dynamic> authorData, bool isProducer, bool isLeisureProducer) {
-    if (!isProducer) {
-      // Pour les utilisateurs réguliers
-      return authorData['name'] ?? 'Utilisateur';
-    }
+  
+  // Format timestamp to readable format
+  String _formatTimestamp(DateTime timestamp) {
+    final now = DateTime.now();
+    final difference = now.difference(timestamp);
     
-    // Pour les producteurs, vérifier différents champs possibles selon le type
-    if (isLeisureProducer) {
-      // Vérification de plusieurs champs possibles pour les leisure producers
-      return authorData['nom'] ?? 
-             authorData['intitulé'] ?? 
-             authorData['title'] ?? 
-             authorData['name'] ?? 
-             authorData['nom_lieu'] ?? 
-             'Lieu culturel';
+    if (difference.inSeconds < 60) {
+      return 'À l\'instant';
+    } else if (difference.inMinutes < 60) {
+      return 'Il y a ${difference.inMinutes} min';
+    } else if (difference.inHours < 24) {
+      return 'Il y a ${difference.inHours} h';
+    } else if (difference.inDays < 7) {
+      return 'Il y a ${difference.inDays} j';
     } else {
-      // Pour les restaurants/producteurs standards
-      return authorData['name'] ?? 
-             authorData['nom'] ?? 
-             authorData['établissement'] ?? 
-             authorData['restaurant_name'] ?? 
-             'Restaurant';
+      return '${timestamp.day}/${timestamp.month}/${timestamp.year}';
     }
-  }
-
-  // Widget réutilisable pour les colonnes d'interactions avec icônes vectorielles
-  Widget _buildInteractionColumn({
-    required String emoji, // Gardé pour compatibilité
-    required int count,
-    int? secondaryCount,
-    required bool isActive,
-    required Color color,
-    required Function() onTap,
-    Function()? onLongPress,
-    IconData? iconData, // Nouvelle option pour utiliser FontAwesome
-  }) {
-    // Détermine l'icône à utiliser pour chaque type d'interaction
-    IconData icon;
-    if (iconData != null) {
-      icon = iconData;
-    } else {
-      // Mapping des emojis vers des icônes FontAwesome
-      switch (emoji) {
-        case '❤️':
-        case '🤍':
-          icon = isActive ? FontAwesomeIcons.solidHeart : FontAwesomeIcons.heart;
-          break;
-        case '⭐':
-        case '☆':
-          icon = isActive ? FontAwesomeIcons.solidStar : FontAwesomeIcons.star;
-          break;
-        case '✅':
-        case '⬜':
-          icon = isActive ? FontAwesomeIcons.solidCircleCheck : FontAwesomeIcons.circleCheck;
-          break;
-        case '💬':
-          icon = FontAwesomeIcons.solidComment;
-          break;
-        default:
-          icon = FontAwesomeIcons.thumbsUp;
-      }
-    }
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(20),
-        onTap: onTap,
-        onLongPress: onLongPress,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Icône FontAwesome avec animation d'échelle
-              TweenAnimationBuilder<double>(
-                tween: Tween<double>(
-                  begin: 0.8,
-                  end: isActive ? 1.1 : 0.9,
-                ),
-                duration: const Duration(milliseconds: 300),
-                curve: Curves.elasticOut,
-                builder: (context, value, child) {
-                  return Transform.scale(
-                    scale: value,
-                    child: FaIcon(
-                      icon,
-                      size: 26,
-                      color: isActive 
-                        ? color
-                        : count > 0 
-                          ? Colors.grey.shade700
-                          : Colors.grey.shade400,
-                    ),
-                  );
-                },
-              ),
-              
-              const SizedBox(height: 4),
-              
-              // Compteur avec effet de pulsation si actif
-              TweenAnimationBuilder<double>(
-                tween: Tween<double>(
-                  begin: 1.0,
-                  end: isActive && count > 0 ? 1.05 : 1.0,
-                ),
-                duration: const Duration(milliseconds: 700),
-                curve: Curves.easeInOut,
-                builder: (context, value, child) {
-                  return Transform.scale(
-                    scale: value,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: isActive 
-                          ? color.withOpacity(0.15) 
-                          : count > 0 
-                            ? Colors.grey.shade200 
-                            : Colors.transparent,
-                        borderRadius: BorderRadius.circular(12),
-                        boxShadow: isActive && count > 0
-                          ? [
-                              BoxShadow(
-                                color: color.withOpacity(0.2),
-                                blurRadius: 4,
-                                spreadRadius: 0,
-                              )
-                            ]
-                          : null,
-                      ),
-                      child: Text(
-                        count.toString(),
-                        style: GoogleFonts.montserrat(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: isActive 
-                            ? color
-                            : count > 0 
-                              ? Colors.grey.shade700
-                              : Colors.grey.shade400,
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
-              
-              // Compteur secondaire (followers) avec icône utilisateur
-              if (secondaryCount != null && secondaryCount > 0)
-                Container(
-                  margin: const EdgeInsets.only(top: 3),
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: Colors.purple.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: Colors.purple.withOpacity(0.2),
-                      width: 0.5,
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      FaIcon(
-                        FontAwesomeIcons.userGroup,
-                        size: 8,
-                        color: Colors.purple.shade700,
-                      ),
-                      const SizedBox(width: 3),
-                      Text(
-                        secondaryCount.toString(),
-                        style: GoogleFonts.montserrat(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.purple.shade700,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      // En-tête simplifiée sans les boutons inutiles
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.white,
-        title: const Text(
-          'Choice',
-          style: TextStyle(
-            fontWeight: FontWeight.w900,
-            color: Colors.black87,
-            fontSize: 28,
-          ),
-        ),
-        centerTitle: false,
-        automaticallyImplyLeading: false,
-      ),
-      body: _posts.isEmpty && _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _posts.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.feed, size: 70, color: Colors.grey),
-                      const SizedBox(height: 16),
-                      const Text(
-                        'Aucun post trouvé',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey),
-                      ),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: _fetchFeed,
-                        child: const Text('Actualiser'),
-                      ),
-                    ],
-                  ),
-                )
-              : RefreshIndicator(
-                  onRefresh: () async {
-                    // Reset and reload from page 1
-                    setState(() {
-                      _posts.clear();
-                      _currentPage = 1;
-                      _hasMorePosts = true;
-                    });
-                    _fetchFeed();
-                  },
-                  child: ListView.builder(
-                    controller: _scrollController,
-                    itemCount: _posts.length + (_isLoading && _hasMorePosts ? 1 : 0),
-                    itemBuilder: (context, index) {
-                      if (index < _posts.length) {
-                        return _buildPostCard(_posts[index]);
-                      } else {
-                        // Loading indicator at the bottom
-                        return const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 32.0),
-                          child: Center(child: CircularProgressIndicator()),
-                        );
-                      }
-                    },
-                  ),
-                ),
-    );
   }
 }

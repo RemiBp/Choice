@@ -17,6 +17,8 @@ class Post {
   final int interestedCount;
   final int choiceCount;
   final List<Comment> comments;
+  final bool? isLiked;
+  final int? likesCount;
 
   Post({
     required this.id,
@@ -33,6 +35,8 @@ class Post {
     this.interestedCount = 0,
     this.choiceCount = 0,
     this.comments = const [],
+    this.isLiked,
+    this.likesCount,
   });
 
   Post copyWith({
@@ -60,6 +64,8 @@ class Post {
       interestedCount: interestedCount ?? this.interestedCount,
       choiceCount: choiceCount ?? this.choiceCount,
       comments: comments ?? this.comments,
+      isLiked: isLiked ?? this.isLiked,
+      likesCount: likesCount ?? this.likesCount,
     );
   }
 
@@ -79,6 +85,9 @@ class Post {
         isProducerPost: json['producer_id'] != null,
         isInterested: json['is_interested'] == true,
         isChoice: json['is_choice'] == true,
+        isLiked: json['isLiked'] == true || json['is_liked'] == true,
+        likesCount: json['likesCount'] ?? json['likes_count'] ?? 
+                 (json['likes'] is List ? (json['likes'] as List).length : 0),
       );
     } catch (e, stack) {
       print('❌ Erreur parsing post: $e');

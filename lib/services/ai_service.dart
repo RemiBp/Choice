@@ -449,6 +449,7 @@ class AIQueryResponse {
   final List<ProfileData> profiles;
   final dynamic analysisResults;
   final String? error;
+  final List<String>? suggestions;
 
   AIQueryResponse({
     required this.query,
@@ -460,6 +461,7 @@ class AIQueryResponse {
     required this.profiles,
     this.analysisResults,
     this.error,
+    this.suggestions,
   });
 
   factory AIQueryResponse.fromJson(Map<String, dynamic> json) {
@@ -474,6 +476,14 @@ class AIQueryResponse {
           .toList();
     }
     
+    // Parse suggestions if they exist
+    List<String>? suggestions;
+    if (json['suggestions'] != null) {
+      suggestions = (json['suggestions'] as List)
+          .map((suggestion) => suggestion.toString())
+          .toList();
+    }
+    
     return AIQueryResponse(
       query: json['query'] ?? '',
       intent: json['intent'] ?? 'unknown',
@@ -484,6 +494,7 @@ class AIQueryResponse {
       profiles: profiles,
       analysisResults: json['analysisResults'],
       error: json['error'],
+      suggestions: suggestions,
     );
   }
 
