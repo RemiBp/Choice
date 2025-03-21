@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:carousel_slider/carousel_slider.dart';
 import 'package:video_player/video_player.dart';
 import '../models/post.dart';
 import '../models/comment.dart';
 import '../models/media.dart';
 import '../services/api_service.dart';
-import '../utils/carousel_util.dart';
+import '../widgets/choice_carousel.dart';
 
 class PostDetailScreen extends StatefulWidget {
   final dynamic post;
@@ -26,7 +25,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   final ApiService _apiService = ApiService();
   final TextEditingController _commentController = TextEditingController();
   final Map<String, VideoPlayerController> _videoControllers = {};
-  final ChoiceCarouselController _carouselController = ChoiceCarouselController.create();
+  final ChoiceCarouselController _carouselController = ChoiceCarouselController();
   
   late Post _postData;
   bool _isPostDataInitialized = false;
@@ -128,6 +127,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
             id: comment['_id'] ?? '',
             authorId: comment['author_id'] ?? '',
             authorName: comment['author_name'] ?? '',
+            username: comment['username'] ?? comment['author_name'] ?? '',
             authorAvatar: comment['author_avatar'] ?? '',
             content: comment['content'] ?? '',
             postedAt: comment['posted_at'] != null 
@@ -288,10 +288,10 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                         if (_postData.media.isNotEmpty) ...[
                           const SizedBox(height: 8),
                           
-                          CarouselSlider.builder(
-                            carouselController: _carouselController,
+                          ChoiceCarousel.builder(
+                            controller: _carouselController,
                             itemCount: _postData.media.length,
-                            options: CarouselOptions(
+                            options: ChoiceCarouselOptions(
                               height: 400,
                               enlargeCenterPage: true,
                               enableInfiniteScroll: false,
@@ -923,6 +923,10 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         widget.userId,
         commentText,
       );
+      
+      // Comment returned from API might not have username field set properly
+      // We ensure it has username by using the authorName as fallback if needed
+      print('🧪 Comment from API: ${newComment.username}');
       
       // Update state
       setState(() {

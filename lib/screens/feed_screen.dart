@@ -4,9 +4,9 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:video_player/video_player.dart';
 import 'package:visibility_detector/visibility_detector.dart';
-import 'package:carousel_slider/carousel_slider.dart';
 import 'package:animations/animations.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../widgets/choice_carousel.dart';
 import '../models/post.dart';
 import '../services/api_service.dart';
 import '../services/dialogic_ai_feed_service.dart';
@@ -626,9 +626,9 @@ class _FeedScreenState extends State<FeedScreen> with SingleTickerProviderStateM
                 ),
               ] else ...[
                 // Multiple media items
-                CarouselSlider.builder(
+                ChoiceCarousel.builder(
                   itemCount: post.media.length,
-                  options: CarouselOptions(
+                  options: ChoiceCarouselOptions(
                     height: 350,
                     enableInfiniteScroll: false,
                     enlargeCenterPage: true,
@@ -1035,9 +1035,9 @@ class _FeedScreenState extends State<FeedScreen> with SingleTickerProviderStateM
                 ),
               ] else ...[
                 // Multiple media items
-                CarouselSlider.builder(
+                ChoiceCarousel.builder(
                   itemCount: mediaItems.length,
-                  options: CarouselOptions(
+                  options: ChoiceCarouselOptions(
                     height: 350,
                     enableInfiniteScroll: false,
                     enlargeCenterPage: true,
