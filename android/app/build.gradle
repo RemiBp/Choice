@@ -76,6 +76,4 @@ dependencies {
     implementation 'androidx.multidex:multidex:2.0.1'
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlin_version"
     implementation 'androidx.core:core-ktx:1.10.0'
-    // Explicit dependency for geolocator plugin
-    implementation 'com.baseflow.geolocator:geolocator:8.2.0'
 }
