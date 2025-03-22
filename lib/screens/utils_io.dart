@@ -5,7 +5,7 @@ import 'dart:io' show Platform;
 // Removed circular import of utils.dart
 
 // ❌ Désactiver le mode développement local pour la production
-const bool _useLocalServer = true; // Utiliser le serveur de production pour les appareils physiques
+const bool _useLocalServer = false; // Utiliser le serveur de production pour les appareils physiques
 
 String getBaseUrl() {
   // Mode développement activé: retourne toujours l'URL locale
