@@ -1,9 +1,10 @@
 import 'dart:isolate';
 import 'dart:async';
+import 'dart:math' show sin, cos, sqrt, atan2, pi;
 import 'package:flutter/foundation.dart' show kIsWeb, compute;
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:geolocator/geolocator.dart';
+import 'package:location/location.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:math' as math;
@@ -23,9 +24,9 @@ class MapLeisureScreen extends StatefulWidget {
 }
 
 class _MapLeisureScreenState extends State<MapLeisureScreen> {
-  LatLng _initialPosition = const LatLng(48.8566, 2.3522); // Paris par défaut
+  LatLng _initialPosition = const LatLng(0, 0); // Position par défaut
   GoogleMapController? _mapController;
-  Position? _currentPosition; // Position GPS actuelle
+  LocationData? _currentPosition; // Position GPS actuelle
   bool _isUsingLiveLocation = false; // État de la localisation en direct
   Timer? _locationUpdateTimer; // Timer pour la mise à jour périodique de la position
 
@@ -53,6 +54,28 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
   // Contrôle du panneau de filtres
   bool _isFilterPanelVisible = false;
   bool _isPanelAnimating = false; // Pour éviter les clics multiples pendant l'animation
+
+  // Helper function to convert degrees to radians (moved outside of _calculateDistance)
+  double _degreesToRadians(double degrees) {
+    return degrees * pi / 180;
+  }
+
+  /// Calculate distance between two coordinates using Haversine formula
+  double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
+    const double earthRadius = 6371000; // meters
+    
+    final double dLat = _degreesToRadians(lat2 - lat1);
+    final double dLon = _degreesToRadians(lon2 - lon1);
+    
+    final double a = 
+      sin(dLat / 2) * sin(dLat / 2) +
+      cos(_degreesToRadians(lat1)) * cos(_degreesToRadians(lat2)) * 
+      sin(dLon / 2) * sin(dLon / 2);
+    
+    final double c = 2 * atan2(sqrt(a), sqrt(1 - a));
+    
+    return earthRadius * c;
+  }
 
   @override
   void initState() {
@@ -108,20 +131,33 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
     });
   }
   
+  // Instance du service de localisation
+  final Location _location = Location();
+  
   /// Vérifier et demander les permissions de localisation
   Future<void> _checkLocationPermission() async {
     try {
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) {
+      bool serviceEnabled = await _location.serviceEnabled();
+      if (!serviceEnabled) {
+        serviceEnabled = await _location.requestService();
+        if (!serviceEnabled) {
+          // Le service de localisation est désactivé, utiliser Paris par défaut
+          _showSnackBar("Service de localisation désactivé. Utilisation de la position par défaut.");
+          return;
+        }
+      }
+      
+      PermissionStatus permissionStatus = await _location.hasPermission();
+      if (permissionStatus == PermissionStatus.denied) {
+        permissionStatus = await _location.requestPermission();
+        if (permissionStatus == PermissionStatus.denied) {
           // Permission refusée, mais on peut continuer avec Paris comme position par défaut
           _showSnackBar("Permissions de localisation refusées. Utilisation de la position par défaut.");
           return;
         }
       }
       
-      if (permission == LocationPermission.deniedForever) {
+      if (permissionStatus == PermissionStatus.deniedForever) {
         // L'utilisateur a refusé définitivement, proposer d'ouvrir les paramètres
         _showSnackBar("Permissions de localisation définitivement refusées. Utilisez les paramètres pour les activer.");
         return;
@@ -141,15 +177,25 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
     });
     
     try {
-      // Options de localisation pour une bonne précision
-      Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-        timeLimit: const Duration(seconds: 5),
-      );
+      // Configurer la précision de la localisation
+      await _location.changeSettings(accuracy: LocationAccuracy.high);
+      
+      // Obtenir la position actuelle
+      LocationData position = await _location.getLocation();
+      
+      // Vérifier que les coordonnées ne sont pas nulles
+      if (position.latitude == null || position.longitude == null) {
+        _showSnackBar("Impossible d'obtenir des coordonnées valides. Veuillez réessayer.");
+        setState(() {
+          _isLoading = false;
+          _isUsingLiveLocation = false;
+        });
+        return;
+      }
       
       setState(() {
         _currentPosition = position;
-        _initialPosition = LatLng(position.latitude, position.longitude);
+        _initialPosition = LatLng(position.latitude!, position.longitude!);
         _isUsingLiveLocation = true;
       });
       
@@ -160,7 +206,7 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
       }
       
       // Charger les producteurs proches de la position actuelle
-      _fetchNearbyProducers(position.latitude, position.longitude);
+      _fetchNearbyProducers(position.latitude!, position.longitude!);
       _showSnackBar("Position GPS obtenue. Recherche des lieux à proximité.");
       
       // Configurer les mises à jour de position périodiques si activées
@@ -195,33 +241,33 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
         }
         
         try {
-          Position position = await Geolocator.getCurrentPosition(
-            desiredAccuracy: LocationAccuracy.high,
-            timeLimit: const Duration(seconds: 5),
-          );
+          LocationData position = await _location.getLocation();
           
-          // Ne mettre à jour que si la position a significativement changé (>50m)
-          if (_currentPosition != null) {
-            double distance = Geolocator.distanceBetween(
-              _currentPosition!.latitude, _currentPosition!.longitude,
-              position.latitude, position.longitude
-            );
-            
-            if (distance > 50) { // Seulement si déplacé de plus de 50 mètres
-              setState(() {
-                _currentPosition = position;
-                _initialPosition = LatLng(position.latitude, position.longitude);
-              });
+          // Vérifier que les coordonnées ne sont pas nulles
+          if (_currentPosition != null && position.latitude != null && position.longitude != null) {
+            // S'assurer que les positions actuelles ont des coordonnées valides
+            if (_currentPosition!.latitude != null && _currentPosition!.longitude != null) {
+              double distance = _calculateDistance(
+                _currentPosition!.latitude!, _currentPosition!.longitude!,
+                position.latitude!, position.longitude!
+              );
               
-              if (_mapController != null) {
-                _mapController!.animateCamera(
-                  CameraUpdate.newLatLng(_initialPosition),
-                );
+              if (distance > 50) { // Seulement si déplacé de plus de 50 mètres
+                setState(() {
+                  _currentPosition = position;
+                  _initialPosition = LatLng(position.latitude!, position.longitude!);
+                });
+                
+                if (_mapController != null) {
+                  _mapController!.animateCamera(
+                    CameraUpdate.newLatLng(_initialPosition),
+                  );
+                }
+                
+                // Recharger les lieux à proximité de la nouvelle position
+                _fetchNearbyProducers(position.latitude!, position.longitude!);
+                print("📍 Position mise à jour: ${position.latitude}, ${position.longitude}");
               }
-              
-              // Recharger les lieux à proximité de la nouvelle position
-              _fetchNearbyProducers(position.latitude, position.longitude);
-              print("📍 Position mise à jour: ${position.latitude}, ${position.longitude}");
             }
           }
         } catch (e) {
@@ -341,7 +387,6 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
         
         markers.add(marker);
         print("✅ Marqueur créé et visible pour: $name avec catégorie: $category, z-index: $zIndex");
-
         // Ajouter des informations supplémentaires pour débogage
         int nbEvents = 0;
         if (entity['evenements'] != null && entity['evenements'] is List) {
@@ -2276,7 +2321,7 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
                 if (_currentPosition != null) {
                   // Si on a déjà une position, se centrer dessus
                   setState(() {
-                    _initialPosition = LatLng(_currentPosition!.latitude, _currentPosition!.longitude);
+                    _initialPosition = LatLng(_currentPosition!.latitude!, _currentPosition!.longitude!);
                   });
                   if (_mapController != null) {
                     _mapController!.animateCamera(

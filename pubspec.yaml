@@ -12,7 +12,7 @@ dependencies:
   flutter_web_plugins:
     sdk: flutter
   # Location tracking
-  geolocator: 8.2.0
+  location: ^5.0.3  # Package fiable pour la localisation avec suivi en temps réel
   google_maps_flutter: ^2.5.3
   flutter_plugin_android_lifecycle: ^2.0.17
   flutter_secure_storage: ^9.0.0
