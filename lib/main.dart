@@ -732,6 +732,15 @@ class _MainNavigationState extends State<MainNavigation> with WidgetsBindingObse
         CopilotScreen(userId: widget.userId), // Page Copilot
         MyProducerLeisureProfileScreen(userId: widget.userId), // Mon profil producer (loisir)
       ];
+    } else if (widget.accountType == 'guest') {
+      // Configuration pour les utilisateurs invités (similaire aux utilisateurs normaux)
+      _pages = [
+        FeedScreen(userId: widget.userId), // Page Feed
+        const MapScreen(), // Carte des restaurants
+        ProducerSearchPage(userId: widget.userId), // Page Recherche Producteurs
+        CopilotScreen(userId: widget.userId), // Page Copilot
+        MyProfileScreen(userId: widget.userId), // Mon profil utilisateur
+      ];
     } else {
       // Gestion du cas où le type de compte est invalide
       throw Exception('Type de compte inconnu : ${widget.accountType}');

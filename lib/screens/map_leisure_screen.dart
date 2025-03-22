@@ -38,22 +38,174 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
   bool _shouldShowMarkers = true; // Contrôle l'affichage des marqueurs - activé par défaut
   final ReceivePort _receivePort = ReceivePort();
   String? _lastTappedMarkerId; // Pour gérer le double-tap sur les marqueurs
-
-  // Filtres
-  double _selectedRadius = 5000; // Rayon (5 km par défaut)
+  
+  // Propriétés pour les filtres
+  double _selectedRadius = 5000;
   String? _selectedProducerCategory;
   String? _selectedEventCategory;
+  List<String> _selectedEmotions = [];
   double _minMiseEnScene = 0;
   double _minJeuActeurs = 0;
   double _minScenario = 0;
-  List<String> _selectedEmotions = [];
   double _minPrice = 0;
   double _maxPrice = 1000;
-  Map<String, BitmapDescriptor> _markerIcons = {}; // Cache d'icônes pour différentes catégories
+  
+  // Propriété pour les icônes de marqueurs
+  Map<String, BitmapDescriptor> _markerIcons = {};
+  
+  // Liste des aspects sélectionnés pour le filtrage dynamique
+  List<String> _selectedAspects = [];
+
+  // Aide pour obtenir la catégorie standardisée à partir d'une catégorie brute
+  String _getStandardCategory(String rawCategory) {
+    if (rawCategory.isEmpty) return CATEGORY_MAPPING["default"]!;
+    
+    // Convertir en minuscules pour une correspondance insensible à la casse
+    String lowerCategory = rawCategory.toLowerCase();
+    
+    // Vérifier dans le mapping
+    for (var entry in CATEGORY_MAPPING.entries) {
+      if (lowerCategory.contains(entry.key)) {
+        return entry.value;
+      }
+    }
+    
+    // Si aucune correspondance, renvoyer la catégorie par défaut
+    return CATEGORY_MAPPING["default"]!;
+  }
+  
+  // Récupérer les détails (aspects, émotions) pour une catégorie
+  Map<String, dynamic> _getCategoryDetails(String category) {
+    // Standardiser d'abord la catégorie
+    String standardCategory = _getStandardCategory(category);
+    
+    // Extraire le terme principal (avant le » si présent)
+    String mainCategory = standardCategory.split('»').first.trim();
+    
+    // Chercher dans les mappings détaillés
+    if (CATEGORY_MAPPINGS_DETAILED.containsKey(mainCategory)) {
+      return CATEGORY_MAPPINGS_DETAILED[mainCategory]!;
+    }
+    
+    // Chercher des correspondances partielles
+    for (var entry in CATEGORY_MAPPINGS_DETAILED.entries) {
+      if (mainCategory.contains(entry.key) || entry.key.contains(mainCategory)) {
+        return entry.value;
+      }
+    }
+    
+    // Si aucune correspondance, retourner la catégorie par défaut
+    return CATEGORY_MAPPINGS_DETAILED["Default"]!;
+  }
 
   // Contrôle du panneau de filtres
   bool _isFilterPanelVisible = false;
   bool _isPanelAnimating = false; // Pour éviter les clics multiples pendant l'animation
+
+  // CATEGORY_MAPPING selon l'instruction du projet
+  final Map<String, String> CATEGORY_MAPPING = {
+    "default": "Autre",
+    "deep": "Musique » Électronique",
+    "techno": "Musique » Électronique",
+    "house": "Musique » Électronique",
+    "hip hop": "Musique » Hip-Hop",
+    "rap": "Musique » Hip-Hop",
+    "rock": "Musique » Rock",
+    "indie": "Musique » Indie",
+    "pop": "Musique » Pop",
+    "jazz": "Musique » Jazz",
+    "soul": "Musique » Soul",
+    "funk": "Musique » Funk",
+    "dj set": "Musique » DJ Set",
+    "club": "Musique » Club",
+    "festival": "Festival",
+    "concert": "Concert",
+    "live": "Concert",
+    "comédie": "Théâtre » Comédie",
+    "spectacle": "Spectacles",
+    "danse": "Spectacles » Danse",
+    "exposition": "Exposition",
+    "conférence": "Conférence",
+    "stand-up": "Spectacles » One-man-show",
+    "one-man-show": "Spectacles » One-man-show",
+    "théâtre": "Théâtre",
+    "cinéma": "Cinéma",
+    "projection": "Cinéma",
+  };
+
+  // Liste des catégories principales pour la carte
+  final List<String> MAIN_CATEGORIES = [
+    "Théâtre",
+    "Musique",
+    "Spectacles",
+    "Cinéma",
+    "Exposition",
+    "Festival",
+    "Concert",
+    "Conférence"
+  ];
+  
+  // Mappings détaillés pour l'analyse AI par catégorie
+  final Map<String, Map<String, dynamic>> CATEGORY_MAPPINGS_DETAILED = {
+    "Théâtre": {
+      "aspects": ["mise en scène", "jeu des acteurs", "texte", "scénographie"],
+      "emotions": ["intense", "émouvant", "captivant", "enrichissant", "profond"]
+    },
+    "Théâtre contemporain": {
+      "aspects": ["mise en scène", "jeu des acteurs", "texte", "originalité", "message"],
+      "emotions": ["provocant", "dérangeant", "stimulant", "actuel", "profond"]
+    },
+    "Comédie": {
+      "aspects": ["humour", "jeu des acteurs", "rythme", "dialogue"],
+      "emotions": ["drôle", "amusant", "divertissant", "léger", "enjoué"]
+    },
+    "Spectacle musical": {
+      "aspects": ["performance musicale", "mise en scène", "chant", "chorégraphie"],
+      "emotions": ["entraînant", "mélodieux", "festif", "rythmé", "touchant"]
+    },
+    "One-man-show": {
+      "aspects": ["humour", "présence scénique", "texte", "interaction"],
+      "emotions": ["drôle", "mordant", "spontané", "énergique", "incisif"]
+    },
+    "Concert": {
+      "aspects": ["performance", "répertoire", "son", "ambiance"],
+      "emotions": ["électrisant", "envoûtant", "festif", "énergique", "intense"]
+    },
+    "Musique électronique": {
+      "aspects": ["dj", "ambiance", "son", "rythme"],
+      "emotions": ["festif", "énergique", "immersif", "exaltant", "hypnotique"]
+    },
+    "Danse": {
+      "aspects": ["chorégraphie", "technique", "expressivité", "musique"],
+      "emotions": ["gracieux", "puissant", "fluide", "émouvant", "esthétique"]
+    },
+    "Cirque": {
+      "aspects": ["performance", "mise en scène", "acrobaties", "créativité"],
+      "emotions": ["impressionnant", "magique", "époustouflant", "spectaculaire", "poétique"]
+    },
+    "Default": {  // Catégorie par défaut si non reconnue
+      "aspects": ["qualité générale", "intérêt", "originalité"],
+      "emotions": ["agréable", "intéressant", "divertissant", "satisfaisant"]
+    }
+  };
+
+  // Mapping pour la traduction des dates
+  final Map<String, String> JOURS_FR_EN = {
+    "lundi": "Monday", "mardi": "Tuesday", "mercredi": "Wednesday",
+    "jeudi": "Thursday", "vendredi": "Friday", "samedi": "Saturday", "dimanche": "Sunday"
+  };
+  
+  final Map<String, String> MOIS_FR_EN = {
+    "janvier": "January", "février": "February", "mars": "March", "avril": "April",
+    "mai": "May", "juin": "June", "juillet": "July", "août": "August",
+    "septembre": "September", "octobre": "October", "novembre": "November", "décembre": "December"
+  };
+  
+  final Map<String, String> MOIS_ABBR_FR = {
+    "janv.": "janvier", "févr.": "février", "mars": "mars", "avr.": "avril",
+    "mai": "mai", "juin": "juin", "juil.": "juillet", "août": "août",
+    "sept.": "septembre", "oct.": "octobre", "nov.": "novembre", "déc.": "décembre"
+  };
 
   // Helper function to convert degrees to radians (moved outside of _calculateDistance)
   double _degreesToRadians(double degrees) {
@@ -315,20 +467,25 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
         
         // Utiliser des hues basées sur la catégorie pour un meilleur repérage visuel
         double markerHue;
-        if (category.contains('théâtre') || category.contains('theatre')) {
+        // Utiliser la standardisation des catégories pour une meilleure consistance
+        String standardCategory = _getStandardCategory(category);
+        
+        if (standardCategory.startsWith("Théâtre")) {
           markerHue = BitmapDescriptor.hueRed;
-        } else if (category.contains('musique') || category.contains('concert')) {
+        } else if (standardCategory.startsWith("Musique")) {
           markerHue = BitmapDescriptor.hueAzure;
-        } else if (category.contains('ciném') || category.contains('cinema')) {
+        } else if (standardCategory.startsWith("Cinéma")) {
           markerHue = BitmapDescriptor.hueOrange;
-        } else if (category.contains('danse')) {
+        } else if (standardCategory.startsWith("Spectacles")) {
           markerHue = BitmapDescriptor.hueGreen;
-        } else if (category.contains('expo')) {
+        } else if (standardCategory.startsWith("Exposition")) {
           markerHue = BitmapDescriptor.hueYellow;
-        } else if (category.contains('musée') || category.contains('musee')) {
-          markerHue = BitmapDescriptor.hueCyan;
-        } else if (category.contains('festival')) {
+        } else if (standardCategory == "Festival") {
           markerHue = BitmapDescriptor.hueMagenta;
+        } else if (standardCategory == "Concert") {
+          markerHue = BitmapDescriptor.hueViolet;
+        } else if (standardCategory == "Conférence") {
+          markerHue = BitmapDescriptor.hueCyan;
         } else {
           markerHue = BitmapDescriptor.hueViolet;
         }
@@ -348,7 +505,7 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
           flat: false, // Désactiver flat pour meilleure visibilité
           alpha: 1.0, // Complètement opaque
           zIndex: zIndex, // Z-index unique et croissant
-          anchor: const Offset(0.5, 1.0), // Ancrage standard pour les marqueurs Google
+          anchor: const Offset(0.5, 0.7), // Ancrage plus haut pour que le marqueur apparaisse plus élevé sur la carte
           consumeTapEvents: true, // Assure que les taps sont bien capturés
           onTap: () {
             // Afficher les détails directement sans passer par infoWindow
@@ -747,7 +904,7 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
           flat: false, // Désactiver flat pour meilleure visibilité 3D
           alpha: 1.0, // Complètement opaque
           zIndex: zIndex, // Z-index unique croissant
-          anchor: const Offset(0.5, 1.0), // Ancrage standard pour les marqueurs Google
+          anchor: const Offset(0.5, 0.7), // Ancrage plus haut pour que le marqueur apparaisse plus élevé sur la carte
           consumeTapEvents: true, // Assure que les taps sont bien capturés
           infoWindow: InfoWindow(
             title: name,
@@ -1123,6 +1280,94 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
                                   ],
                                 ),
                               )
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    
+                    // Intérêts des amis - NOUVELLE SECTION
+                    if (entity['followers'] != null || entity['friend_interests'] != null || entity['followers_count'] != null) ...[
+                      const Text(
+                        "Intérêts des amis :",
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.purple.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.purple.withOpacity(0.3))
+                        ),
+                        child: Row(
+                          children: [
+                            // Avatar du lieu (photo de profil)
+                            Container(
+                              width: 50,
+                              height: 50,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                image: DecorationImage(
+                                  image: NetworkImage(imageUrl),
+                                  fit: BoxFit.cover,
+                                ),
+                                border: Border.all(color: Colors.white, width: 2),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.2),
+                                    blurRadius: 4,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  // Générer des intérêts fictifs si non disponibles
+                                  ...List.generate(entity['friend_interests']?.length ?? 
+                                    (emotionEmojis.isNotEmpty ? emotionEmojis.length : 2), 
+                                    (index) {
+                                      // Utiliser les données réelles si disponibles, sinon des valeurs par défaut
+                                      final friendName = entity['friend_interests']?[index]?['name'] ?? 
+                                                        "Ami ${index + 1}";
+                                      final emoji = entity['friend_interests']?[index]?['emoji'] ?? 
+                                                  (emotionEmojis.isNotEmpty && index < emotionEmojis.length ? 
+                                                  emotionEmojis[index] : 
+                                                  isProducer ? '🎭' : '👍');
+                                      
+                                      return Padding(
+                                        padding: const EdgeInsets.only(bottom: 4),
+                                        child: Row(
+                                          children: [
+                                            Text(emoji, style: const TextStyle(fontSize: 16)),
+                                            const SizedBox(width: 8),
+                                            Text(
+                                              friendName,
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    }
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    "${entity['followers_count'] ?? entity['followers']?.length ?? 'Plusieurs'} amis s'intéressent à ce lieu",
+                                    style: const TextStyle(
+                                      fontStyle: FontStyle.italic,
+                                      fontSize: 12,
+                                      color: Colors.purple,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ],
                         ),
@@ -2300,43 +2545,7 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
                 },
               ),
             ),
-          // Bouton pour la position actuelle
-          Container(
-            margin: const EdgeInsets.only(bottom: 8),
-            decoration: BoxDecoration(
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.2),
-                  blurRadius: 6,
-                  offset: const Offset(0, 2),
-                )
-              ],
-            ),
-            child: FloatingActionButton(
-              backgroundColor: _isUsingLiveLocation ? Colors.green : Colors.white,
-              foregroundColor: _isUsingLiveLocation ? Colors.white : Colors.purple,
-              heroTag: "locateLeisureBtn",
-              child: const Icon(Icons.my_location),
-              onPressed: () {
-                if (_currentPosition != null) {
-                  // Si on a déjà une position, se centrer dessus
-                  setState(() {
-                    _initialPosition = LatLng(_currentPosition!.latitude!, _currentPosition!.longitude!);
-                  });
-                  if (_mapController != null) {
-                    _mapController!.animateCamera(
-                      CameraUpdate.newLatLngZoom(_initialPosition, 14.0),
-                    );
-                    _fetchNearbyProducers(_initialPosition.latitude, _initialPosition.longitude);
-                  }
-                } else {
-                  // Sinon essayer d'obtenir la position actuelle
-                  _getCurrentLocation();
-                }
-              },
-            ),
-          ),
-          // Bouton pour activer/désactiver la localisation en direct
+          // Bouton pour la position actuelle avec localisation intégrée
           Container(
             decoration: BoxDecoration(
               boxShadow: [
@@ -2348,11 +2557,11 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
               ],
             ),
             child: FloatingActionButton.extended(
-              heroTag: "liveLocationBtn",
-              backgroundColor: _isUsingLiveLocation ? Colors.blue : Colors.grey.shade200,
-              foregroundColor: _isUsingLiveLocation ? Colors.white : Colors.grey.shade700,
-              icon: Icon(_isUsingLiveLocation ? Icons.gps_fixed : Icons.gps_not_fixed),
-              label: Text(_isUsingLiveLocation ? "GPS Actif" : "GPS Inactif", 
+              heroTag: "locateLeisureBtn",
+              backgroundColor: _isUsingLiveLocation ? Colors.green : Colors.white,
+              foregroundColor: _isUsingLiveLocation ? Colors.white : Colors.purple,
+              icon: Icon(_isUsingLiveLocation ? Icons.gps_fixed : Icons.my_location),
+              label: Text(_isUsingLiveLocation ? "GPS Actif" : "Me Localiser", 
                 style: const TextStyle(fontSize: 12)),
               onPressed: () {
                 if (_isUsingLiveLocation) {
@@ -2362,8 +2571,21 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
                   });
                   _showSnackBar("Localisation en direct désactivée.");
                 } else {
-                  // Activer la localisation en direct
-                  _getCurrentLocation();
+                  // Activer la localisation en direct ou centrer la carte sur la position actuelle
+                  if (_currentPosition != null) {
+                    setState(() {
+                      _initialPosition = LatLng(_currentPosition!.latitude!, _currentPosition!.longitude!);
+                      _isUsingLiveLocation = true;
+                    });
+                    if (_mapController != null) {
+                      _mapController!.animateCamera(
+                        CameraUpdate.newLatLngZoom(_initialPosition, 14.0),
+                      );
+                      _fetchNearbyProducers(_initialPosition.latitude, _initialPosition.longitude);
+                    }
+                  } else {
+                    _getCurrentLocation();
+                  }
                 }
               },
             ),
@@ -2879,37 +3101,112 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
           ),
           const SizedBox(height: 16),
           
-          // Notes minimales pour l'événement - en utilisant des sliders plus stylisés
-          const Text(
-            "Notes minimales",
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-          ),
-          const SizedBox(height: 8),
-          Card(
-            elevation: 0,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-              side: BorderSide(color: Colors.grey.shade300),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(12),
+          // Notes minimales pour l'événement - dynamique selon la catégorie sélectionnée
+          _selectedEventCategory != null
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Obtenir les aspects spécifiques à la catégorie
+                Builder(builder: (context) {
+                  final categoryDetails = _getCategoryDetails(_selectedEventCategory!);
+                  final List<String> aspects = List<String>.from(categoryDetails['aspects'] ?? []);
+                  
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Texte d'information avec catégorie
+                      Text(
+                        "Critères spécifiques : $_selectedEventCategory",
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        "Sélectionnez vos critères d'importance pour cette catégorie :",
+                        style: TextStyle(fontSize: 13, fontStyle: FontStyle.italic, color: Colors.grey.shade700),
+                      ),
+                      const SizedBox(height: 12),
+                      
+                      // Carte pour les sliders d'aspects spécifiques
+                      Card(
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          side: BorderSide(color: Colors.grey.shade300),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: aspects.isEmpty
+                              ? const Center(
+                                  child: Text(
+                                    "Aucun critère spécifique disponible pour cette catégorie",
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(fontStyle: FontStyle.italic),
+                                  ),
+                                )
+                              : Column(
+                                  children: [
+                                    // Construire dynamiquement les sliders selon les aspects de la catégorie
+                                    for (int i = 0; i < aspects.length; i++) ...[
+                                      _buildRatingSlider(
+                                        aspects[i].substring(0, 1).toUpperCase() + aspects[i].substring(1), // Première lettre en majuscule
+                                        _selectedAspects.contains(aspects[i]) ? _minMiseEnScene : 0, // Utiliser une valeur par défaut si aspect sélectionné
+                                        (value) {
+                                          setState(() {
+                                            if (value > 0) {
+                                              if (!_selectedAspects.contains(aspects[i])) {
+                                                _selectedAspects.add(aspects[i]);
+                                              }
+                                              
+                                              // Stocker la valeur dans la variable appropriée selon l'aspect
+                                              if (aspects[i].contains("mise en scène")) {
+                                                _minMiseEnScene = value;
+                                              } else if (aspects[i].contains("jeu des acteurs")) {
+                                                _minJeuActeurs = value;
+                                              } else if (aspects[i].contains("texte") || aspects[i].contains("scénario")) {
+                                                _minScenario = value;
+                                              }
+                                            } else {
+                                              _selectedAspects.remove(aspects[i]);
+                                            }
+                                          });
+                                        },
+                                      ),
+                                      if (i < aspects.length - 1) const Divider(),
+                                    ],
+                                  ],
+                                ),
+                        ),
+                      ),
+                    ],
+                  );
+                }),
+              ],
+            )
+          : Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.purple.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.purple.withOpacity(0.3)),
+              ),
               child: Column(
                 children: [
-                  _buildRatingSlider("Mise en scène", _minMiseEnScene, (value) {
-                    setState(() => _minMiseEnScene = value);
-                  }),
-                  const Divider(),
-                  _buildRatingSlider("Jeu d'acteurs", _minJeuActeurs, (value) {
-                    setState(() => _minJeuActeurs = value);
-                  }),
-                  const Divider(),
-                  _buildRatingSlider("Scénario", _minScenario, (value) {
-                    setState(() => _minScenario = value);
-                  }),
+                  const Icon(Icons.info_outline, color: Colors.purple, size: 24),
+                  const SizedBox(height: 8),
+                  const Text(
+                    "Sélectionnez une catégorie pour voir les critères spécifiques",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontWeight: FontWeight.w500),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    "Exemple : Théâtre → mise en scène, jeu des acteurs, etc.",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+                  ),
                 ],
               ),
             ),
-          ),
           const SizedBox(height: 16),
           
           // Émotions recherchées - avec émojis

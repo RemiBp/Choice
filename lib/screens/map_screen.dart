@@ -211,6 +211,8 @@ class _MapScreenState extends State<MapScreen> with AutomaticKeepAliveClientMixi
           alpha: 1.0, // Assurer une opacité complète
           zIndex: 2.0, // Mettre au-dessus des autres éléments
           consumeTapEvents: true, // Capture les taps correctement
+          // Ajouter une ancre plus haute pour que le marqueur apparaisse plus élevé sur la carte
+          anchor: Offset(0.5, 0.7),
           onTap: () {
             // Afficher une carte de détail au-dessus du marqueur
             _showProducerQuickView(context, producer);
@@ -297,10 +299,10 @@ class _MapScreenState extends State<MapScreen> with AutomaticKeepAliveClientMixi
           markerId: MarkerId(producerId),
           position: LatLng(lat, lon),
           icon: BitmapDescriptor.defaultMarkerWithHue(markerHue),
-          infoWindow: InfoWindow(
-            title: producerName,
-            snippet: "Note : ${producer['rating']?.toStringAsFixed(1) ?? 'N/A'}",
-          ),
+          // Désactiver l'infoWindow par défaut pour utiliser notre UI personnalisée
+          infoWindow: InfoWindow.noText,
+          // Ajouter une ancre plus haute pour que le marqueur apparaisse plus élevé sur la carte
+          anchor: Offset(0.5, 0.7),
         );
         
         markers.add(marker);
@@ -669,6 +671,96 @@ class _MapScreenState extends State<MapScreen> with AutomaticKeepAliveClientMixi
                       ],
                     ),
                     const SizedBox(height: 12),
+                    
+                    // Intérêts des amis - NOUVELLE SECTION
+                    if (producer['friend_interests'] != null || producer['followers_count'] != null) ...[
+                      const Text(
+                        "Intérêts des amis :",
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.purple.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.purple.withOpacity(0.3))
+                        ),
+                        child: Row(
+                          children: [
+                            // Avatar du lieu (photo de profil)
+                            Container(
+                              width: 50,
+                              height: 50,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                image: DecorationImage(
+                                  image: NetworkImage(imageUrl),
+                                  fit: BoxFit.cover,
+                                ),
+                                border: Border.all(color: Colors.white, width: 2),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.2),
+                                    blurRadius: 4,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  // Générer des intérêts fictifs si non disponibles
+                                  ...List.generate(producer['friend_interests']?.length ?? 
+                                      (producer['category'] != null && producer['category'] is List ? 
+                                       (producer['category'] as List).length : 2), 
+                                    (index) {
+                                      // Utiliser les données réelles si disponibles, sinon des valeurs par défaut
+                                      final friendName = producer['friend_interests']?[index]?['name'] ?? 
+                                                        "Ami ${index + 1}";
+                                      final emoji = producer['friend_interests']?[index]?['emoji'] ?? 
+                                                   (producer['category'] != null && producer['category'] is List && 
+                                                    (producer['category'] as List).length > index ? 
+                                                    _getEmojiForCategory((producer['category'] as List)[index % (producer['category'] as List).length].toString()) : 
+                                                    '👍');
+                                      
+                                      return Padding(
+                                        padding: const EdgeInsets.only(bottom: 4),
+                                        child: Row(
+                                          children: [
+                                            Text(emoji, style: const TextStyle(fontSize: 16)),
+                                            const SizedBox(width: 8),
+                                            Text(
+                                              friendName,
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    }
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    "${producer['followers_count'] ?? 'Plusieurs'} amis s'intéressent à ce lieu",
+                                    style: const TextStyle(
+                                      fontStyle: FontStyle.italic,
+                                      fontSize: 12,
+                                      color: Colors.purple,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
                     
                     // Catégories avec émojis
                     if (producer['category'] != null && producer['category'] is List && producer['category'].isNotEmpty) ...[

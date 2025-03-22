@@ -5,7 +5,7 @@ import 'dart:io' show Platform;
 // Removed circular import of utils.dart
 
 // ❌ Désactiver le mode développement local pour la production
-const bool _useLocalServer = false; // Utiliser le serveur de production pour les appareils physiques
+const bool _useLocalServer = true; // Utiliser le serveur de production pour les appareils physiques
 
 String getBaseUrl() {
   // Mode développement activé: retourne toujours l'URL locale
@@ -21,26 +21,39 @@ String getBaseUrl() {
   
   // Mode production (normal)
   else {
-    // Cas spécifique: Émulateur Android uniquement
+  // Cas spécifique: Émulateur Android uniquement
     if (!kIsWeb && Platform.isAndroid) {
-      // Vérifier si c'est un émulateur Android
-      bool isEmulator = false;
+      // Pour les tests de développement, toujours considérer comme émulateur
+      // ⚠️ IMPORTANT: Mettre à true pour les tests sur émulateur, false pour le déploiement
+      const bool forceEmulatorMode = true;
       
-      try {
-        // Cette vérification est assez basique mais fonctionne dans la plupart des cas
-        // Les émulateurs Android ont généralement des noms de modèles spécifiques
-        String androidModel = Platform.operatingSystemVersion.toLowerCase();
-        isEmulator = androidModel.contains('sdk') || 
-                    androidModel.contains('emulator') || 
-                    androidModel.contains('virtual');
-      } catch (e) {
-        // En cas d'erreur, on suppose que ce n'est pas un émulateur
-        isEmulator = false;
+      bool isEmulator = forceEmulatorMode;
+      
+      if (!forceEmulatorMode) {
+        try {
+          // Méthode de détection améliorée pour les émulateurs Android
+          String androidModel = Platform.operatingSystemVersion.toLowerCase();
+          
+          // Liste plus complète des indicateurs d'émulateur
+          isEmulator = androidModel.contains('sdk') || 
+                      androidModel.contains('emulator') || 
+                      androidModel.contains('virtual') ||
+                      androidModel.contains('genymotion') ||
+                      androidModel.contains('nox') ||
+                      androidModel.contains('bluestacks') ||
+                      androidModel.contains('android studio');
+        } catch (e) {
+          // En cas d'erreur, on suppose que ce n'est pas un émulateur
+          isEmulator = false;
+        }
       }
       
       if (isEmulator) {
-        // Pour l'émulateur Android uniquement, utiliser l'adresse spéciale
+        print("🔧 Émulateur Android détecté - Utilisation de l'URL locale: http://10.0.2.2:5000");
+        // Pour l'émulateur Android, utiliser l'adresse spéciale pour accéder au localhost de l'hôte
         return "http://10.0.2.2:5000";
+      } else {
+        print("🔗 Appareil Android physique détecté - Utilisation de l'URL cloud: https://api.choiceapp.fr");
       }
     }
     

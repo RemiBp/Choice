@@ -10,6 +10,7 @@ import 'package:intl/intl.dart';
 import 'eventLeisure_screen.dart';
 import 'utils.dart';
 import '../services/payment_service.dart';
+import '../utils/leisureHelpers.dart';  // Add this import for getEventImageUrl
 
 class MyProducerLeisureProfileScreen extends StatefulWidget {
   final String userId;
@@ -25,6 +26,7 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
   late TabController _tabController;
   final List<String> _tabs = ['Mon profil', 'Mes événements', 'Statistiques'];
   bool _isLoading = false;
+  Map<String, dynamic>? _producerData;
   
   // Pour la création/édition d'événements
   final TextEditingController _eventTitleController = TextEditingController();
@@ -51,83 +53,691 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
   }
 
   Future<Map<String, dynamic>> _fetchProducerData(String userId) async {
-    final url = Uri.parse('${getBaseUrl()}/api/producers/$userId');
     try {
-      final response = await http.get(url);
-
-      if (response.statusCode == 200) {
-        Map<String, dynamic> data = json.decode(response.body);
-        
-        // Fetch additional relations data
-        final relationsUrl = Uri.parse('${getBaseUrl()}/api/producers/$userId/relations');
-        try {
-          final relationsResponse = await http.get(relationsUrl);
-          if (relationsResponse.statusCode == 200) {
-            final relationsData = json.decode(relationsResponse.body);
-            data = {...data, ...relationsData};
-          }
-        } catch (e) {
-          print('Error fetching relations: $e');
+      final baseUrl = getBaseUrl();
+      final client = http.Client();
+      final endpoints = [
+        // Try all possible API endpoints to find the producer
+        '/api/producers/$userId',
+        '/api/leisureProducers/$userId',
+        '/api/Loisir_Paris_Producers/$userId',    // Direct collection access
+        '/api/unified/$userId',                   // Unified endpoint if exists
+        '/api/venues/$userId',                    // Alternative naming
+        // Try standard database endpoints that might be used
+        '/api/Loisir&Culture/Loisir_Paris_Producers/$userId'
+      ];
+      
+      print('🔍 Trying to fetch producer data for ID: $userId');
+      Map<String, dynamic>? producerData;
+      
+      // Try each endpoint until we find one that works
+      for (final endpoint in endpoints) {
+        print('🔍 Trying endpoint: $endpoint');
+        Uri url;
+        if (baseUrl.startsWith('http://')) {
+          final domain = baseUrl.replaceFirst('http://', '');
+          url = Uri.http(domain, endpoint);
+        } else {
+          final domain = baseUrl.replaceFirst('https://', '');
+          url = Uri.https(domain, endpoint);
         }
         
-        return data;
+        try {
+          final response = await client.get(url);
+          if (response.statusCode == 200) {
+            producerData = json.decode(response.body);
+            print('✅ Found producer data at endpoint: $endpoint');
+            break;
+          } else {
+            print('❌ Endpoint failed: $endpoint with status: ${response.statusCode}');
+          }
+        } catch (e) {
+          print('❌ Error accessing endpoint $endpoint: $e');
+        }
+      }
+      
+      // If we haven't found producer data, try the unified search endpoint
+      if (producerData == null) {
+        print('🔍 Trying unified search endpoint');
+        final unifiedEndpoint = '/api/search/producers';
+        final queryParams = {'id': userId, 'type': 'leisure'};
+        
+        Uri searchUrl;
+        if (baseUrl.startsWith('http://')) {
+          final domain = baseUrl.replaceFirst('http://', '');
+          searchUrl = Uri.http(domain, unifiedEndpoint, queryParams);
+        } else {
+          final domain = baseUrl.replaceFirst('https://', '');
+          searchUrl = Uri.https(domain, unifiedEndpoint, queryParams);
+        }
+        
+        try {
+          final response = await client.get(searchUrl);
+          if (response.statusCode == 200) {
+            final searchResults = json.decode(response.body);
+            if (searchResults is List && searchResults.isNotEmpty) {
+              producerData = searchResults[0];
+              print('✅ Found producer data via unified search');
+            }
+          }
+        } catch (e) {
+          print('❌ Error accessing unified search endpoint: $e');
+        }
+      }
+      
+      if (producerData != null) {
+        // Successfully found producer data, now try to get relations
+        final relationEndpoints = [
+          '/api/producers/$userId/relations',
+          '/api/leisureProducers/$userId/relations',
+          '/api/venues/$userId/relations',
+          '/api/unified/$userId/relations'
+        ];
+        
+        // Try each relations endpoint
+        for (final endpoint in relationEndpoints) {
+          Uri relationsUrl;
+          if (baseUrl.startsWith('http://')) {
+            final domain = baseUrl.replaceFirst('http://', '');
+            relationsUrl = Uri.http(domain, endpoint);
+          } else {
+            final domain = baseUrl.replaceFirst('https://', '');
+            relationsUrl = Uri.https(domain, endpoint);
+          }
+          
+          try {
+            final relationsResponse = await client.get(relationsUrl);
+            if (relationsResponse.statusCode == 200) {
+              final relationsData = json.decode(relationsResponse.body);
+              producerData.addAll(relationsData);
+              print('✅ Added relations data from: $endpoint');
+              break;
+            }
+          } catch (e) {
+            print('❌ Error fetching relations from $endpoint: $e');
+          }
+        }
+        
+        // Try to fetch additional producer details if needed fields are missing
+        if (!producerData.containsKey('evenements') || 
+            !producerData.containsKey('nombre_evenements')) {
+          print('🔍 Fetching additional events data');
+          final eventsEndpoint = '/api/producers/$userId/events';
+          
+          Uri eventsUrl;
+          if (baseUrl.startsWith('http://')) {
+            final domain = baseUrl.replaceFirst('http://', '');
+            eventsUrl = Uri.http(domain, eventsEndpoint);
+          } else {
+            final domain = baseUrl.replaceFirst('https://', '');
+            eventsUrl = Uri.https(domain, eventsEndpoint);
+          }
+          
+          try {
+            final eventsResponse = await client.get(eventsUrl);
+            if (eventsResponse.statusCode == 200) {
+              final eventsData = json.decode(eventsResponse.body);
+              if (eventsData is List) {
+                producerData['evenements'] = eventsData;
+                producerData['nombre_evenements'] = eventsData.length;
+                print('✅ Added events data to producer');
+              }
+            }
+          } catch (e) {
+            print('❌ Error fetching events: $e');
+          }
+        }
+        
+        // Normalize the data structure to ensure all required fields exist
+        _normalizeProducerData(producerData);
+        
+        // Save producer data for use in events
+        _producerData = producerData;
+        
+        return producerData;
       } else {
-        throw Exception('Erreur lors de la récupération des données : ${response.body}');
+        print('❌ Failed to find producer data for ID: $userId');
+        // Instead of throwing exception, provide default data
+        final defaultData = {
+          'lieu': 'Mon lieu de loisir',
+          'name': 'Mon lieu de loisir',
+          'photo': 'https://via.placeholder.com/400?text=Photo+Indisponible',
+          'description': 'Description temporaire - données du producteur non trouvées',
+          'type': 'Loisir',
+          'adresse': 'Adresse non disponible',
+          'evenements': [],
+          'posts': [],
+          'followers': {'count': 0, 'users': []},
+          'following': {'count': 0, 'users': []},
+          'interestedUsers': {'count': 0, 'users': []},
+          'choiceUsers': {'count': 0, 'users': []},
+          '_id': userId
+        };
+        
+        print('⚠️ Using default data for producer ID: $userId');
+        _producerData = defaultData;
+        return defaultData;
       }
     } catch (e) {
-      throw Exception('Erreur réseau : $e');
+      print('❌ Network error: $e');
+      // Create default data on error
+      final defaultData = {
+        'lieu': 'Mon lieu de loisir',
+        'name': 'Mon lieu de loisir',
+        'photo': 'https://via.placeholder.com/400?text=Erreur+Réseau',
+        'description': 'Erreur réseau: $e',
+        'type': 'Loisir',
+        'adresse': 'Adresse non disponible',
+        'evenements': [],
+        'posts': [],
+        '_id': userId
+      };
+      
+      print('⚠️ Using default data after network error');
+      _producerData = defaultData;
+      return defaultData;
+    }
+  }
+  
+  /// Ensures the producer data has all required fields in standard format
+  void _normalizeProducerData(Map<String, dynamic> data) {
+    // Ensure standard profile fields exist
+    if (!data.containsKey('photo') && data.containsKey('image')) {
+      data['photo'] = data['image'];
+    }
+    
+    if (!data.containsKey('lieu') && data.containsKey('name')) {
+      data['lieu'] = data['name'];
+    }
+    
+    if (!data.containsKey('description') || data['description'] == null) {
+      data['description'] = 'Description non disponible';
+    }
+    
+    if (!data.containsKey('type') && data.containsKey('category')) {
+      final category = data['category'];
+      if (category is List && category.isNotEmpty) {
+        data['type'] = category[0];
+      } else if (category is String) {
+        data['type'] = category;
+      } else {
+        data['type'] = 'Loisir';
+      }
+    }
+    
+    // Make sure venue has a location
+    if (!data.containsKey('location') && data.containsKey('gps_coordinates')) {
+      if (data['gps_coordinates'] is Map) {
+        final coords = data['gps_coordinates'];
+        data['location'] = {
+          'type': 'Point',
+          'coordinates': [
+            coords['lng'] ?? coords['longitude'] ?? 2.3522,
+            coords['lat'] ?? coords['latitude'] ?? 48.8566
+          ]
+        };
+      }
+    }
+    
+    // Make sure evenements is initialized
+    if (!data.containsKey('evenements')) {
+      data['evenements'] = [];
+    }
+    
+    // Make sure posts is initialized
+    if (!data.containsKey('posts')) {
+      data['posts'] = [];
     }
   }
 
   Future<List<dynamic>> _fetchProducerEvents(String userId) async {
-    final url = Uri.parse('${getBaseUrl()}/api/producers/$userId/events');
     try {
-      final response = await http.get(url);
-      if (response.statusCode == 200) {
-        return json.decode(response.body);
-      } else {
-        throw Exception('Erreur lors de la récupération des événements');
+      print('🔍 Fetching events for producer ID: $userId');
+      
+      // Try multiple approaches to get events
+      List<dynamic> allEvents = [];
+      bool anySuccess = false;
+      final baseUrl = getBaseUrl();
+      
+      // Method 1: Try the dedicated producer events endpoint
+      try {
+        Uri url;
+        if (baseUrl.startsWith('http://')) {
+          final domain = baseUrl.replaceFirst('http://', '');
+          url = Uri.http(domain, '/api/producers/$userId/events');
+        } else {
+          final domain = baseUrl.replaceFirst('https://', '');
+          url = Uri.https(domain, '/api/producers/$userId/events');
+        }
+        
+        print('🔍 Trying producer events API: $url');
+        final response = await http.get(url);
+        
+        if (response.statusCode == 200) {
+          final List<dynamic> data = json.decode(response.body);
+          print('✅ Found ${data.length} events via producer events API');
+          allEvents.addAll(data);
+          anySuccess = true;
+        } else {
+          print('❌ Producer events API failed: ${response.statusCode}');
+        }
+      } catch (e) {
+        print('❌ Error with producer events API: $e');
       }
+      
+      // Method 2: Try to get events from the producer object itself
+      try {
+        Uri url;
+        if (baseUrl.startsWith('http://')) {
+          final domain = baseUrl.replaceFirst('http://', '');
+          url = Uri.http(domain, '/api/producers/$userId');
+        } else {
+          final domain = baseUrl.replaceFirst('https://', '');
+          url = Uri.https(domain, '/api/producers/$userId');
+        }
+        
+        print('🔍 Trying producer API for embedded events: $url');
+        final response = await http.get(url);
+        
+        if (response.statusCode == 200) {
+          final producerData = json.decode(response.body);
+          
+          // Check if producer has embedded events
+          if (producerData['evenements'] is List && (producerData['evenements'] as List).isNotEmpty) {
+            final embeddedEvents = producerData['evenements'] as List;
+            print('✅ Found ${embeddedEvents.length} embedded events in producer');
+            
+            final List<dynamic> fullEvents = [];
+            
+            // For each embedded event, check if it has full data or just a reference
+            for (final event in embeddedEvents) {
+              if (event is Map && event.containsKey('_id') && event.containsKey('intitulé')) {
+                // This is likely a full event object, so add it
+                fullEvents.add(event);
+              } else if (event is Map && event.containsKey('lien_evenement')) {
+                // This is a reference, try to fetch the full event
+                final String eventPath = event['lien_evenement'];
+                final String eventId = eventPath.split('/').last;
+                
+                try {
+                  Uri eventUrl;
+                  if (baseUrl.startsWith('http://')) {
+                    final domain = baseUrl.replaceFirst('http://', '');
+                    eventUrl = Uri.http(domain, '/api/events/$eventId');
+                  } else {
+                    final domain = baseUrl.replaceFirst('https://', '');
+                    eventUrl = Uri.https(domain, '/api/events/$eventId');
+                  }
+                  
+                  final eventResponse = await http.get(eventUrl);
+                  if (eventResponse.statusCode == 200) {
+                    final eventData = json.decode(eventResponse.body);
+                    fullEvents.add(eventData);
+                  }
+                } catch (e) {
+                  print('❌ Error fetching referenced event: $e');
+                }
+              }
+            }
+            
+            allEvents.addAll(fullEvents);
+            anySuccess = true;
+          }
+        } else {
+          print('❌ Producer API failed: ${response.statusCode}');
+        }
+      } catch (e) {
+        print('❌ Error with producer API: $e');
+      }
+      
+      // Method 3: Try the general events endpoint with filtering
+      try {
+        final queryParams = {
+          'producerId': userId,
+          'venueId': userId,
+        };
+        
+        Uri url;
+        if (baseUrl.startsWith('http://')) {
+          final domain = baseUrl.replaceFirst('http://', '');
+          url = Uri.http(domain, '/api/events', queryParams);
+        } else {
+          final domain = baseUrl.replaceFirst('https://', '');
+          url = Uri.https(domain, '/api/events', queryParams);
+        }
+        
+        print('🔍 Trying general events API with filtering: $url');
+        final response = await http.get(url);
+        
+        if (response.statusCode == 200) {
+          final List<dynamic> data = json.decode(response.body);
+          print('✅ Found ${data.length} events via general events API');
+          allEvents.addAll(data);
+          anySuccess = true;
+        } else {
+          print('❌ General events API failed: ${response.statusCode}');
+        }
+      } catch (e) {
+        print('❌ Error with general events API: $e');
+      }
+      
+      // Now we have all events, deduplicate them
+      final Map<String, dynamic> uniqueEvents = {};
+      for (final event in allEvents) {
+        final String eventId = event['_id']?.toString() ?? '';
+        if (eventId.isNotEmpty) {
+          uniqueEvents[eventId] = event;
+        }
+      }
+      
+      // Convert to list and enhance with venue information
+      final List<dynamic> finalEvents = uniqueEvents.values.map((event) {
+        // Make sure each event has a reference to its venue
+        if (event['producer_id'] == null && event['venue_id'] == null) {
+          event['producer_id'] = userId;
+        }
+        
+        // Add venue information for better frontend display
+        if (event['producer_photo'] == null && event['venue_photo'] == null && _producerData != null) {
+          event['producer_photo'] = _producerData!['photo'] ?? '';
+        }
+        
+        return event;
+      }).toList();
+      
+      // Sort events by date
+      finalEvents.sort((a, b) {
+        // Define a priority based on event date (upcoming events first)
+        bool aIsPast = isEventPassed(a);
+        bool bIsPast = isEventPassed(b);
+        
+        // First sort by past/upcoming
+        if (aIsPast != bIsPast) {
+          return aIsPast ? 1 : -1;
+        }
+        
+        // Then by date (closest first for upcoming, most recent first for past)
+        final String aDateStr = a['date_debut'] ?? a['prochaines_dates'] ?? '';
+        final String bDateStr = b['date_debut'] ?? b['prochaines_dates'] ?? '';
+        
+        if (aDateStr.isEmpty || bDateStr.isEmpty) {
+          return 0;
+        }
+        
+        try {
+          final DateTime aDate = _parseEventDate(aDateStr);
+          final DateTime bDate = _parseEventDate(bDateStr);
+          
+          if (aIsPast) {
+            // Most recent first for past events
+            return bDate.compareTo(aDate);
+          } else {
+            // Closest first for upcoming events
+            return aDate.compareTo(bDate);
+          }
+        } catch (e) {
+          return 0;
+        }
+      });
+      
+      print('✅ Final event count: ${finalEvents.length}');
+      
+      if (finalEvents.isNotEmpty || anySuccess) {
+        return finalEvents;
+      }
+      
+      // If we get here, no events were found using any method
+      return [];
     } catch (e) {
-      print('Erreur réseau : $e');
+      print('❌ Error in event fetching process: $e');
       return [];
     }
   }
 
   Future<List<dynamic>> _fetchProducerPosts(String userId) async {
-    final url = Uri.parse('${getBaseUrl()}/api/producers/$userId');
+    final baseUrl = getBaseUrl();
+    final List<dynamic> allPosts = [];
+    bool anySuccess = false;
+    
     try {
-      final response = await http.get(url);
-      if (response.statusCode == 200) {
-        final producerData = json.decode(response.body);
-        final postIds = producerData['posts'] as List<dynamic>? ?? [];
-
-        if (postIds.isEmpty) {
-          return [];
+      print('🔍 Fetching posts for producer ID: $userId');
+      
+      // Method 1: Try direct query with parameters - most modern API approach
+      try {
+        final queryParams = {
+          'limit': '50',
+          'producerId': userId,
+          'venueOnly': 'true',
+          'venue_id': userId,  // Additional parameter to ensure venue filtering
+        };
+        
+        Uri url;
+        if (baseUrl.startsWith('http://')) {
+          final domain = baseUrl.replaceFirst('http://', '');
+          url = Uri.http(domain, '/api/posts', queryParams);
+        } else {
+          final domain = baseUrl.replaceFirst('https://', '');
+          url = Uri.https(domain, '/api/posts', queryParams);
         }
-
-        // Récupérer les détails de chaque post à partir des IDs
-        final List<dynamic> posts = [];
-        for (final postId in postIds) {
-          final postUrl = Uri.parse('${getBaseUrl()}/api/posts/$postId');
-          try {
-            final postResponse = await http.get(postUrl);
-            if (postResponse.statusCode == 200) {
-              posts.add(json.decode(postResponse.body));
+        
+        print('🔍 Trying direct posts API: $url');
+        final response = await http.get(url);
+        
+        if (response.statusCode == 200) {
+          final List<dynamic> data = json.decode(response.body);
+          print('✅ Found ${data.length} posts via direct API');
+          
+          // Add these posts to our collection
+          allPosts.addAll(data);
+          anySuccess = true;
+        } else {
+          print('❌ Direct API failed: ${response.statusCode}');
+        }
+      } catch (e) {
+        print('❌ Error with direct posts API: $e');
+      }
+      
+      // Method 2: Try to fetch from choice_app.Posts collection
+      try {
+        final queryParams = {
+          'producer_id': userId,
+          'collection': 'Posts',
+          'venue_id': userId,  // Additional parameter
+        };
+        
+        Uri url;
+        if (baseUrl.startsWith('http://')) {
+          final domain = baseUrl.replaceFirst('http://', '');
+          url = Uri.http(domain, '/api/db/query', queryParams);
+        } else {
+          final domain = baseUrl.replaceFirst('https://', '');
+          url = Uri.https(domain, '/api/db/query', queryParams);
+        }
+        
+        print('🔍 Trying DB query API: $url');
+        final response = await http.get(url);
+        
+        if (response.statusCode == 200) {
+          final List<dynamic> data = json.decode(response.body);
+          print('✅ Found ${data.length} posts via DB query');
+          
+          // Add these posts to our collection
+          allPosts.addAll(data);
+          anySuccess = true;
+        } else {
+          print('❌ DB query failed: ${response.statusCode}');
+        }
+      } catch (e) {
+        print('❌ Error with DB query: $e');
+      }
+      
+      // Method 3: Classic method - check if the producer has post IDs and fetch them
+      try {
+        Uri url;
+        if (baseUrl.startsWith('http://')) {
+          final domain = baseUrl.replaceFirst('http://', '');
+          url = Uri.http(domain, '/api/producers/$userId');
+        } else {
+          final domain = baseUrl.replaceFirst('https://', '');
+          url = Uri.https(domain, '/api/producers/$userId');
+        }
+        
+        print('🔍 Trying producer API for post IDs: $url');
+        final response = await http.get(url);
+        
+        if (response.statusCode == 200) {
+          final producerData = json.decode(response.body);
+          final postIds = producerData['posts'] as List<dynamic>? ?? [];
+          
+          print('✅ Found ${postIds.length} post IDs in producer');
+          
+          // Fetch each post by ID
+          for (final postId in postIds) {
+            final String postIdStr = postId.toString();
+            Uri postUrl;
+            if (baseUrl.startsWith('http://')) {
+              final domain = baseUrl.replaceFirst('http://', '');
+              postUrl = Uri.http(domain, '/api/posts/$postIdStr');
             } else {
-              print('❌ Erreur HTTP pour le post $postId : ${postResponse.statusCode}');
+              final domain = baseUrl.replaceFirst('https://', '');
+              postUrl = Uri.https(domain, '/api/posts/$postIdStr');
             }
-          } catch (e) {
-            print('❌ Erreur réseau pour le post $postId : $e');
+            
+            try {
+              final postResponse = await http.get(postUrl);
+              if (postResponse.statusCode == 200) {
+                final postData = json.decode(postResponse.body);
+                allPosts.add(postData);
+                anySuccess = true;
+              }
+            } catch (e) {
+              print('❌ Error fetching post $postIdStr: $e');
+            }
           }
+        } else {
+          print('❌ Producer API failed: ${response.statusCode}');
         }
-        return posts;
-      } else {
-        throw Exception('Erreur lors de la récupération des données du producteur.');
+      } catch (e) {
+        print('❌ Error with producer API: $e');
+      }
+      
+      // Now we have all posts, remove duplicates (if any)
+      final Map<String, dynamic> uniquePosts = {};
+      for (final post in allPosts) {
+        final String postId = post['_id']?.toString() ?? '';
+        if (postId.isNotEmpty) {
+          uniquePosts[postId] = post;
+        }
+      }
+      
+      // Final filtering to ensure we only have posts for this producer
+      final List<dynamic> filteredPosts = uniquePosts.values.where((post) {
+        final String producerId = post['producer_id']?.toString() ?? '';
+        final String venueId = post['venue_id']?.toString() ?? '';
+        final bool isForThisProducer = producerId == userId || venueId == userId;
+        final bool isReferencedByThisProducer = 
+          post['isProducerPost'] == true && 
+          (post['referenced_producer_id']?.toString() == userId || 
+           post['referenced_venue_id']?.toString() == userId);
+        
+        return isForThisProducer || isReferencedByThisProducer;
+      }).toList();
+      
+      // Sort posts by timestamp (newest first)
+      filteredPosts.sort((a, b) {
+        final DateTime aTime = _parsePostTimestamp(a['time_posted'] ?? a['posted_at'] ?? a['created_at'] ?? '');
+        final DateTime bTime = _parsePostTimestamp(b['time_posted'] ?? b['posted_at'] ?? b['created_at'] ?? '');
+        return bTime.compareTo(aTime);
+      });
+      
+      print('✅ Final filtered posts count: ${filteredPosts.length}');
+      
+      if (filteredPosts.isNotEmpty || anySuccess) {
+        return filteredPosts;
+      }
+      
+      // As a last resort, try a more general approach
+      return await _fetchGeneralPosts(userId);
+    } catch (e) {
+      print('❌ Error in post fetching process: $e');
+      
+      // Try the general approach as a last resort
+      return await _fetchGeneralPosts(userId);
+    }
+  }
+  
+  DateTime _parsePostTimestamp(dynamic timestamp) {
+    if (timestamp == null) return DateTime(2000);
+    
+    try {
+      if (timestamp is String) {
+        return DateTime.parse(timestamp);
       }
     } catch (e) {
-      print('Erreur réseau : $e');
-      return [];
+      print('❌ Error parsing timestamp: $e');
+    }
+    
+    return DateTime(2000);
+  }
+  
+  Future<List<dynamic>> _fetchGeneralPosts(String userId) async {
+    print('🔍 Trying general post fetch as fallback');
+    try {
+      final baseUrl = getBaseUrl();
+      Uri url;
+      
+      if (baseUrl.startsWith('http://')) {
+        final domain = baseUrl.replaceFirst('http://', '');
+        url = Uri.http(domain, '/api/posts');
+      } else {
+        final domain = baseUrl.replaceFirst('https://', '');
+        url = Uri.https(domain, '/api/posts');
+      }
+      
+      final response = await http.get(url);
+      
+      if (response.statusCode == 200) {
+        final List<dynamic> allPosts = json.decode(response.body);
+        
+        // Filter to only include posts related to this producer
+        final filteredPosts = allPosts.where((post) {
+          final String producerId = post['producer_id']?.toString() ?? '';
+          final String venueId = post['venue_id']?.toString() ?? '';
+          return producerId == userId || venueId == userId;
+        }).toList();
+        
+        print('✅ Found ${filteredPosts.length} posts via general API');
+        return filteredPosts;
+      }
+    } catch (e) {
+      print('❌ Error in general post fetch: $e');
+    }
+    
+    return [];
+  }
+
+  DateTime _parseEventDate(String dateStr) {
+    try {
+      // Try common date formats
+      if (dateStr.contains('/')) {
+        // DD/MM/YYYY format
+        final parts = dateStr.split('/');
+        if (parts.length == 3) {
+          final day = int.parse(parts[0]);
+          final month = int.parse(parts[1]);
+          final year = int.parse(parts[2]);
+          return DateTime(year, month, day);
+        }
+      } else if (dateStr.contains('-')) {
+        // YYYY-MM-DD format
+        return DateTime.parse(dateStr);
+      }
+      
+      // If we can't parse, return a far future date
+      return DateTime(2099);
+    } catch (e) {
+      // If there's an error, return a far future date
+      return DateTime(2099);
     }
   }
 
@@ -139,6 +749,7 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
     try {
       final postData = {
         'producer_id': widget.userId,
+        'venue_id': widget.userId,  // Add venue_id for proper filtering
         'content': content,
         'target_id': eventId,
         'target_type': 'event',
@@ -1056,13 +1667,31 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
   }
 
   Widget _buildEventCard(Map<String, dynamic> event) {
-    final String? imageUrl = event['image'];
-    final String title = event['intitulé'] ?? 'Sans titre';
-    final String date = event['prochaines_dates'] ?? 'Date non spécifiée';
-    final String category = event['catégorie'] != null 
-        ? event['catégorie'].toString().split('»').last.trim() 
-        : 'Catégorie non spécifiée';
+    // Extract all possible event fields from different DB structures
+    final String title = event['intitulé'] ?? event['titre'] ?? event['name'] ?? event['nom'] ?? 'Sans titre';
     
+    // Get proper date information
+    final String dateStr = event['prochaines_dates'] ?? event['date_debut'] ?? event['date_fin'] ?? '';
+    final String formattedDate = formatEventDate(dateStr);
+    final bool isPastEvent = isEventPassed(event);
+    
+    // Get a proper category
+    String category = 'Catégorie non spécifiée';
+    if (event['catégorie'] != null) {
+      category = event['catégorie'].toString();
+      // Handle complex category formats (e.g. "Parent » Child")
+      if (category.contains('»')) {
+        category = category.split('»').last.trim();
+      }
+    } else if (event['category'] != null) {
+      category = event['category'].toString();
+    }
+    
+    // Get the venue logo/avatar and event image with fallbacks
+    final String eventImageUrl = _getEventImage(event);
+    final String venuePhotoUrl = _getVenuePhoto(event);
+    
+    // Build the event card UI
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
       elevation: 3,
@@ -1089,9 +1718,9 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
               child: Stack(
                 children: [
                   // Event image
-                  imageUrl != null && imageUrl.isNotEmpty
+                  eventImageUrl.isNotEmpty
                       ? Image.network(
-                          imageUrl,
+                          eventImageUrl,
                           height: 160,
                           width: double.infinity,
                           fit: BoxFit.cover,
@@ -1127,6 +1756,38 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
                     ),
                   ),
                   
+                  // Status badge (past or upcoming)
+                  Positioned(
+                    top: 12,
+                    right: 12,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: isPastEvent ? Colors.grey : Colors.green,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            isPastEvent ? Icons.history : Icons.event_available,
+                            color: Colors.white,
+                            size: 14,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            isPastEvent ? 'Passé' : 'À venir',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  
                   // Category badge
                   Positioned(
                     top: 12,
@@ -1148,11 +1809,42 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
                     ),
                   ),
                   
+                  // Venue profile photo
+                  Positioned(
+                    bottom: 12,
+                    right: 12,
+                    child: Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 2),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.3),
+                            blurRadius: 4,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: ClipOval(
+                        child: Image.network(
+                          venuePhotoUrl,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) => Container(
+                            color: Colors.grey[300],
+                            child: const Icon(Icons.place, color: Colors.grey),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  
                   // Event title at bottom
                   Positioned(
                     bottom: 12,
                     left: 12,
-                    right: 12,
+                    right: 60, // Space for venue photo
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -1176,17 +1868,22 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
                         const SizedBox(height: 4),
                         Row(
                           children: [
-                            const Icon(
-                              Icons.calendar_today,
+                            Icon(
+                              isPastEvent ? Icons.history : Icons.calendar_today,
                               color: Colors.white70,
                               size: 14,
                             ),
                             const SizedBox(width: 4),
-                            Text(
-                              date,
-                              style: const TextStyle(
-                                color: Colors.white70,
-                                fontSize: 14,
+                            Expanded(
+                              child: Text(
+                                formattedDate,
+                                style: TextStyle(
+                                  color: isPastEvent ? Colors.white60 : Colors.white,
+                                  fontSize: 14,
+                                  fontWeight: isPastEvent ? FontWeight.normal : FontWeight.bold,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
                           ],
@@ -1237,6 +1934,99 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
         ),
       ),
     );
+  }
+  
+  /// Get the best available image for an event across different DB structures
+  String _getEventImage(Map<String, dynamic> event) {
+    // Try using our helper function from leisureHelpers.dart first
+    try {
+      final imageUrl = getEventImageUrl(event);
+      if (imageUrl.isNotEmpty && !imageUrl.contains('placeholder')) {
+        return imageUrl;
+      }
+    } catch (e) {
+      print('❌ Error using getEventImageUrl: $e');
+    }
+    
+    // Fallback to direct field access with different possible field names
+    final imageFields = [
+      'image', 'image_url', 'photo', 'thumbnail', 'cover', 'cover_image', 
+      'banner', 'main_image', 'featured_image'
+    ];
+    
+    for (final field in imageFields) {
+      if (event[field] != null && 
+          event[field].toString().isNotEmpty && 
+          !event[field].toString().contains('placeholder')) {
+        return event[field].toString();
+      }
+    }
+    
+    // Try to extract from images array if it exists
+    if (event['images'] is List && (event['images'] as List).isNotEmpty) {
+      final firstImage = event['images'][0];
+      if (firstImage is String && firstImage.isNotEmpty) {
+        return firstImage;
+      } else if (firstImage is Map && firstImage['url'] != null) {
+        return firstImage['url'].toString();
+      }
+    }
+    
+    // Last resort: check for any URL in any field that looks like an image
+    for (final key in event.keys) {
+      final value = event[key];
+      if (value is String && 
+          value.isNotEmpty && 
+          (value.startsWith('http') || value.startsWith('https')) &&
+          (value.endsWith('.jpg') || value.endsWith('.jpeg') || 
+           value.endsWith('.png') || value.endsWith('.webp'))) {
+        return value;
+      }
+    }
+    
+    // No image found, return placeholder
+    return 'https://via.placeholder.com/400x200?text=Événement';
+  }
+  
+  /// Get the venue photo for an event, with multiple fallbacks
+  String _getVenuePhoto(Map<String, dynamic> event) {
+    // First try direct venue photo fields
+    final photoFields = [
+      'producer_photo', 'venue_photo', 'venue_image', 'location_photo', 
+      'place_photo', 'organizer_photo'
+    ];
+    
+    for (final field in photoFields) {
+      if (event[field] != null && 
+          event[field].toString().isNotEmpty && 
+          !event[field].toString().contains('placeholder')) {
+        return event[field].toString();
+      }
+    }
+    
+    // Try to get venue information if available
+    final String? venueId = event['producer_id'] ?? event['venue_id'] ?? event['location_id'];
+    
+    // If venue nested object exists, check for photo
+    if (event['venue'] is Map || event['producer'] is Map || event['location'] is Map) {
+      final venueObj = event['venue'] ?? event['producer'] ?? event['location'];
+      if (venueObj['photo'] != null && venueObj['photo'].toString().isNotEmpty) {
+        return venueObj['photo'].toString();
+      }
+      if (venueObj['image'] != null && venueObj['image'].toString().isNotEmpty) {
+        return venueObj['image'].toString();
+      }
+    }
+    
+    // If we have producer data available, use it
+    if (_producerData != null && _producerData!['photo'] != null) {
+      return _producerData!['photo'].toString();
+    }
+    
+    // If no photo is found but we have a venue name, generate an avatar
+    final venueName = event['lieu'] ?? event['venue_name'] ?? 
+                       event['producer_name'] ?? _producerData?['name'] ?? 'Lieu';
+    return 'https://ui-avatars.com/api/?name=${Uri.encodeComponent(venueName)}&background=random&size=200';
   }
 
   Widget _buildActionButton({
@@ -2781,6 +3571,156 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
       setState(() {
         _isLoading = false;
       });
+    }
+  }
+  
+  // Enhanced date formatting functions
+  
+  String formatEventDate(String dateStr) {
+    if (dateStr.isEmpty) return 'Date non spécifiée';
+    
+    try {
+      DateTime date;
+      
+      // Handle different date formats
+      if (dateStr.contains('/')) {
+        // French format DD/MM/YYYY
+        final parts = dateStr.split('/');
+        if (parts.length >= 3) {
+          final day = int.parse(parts[0]);
+          final month = int.parse(parts[1]);
+          final year = int.parse(parts[2].split(' ')[0]); // Handle potential time
+          date = DateTime(year, month, day);
+        } else {
+          return dateStr; // Return as is if format is unexpected
+        }
+      } else if (dateStr.contains('-')) {
+        // ISO format YYYY-MM-DD
+        date = DateTime.parse(dateStr);
+      } else {
+        return dateStr; // Unknown format
+      }
+      
+      // Check if date is in the past
+      final now = DateTime.now();
+      final isPast = date.isBefore(now);
+      
+      // Format based on how far in the future/past
+      final difference = date.difference(now).inDays;
+      
+      if (isPast) {
+        // Past event
+        if (difference >= -7) {
+          // Within last week
+          return '${DateFormat('EEEE dd/MM').format(date)} (passé)';
+        } else {
+          // Older
+          return 'Le ${DateFormat('dd/MM/yyyy').format(date)} (passé)';
+        }
+      } else {
+        // Future event
+        if (difference == 0) {
+          // Today
+          return 'Aujourd\'hui';
+        } else if (difference < 7) {
+          // Within next week
+          return DateFormat('EEEE dd/MM').format(date);
+        } else {
+          // Further in future
+          return 'Le ${DateFormat('dd/MM/yyyy').format(date)}';
+        }
+      }
+    } catch (e) {
+      print('❌ Error formatting date $dateStr: $e');
+      return dateStr; // Return as is if all parsing attempts fail
+    }
+  }
+  
+  bool isEventPassed(Map<String, dynamic> event) {
+    // Try to determine if the event is in the past with improved logic
+    try {
+      String? dateStr;
+      
+      // Check more date fields in priority order
+      final dateFields = [
+        'date_debut', 'date_fin', 'prochaines_dates', 'start_date', 'end_date', 
+        'date', 'event_date', 'date_evenement'
+      ];
+      
+      for (final field in dateFields) {
+        if (event.containsKey(field) && 
+            event[field] != null && 
+            event[field].toString().isNotEmpty) {
+          dateStr = event[field].toString();
+          break;
+        }
+      }
+      
+      // If still no date found and there's a status field, use that
+      if (dateStr == null && event['status'] != null) {
+        final status = event['status'].toString().toLowerCase();
+        return status == 'past' || status == 'ended' || status == 'finished' || 
+               status == 'terminé' || status == 'passé';
+      }
+      
+      if (dateStr == null || dateStr.isEmpty) {
+        return false; // Default to upcoming if no date found
+      }
+      
+      DateTime eventDate;
+      
+      // Parse date based on format with improved handling
+      if (dateStr.contains('/')) {
+        // DD/MM/YYYY format
+        final parts = dateStr.split('/');
+        if (parts.length >= 3) {
+          final day = int.parse(parts[0]);
+          final month = int.parse(parts[1]);
+          final yearPart = parts[2].split(' ')[0]; // Remove time if present
+          final year = int.parse(yearPart);
+          eventDate = DateTime(year, month, day);
+        } else {
+          return false; // Invalid format, default to upcoming
+        }
+      } else if (dateStr.contains('-')) {
+        // YYYY-MM-DD or DD-MM-YYYY format
+        final parts = dateStr.split('-');
+        if (parts.length >= 3) {
+          // Determine format by checking if first part is a 4-digit year
+          if (parts[0].length == 4) {
+            // YYYY-MM-DD
+            eventDate = DateTime.parse(dateStr);
+          } else {
+            // DD-MM-YYYY
+            final day = int.parse(parts[0]);
+            final month = int.parse(parts[1]);
+            final yearPart = parts[2].split(' ')[0]; // Remove time if present
+            final year = int.parse(yearPart);
+            eventDate = DateTime(year, month, day);
+          }
+        } else {
+          return false; // Invalid format, default to upcoming
+        }
+      } else {
+        // Try standard ISO parse
+        try {
+          eventDate = DateTime.parse(dateStr);
+        } catch (e) {
+          print('❌ Could not parse date: $dateStr');
+          return false; // Default to upcoming if parsing fails
+        }
+      }
+      
+      final now = DateTime.now();
+      
+      // Include events happening today as "upcoming"
+      final today = DateTime(now.year, now.month, now.day);
+      final eventDay = DateTime(eventDate.year, eventDate.month, eventDate.day);
+      
+      return eventDay.isBefore(today);
+    } catch (e) {
+      print('❌ Error checking if event is passed: $e');
+      return false; // Default to upcoming if there's an error
     }
   }
 }

@@ -49,6 +49,12 @@ class AuthService extends ChangeNotifier {
   // Login
   Future<bool> login(String email, String password) async {
     try {
+      // Clear any existing guest session first
+      final wasGuest = _accountType == 'guest';
+      if (wasGuest) {
+        await _clearSession();
+      }
+      
       // Utiliser la même route que pour l'enregistrement mais avec login endpoint
       final response = await http.post(
         Uri.parse('${getBaseUrl()}/api/newuser/login'),
@@ -61,16 +67,59 @@ class AuthService extends ChangeNotifier {
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        _userId = data['userId'] ?? data['user']?['_id'];
+        
+        // Debug the response structure
+        print('📦 Login response: ${response.body}');
+        
+        // Properly extract user ID from the response
+        String? newUserId;
+        if (data['user'] != null && data['user']['_id'] != null) {
+          newUserId = data['user']['_id'].toString();
+        } else if (data['userId'] != null) {
+          newUserId = data['userId'].toString();
+        }
+        
+        if (newUserId == null || newUserId.isEmpty) {
+          print('❌ Login response missing user ID');
+          return false;
+        }
+        
+        // Extract token
+        final String? token = data['token'];
+        if (token == null || token.isEmpty) {
+          print('⚠️ Login response missing token');
+          // Continue anyway as user ID was found
+        } else {
+          print('🔑 Token received: $token');
+        }
+        
+        // Store the user data
+        _userId = newUserId;
         _accountType = data['accountType'] ?? 'user'; // Par défaut utilisateur si non spécifié
         _isAuthenticated = true;
+
+        print('🔐 Login successful - User ID: $_userId, Account type: $_accountType');
 
         // Save to persistent storage
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('userId', _userId!);
         await prefs.setString('accountType', _accountType!);
+        
+        // Save token if available
+        if (token != null && token.isNotEmpty) {
+          await prefs.setString('token', token);
+        }
 
+        // Add detailed login debug information
+        print('✅ Authentication summary:');
+        print('- User ID: $_userId');
+        print('- Account type: $_accountType');
+        print('- Token stored: ${token != null}');
+        print('- Authentication state: $_isAuthenticated');
+        
+        // Ensure UI gets updated with correct user state
         notifyListeners();
+        print('✅ notifyListeners() called - UI should update now');
         return true;
       }
       print('Login failed with status: ${response.statusCode}, body: ${response.body}');
@@ -103,8 +152,8 @@ class AuthService extends ChangeNotifier {
     }
   }
 
-  // Logout
-  Future<void> logout() async {
+  // Helper method to clear the current session
+  Future<void> _clearSession() async {
     _userId = null;
     _accountType = null;
     _isAuthenticated = false;
@@ -112,7 +161,17 @@ class AuthService extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('userId');
     await prefs.remove('accountType');
+    await prefs.remove('token'); // Also clear the token
+    
+    print('🧹 Session cleared: userId, accountType, and token removed from storage');
+    // We don't notify listeners here as the login method will do that
+  }
 
+  // Logout
+  Future<void> logout() async {
+    // Use the same session clearing logic
+    await _clearSession();
+    // Notify listeners for UI update
     notifyListeners();
   }
 
@@ -129,19 +188,30 @@ class AuthService extends ChangeNotifier {
       
       if (baseUrl.startsWith('http://')) {
         final domain = baseUrl.replaceFirst('http://', '');
-        url = Uri.http(domain, '/api/newuser/validate');
+        url = Uri.http(domain, '/api/newuser/auth/check');
       } else if (baseUrl.startsWith('https://')) {
         final domain = baseUrl.replaceFirst('https://', '');
-        url = Uri.https(domain, '/api/newuser/validate');
+        url = Uri.https(domain, '/api/newuser/auth/check');
       } else {
-        url = Uri.parse('$baseUrl/api/newuser/validate');
+        url = Uri.parse('$baseUrl/api/newuser/auth/check');
       }
+      
+      // Extract token from SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('token');
+      
+      if (token == null) {
+        print('❌ No token found in storage for validation');
+        return false;
+      }
+      
+      print('🔑 Validating session with token: $token');
       
       final response = await http.get(
         url,
         headers: {
           'Content-Type': 'application/json',
-          'userId': _userId!
+          'Authorization': token
         },
       ).timeout(
         const Duration(seconds: 10),

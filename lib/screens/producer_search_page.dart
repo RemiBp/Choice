@@ -19,13 +19,14 @@ class ProducerSearchPage extends StatefulWidget {
   _ProducerSearchPageState createState() => _ProducerSearchPageState();
 }
 
-class _ProducerSearchPageState extends State<ProducerSearchPage> {
+class _ProducerSearchPageState extends State<ProducerSearchPage> with SingleTickerProviderStateMixin {
   // Résultats de recherche et états de chargement
   List<dynamic> _searchResults = [];
   String _query = "";
   bool _isLoading = false;
   String _errorMessage = "";
   final TextEditingController _searchController = TextEditingController();
+  late AnimationController _searchAnimationController;
 
   // États de chargement pour chaque section
   bool _isLoadingTrending = true;
@@ -51,6 +52,10 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> {
   @override
   void initState() {
     super.initState();
+    _searchAnimationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+    );
     // Charger les données de toutes les sections
     _fetchTrendingItems();
     _fetchNearbyItems();
@@ -423,7 +428,12 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> {
       };
     }).toList();
   }
-
+  @override
+  void dispose() {
+    _searchAnimationController.dispose();
+    _searchController.dispose();
+    super.dispose();
+  }
   /// Rafraîchit toutes les sections
   Future<void> _refreshAllSections() async {
     List<Future<void>> futures = [
@@ -449,6 +459,10 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> {
 
   /// Recherche des producteurs, événements et utilisateurs via l'API
   Future<void> _searchItems() async {
+    // Animer le bouton de recherche
+    _searchAnimationController.forward().then((_) {
+      _searchAnimationController.reverse();
+    });
     if (_query.isEmpty) {
       setState(() {
         _searchResults = [];
@@ -725,12 +739,13 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> {
   Widget build(BuildContext context) {
     // Pull to refresh
     return Scaffold(
+      backgroundColor: Colors.grey[50],
       body: SafeArea(
         child: Column(
           children: [
             // Barre de recherche stylisée
             Padding(
-              padding: const EdgeInsets.all(16.0),
+              padding: const EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 8.0),
               child: Container(
                 decoration: BoxDecoration(
                   color: Colors.white,
@@ -744,31 +759,60 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> {
                     ),
                   ],
                 ),
-                child: TextField(
-                  controller: _searchController,
-                  decoration: InputDecoration(
-                    hintText: 'Rechercher restaurants, activités...',
-                    prefixIcon: const Icon(Icons.search, color: Colors.grey),
-                    suffixIcon: IconButton(
-                      icon: const Icon(Icons.clear, color: Colors.grey),
-                      onPressed: () {
-                        _searchController.clear();
-                        setState(() {
-                          _query = "";
-                          _searchResults = [];
-                          _errorMessage = "";
-                        });
-                      },
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _searchController,
+                        decoration: InputDecoration(
+                          hintText: 'Rechercher restaurants, activités...',
+                          prefixIcon: const Icon(Icons.search, color: Colors.grey),
+                          border: InputBorder.none,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                        ),
+                        onChanged: (value) {
+                          setState(() {
+                            _query = value.trim();
+                          });
+                        },
+                        onSubmitted: (_) => _searchItems(),
+                      ),
                     ),
-                    border: InputBorder.none,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-                  ),
-                  onChanged: (value) {
-                    setState(() {
-                      _query = value.trim();
-                    });
-                  },
-                  onSubmitted: (_) => _searchItems(),
+                    AnimatedBuilder(
+                      animation: _searchAnimationController,
+                      builder: (context, child) {
+                        return Transform.scale(
+                          scale: 1.0 + (_searchAnimationController.value * 0.1),
+                          child: IconButton(
+                            icon: const Icon(Icons.clear, color: Colors.grey),
+                            onPressed: () {
+                              _searchController.clear();
+                              setState(() {
+                                _query = "";
+                                _searchResults = [];
+                                _errorMessage = "";
+                              });
+                            },
+                          ),
+                        );
+                      }
+                    ),
+                    Container(
+                      margin: const EdgeInsets.only(right: 8),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [Colors.deepPurple, Colors.purple.shade700],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: IconButton(
+                        icon: const Icon(Icons.search, color: Colors.white),
+                        onPressed: _searchItems,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),

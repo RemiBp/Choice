@@ -29,6 +29,156 @@ class _EventLeisureScreenState extends State<EventLeisureScreen> {
   bool _isLoading = true;
   String? _error;
   late String _eventId;
+  
+  // Mappings détaillés pour l'analyse AI par catégorie
+  final Map<String, Map<String, dynamic>> CATEGORY_MAPPINGS_DETAILED = {
+    "Théâtre": {
+      "aspects": ["mise en scène", "jeu des acteurs", "texte", "scénographie"],
+      "emotions": ["intense", "émouvant", "captivant", "enrichissant", "profond"]
+    },
+    "Théâtre contemporain": {
+      "aspects": ["mise en scène", "jeu des acteurs", "texte", "originalité", "message"],
+      "emotions": ["provocant", "dérangeant", "stimulant", "actuel", "profond"]
+    },
+    "Comédie": {
+      "aspects": ["humour", "jeu des acteurs", "rythme", "dialogue"],
+      "emotions": ["drôle", "amusant", "divertissant", "léger", "enjoué"]
+    },
+    "Spectacle musical": {
+      "aspects": ["performance musicale", "mise en scène", "chant", "chorégraphie"],
+      "emotions": ["entraînant", "mélodieux", "festif", "rythmé", "touchant"]
+    },
+    "One-man-show": {
+      "aspects": ["humour", "présence scénique", "texte", "interaction"],
+      "emotions": ["drôle", "mordant", "spontané", "énergique", "incisif"]
+    },
+    "Concert": {
+      "aspects": ["performance", "répertoire", "son", "ambiance"],
+      "emotions": ["électrisant", "envoûtant", "festif", "énergique", "intense"]
+    },
+    "Musique électronique": {
+      "aspects": ["dj", "ambiance", "son", "rythme"],
+      "emotions": ["festif", "énergique", "immersif", "exaltant", "hypnotique"]
+    },
+    "Danse": {
+      "aspects": ["chorégraphie", "technique", "expressivité", "musique"],
+      "emotions": ["gracieux", "puissant", "fluide", "émouvant", "esthétique"]
+    },
+    "Cirque": {
+      "aspects": ["performance", "mise en scène", "acrobaties", "créativité"],
+      "emotions": ["impressionnant", "magique", "époustouflant", "spectaculaire", "poétique"]
+    },
+    "Default": {  // Catégorie par défaut si non reconnue
+      "aspects": ["qualité générale", "intérêt", "originalité"],
+      "emotions": ["agréable", "intéressant", "divertissant", "satisfaisant"]
+    }
+  };
+  
+  // Cartographie standardisée des catégories
+  final Map<String, String> CATEGORY_MAPPING = {
+    "default": "Autre",
+    "deep": "Musique » Électronique",
+    "techno": "Musique » Électronique",
+    "house": "Musique » Électronique",
+    "hip hop": "Musique » Hip-Hop",
+    "rap": "Musique » Hip-Hop",
+    "rock": "Musique » Rock",
+    "indie": "Musique » Indie",
+    "pop": "Musique » Pop",
+    "jazz": "Musique » Jazz",
+    "soul": "Musique » Soul",
+    "funk": "Musique » Funk",
+    "dj set": "Musique » DJ Set",
+    "club": "Musique » Club",
+    "festival": "Festival",
+    "concert": "Concert",
+    "live": "Concert",
+    "comédie": "Théâtre » Comédie",
+    "spectacle": "Spectacles",
+    "danse": "Spectacles » Danse",
+    "exposition": "Exposition",
+    "conférence": "Conférence",
+    "stand-up": "Spectacles » One-man-show",
+    "one-man-show": "Spectacles » One-man-show",
+    "théâtre": "Théâtre",
+    "cinéma": "Cinéma",
+    "projection": "Cinéma",
+  };
+  
+  // Helper method to standardize a category
+  String _getStandardCategory(String rawCategory) {
+    if (rawCategory.isEmpty) return CATEGORY_MAPPING["default"]!;
+    
+    // Convertir en minuscules pour une correspondance insensible à la casse
+    String lowerCategory = rawCategory.toLowerCase();
+    
+    // Vérifier dans le mapping
+    for (var entry in CATEGORY_MAPPING.entries) {
+      if (lowerCategory.contains(entry.key)) {
+        return entry.value;
+      }
+    }
+    
+    // Si aucune correspondance, renvoyer la catégorie par défaut
+    return CATEGORY_MAPPING["default"]!;
+  }
+  
+  // Helper method to get category details
+  Map<String, dynamic> _getCategoryDetails(String category) {
+    if (category.isEmpty) return CATEGORY_MAPPINGS_DETAILED["Default"]!;
+    
+    // Extraire la catégorie principale (avant le »)
+    final mainCategory = category.split('»')[0].trim();
+    
+    // Chercher les détails de la catégorie
+    if (CATEGORY_MAPPINGS_DETAILED.containsKey(mainCategory)) {
+      return CATEGORY_MAPPINGS_DETAILED[mainCategory]!;
+    } else if (CATEGORY_MAPPINGS_DETAILED.containsKey(category)) {
+      return CATEGORY_MAPPINGS_DETAILED[category]!;
+    }
+    
+    // Si aucune correspondance exacte, chercher une correspondance partielle
+    for (final entry in CATEGORY_MAPPINGS_DETAILED.entries) {
+      if (mainCategory.contains(entry.key) || entry.key.contains(mainCategory)) {
+        return entry.value;
+      }
+    }
+    
+    return CATEGORY_MAPPINGS_DETAILED["Default"]!;
+  }
+  
+  // Helper method to get emoji for emotion
+  String _getEmojiForEmotion(String emotion) {
+    emotion = emotion.toLowerCase();
+    if (emotion.contains('drôle') || emotion.contains('amusant')) return '😂';
+    if (emotion.contains('émouvant') || emotion.contains('touchant')) return '😢';
+    if (emotion.contains('intense')) return '😲';
+    if (emotion.contains('captivant')) return '👀';
+    if (emotion.contains('profond')) return '🤔';
+    if (emotion.contains('provocant') || emotion.contains('dérangeant')) return '😳';
+    if (emotion.contains('stimulant')) return '💡';
+    if (emotion.contains('festif') || emotion.contains('enjoué')) return '🎉';
+    if (emotion.contains('léger')) return '✨';
+    if (emotion.contains('entraînant') || emotion.contains('rythmé')) return '🎵';
+    if (emotion.contains('mélodieux')) return '🎼';
+    if (emotion.contains('gracieux')) return '💃';
+    if (emotion.contains('puissant')) return '💪';
+    if (emotion.contains('fluide')) return '🌊';
+    if (emotion.contains('esthétique')) return '🎨';
+    if (emotion.contains('impressionnant') || emotion.contains('époustouflant')) return '😮';
+    if (emotion.contains('magique') || emotion.contains('spectaculaire')) return '✨';
+    if (emotion.contains('poétique')) return '📝';
+    if (emotion.contains('hypnotique') || emotion.contains('immersif')) return '🌀';
+    if (emotion.contains('électrisant') || emotion.contains('énergique')) return '⚡';
+    if (emotion.contains('envoûtant')) return '✨';
+    return '👍';
+  }
+  
+  // Helper to capitalize first letter of a string
+  String _capitalizeFirstLetter(String text) {
+    if (text.isEmpty) return text;
+    return text[0].toUpperCase() + text.substring(1);
+  }
 
   @override
   void initState() {
@@ -220,6 +370,11 @@ class _EventLeisureScreenState extends State<EventLeisureScreen> {
                 children: [
                   _buildMainDetails(context),
 
+                  const SizedBox(height: 16),
+                  
+                  // Amis intéressés
+                  _buildFriendsInterests(),
+                  
                   const SizedBox(height: 16),
 
                   // Prix par catégories
@@ -1464,6 +1619,12 @@ class _EventLeisureScreenState extends State<EventLeisureScreen> {
     final notes = _eventData!['notes_globales'] ?? {};
     final emotions = _eventData!['emotions'] ?? [];
     final appreciation = _eventData!['notes_globales']?['appréciation_globale'] ?? '';
+    
+    // Déterminer la catégorie pour afficher des aspects spécifiques
+    final String eventCategory = _eventData!['catégorie'] ?? '';
+    final standardCategory = _getStandardCategory(eventCategory);
+    final categoryDetails = _getCategoryDetails(standardCategory);
+    final aspects = categoryDetails['aspects'] as List<dynamic>;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -1481,7 +1642,7 @@ class _EventLeisureScreenState extends State<EventLeisureScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Titre avec icône
+          // Titre avec icône et catégorie
           Row(
             children: [
               Container(
@@ -1493,13 +1654,29 @@ class _EventLeisureScreenState extends State<EventLeisureScreen> {
                 child: const Icon(Icons.thumbs_up_down, color: Colors.purple),
               ),
               const SizedBox(width: 12),
-              const Text(
-                'Notes & Émotions',
-                style: TextStyle(
-                  fontSize: 18, 
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                  letterSpacing: 0.3,
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Notes & Émotions',
+                      style: TextStyle(
+                        fontSize: 18, 
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                    if (eventCategory.isNotEmpty)
+                      Text(
+                        'Catégorie: ${eventCategory.split('»').last.trim()}',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.grey[600],
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                  ],
                 ),
               ),
             ],
@@ -1511,7 +1688,7 @@ class _EventLeisureScreenState extends State<EventLeisureScreen> {
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Grille des notes avec style amélioré
+                // Grille des notes avec style amélioré basée sur la catégorie
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
@@ -1521,9 +1698,16 @@ class _EventLeisureScreenState extends State<EventLeisureScreen> {
                   ),
                   child: Column(
                     children: [
-                      _buildNoteRowImproved('Mise en scène', notes['mise_en_scene']),
-                      _buildNoteRowImproved('Jeu des acteurs', notes['jeu_acteurs']),
-                      _buildNoteRowImproved('Scénario', notes['scenario']),
+                      // Générer dynamiquement les rangées de notes selon la catégorie
+                      for (var aspect in aspects)
+                        _buildNoteRowImproved(
+                          _capitalizeFirstLetter(aspect),
+                          notes[aspect.toString().replaceAll(' ', '_')]
+                        ),
+                      
+                      // Ajouter une note globale si elle existe
+                      if (notes['note_globale'] != null)
+                        _buildNoteRowImproved('Note globale', notes['note_globale']),
                     ],
                   ),
                 ),
@@ -1560,13 +1744,23 @@ class _EventLeisureScreenState extends State<EventLeisureScreen> {
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(color: Colors.orange.withOpacity(0.3)),
                           ),
-                          child: Text(
-                            emotion,
-                            style: TextStyle(
-                              color: Colors.orange.shade800,
-                              fontWeight: FontWeight.w500,
-                              fontSize: 13,
-                            ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                _getEmojiForEmotion(emotion),
+                                style: const TextStyle(fontSize: 14),
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                emotion,
+                                style: TextStyle(
+                                  color: Colors.orange.shade800,
+                                  fontWeight: FontWeight.w500,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ],
                           ),
                         )
                       ).toList(),
@@ -2234,6 +2428,271 @@ class _EventLeisureScreenState extends State<EventLeisureScreen> {
     } catch (e) {
       _showError(context, "Erreur réseau : $e");
     }
+  }
+
+  /// Section avec les amis intéressés par l'événement
+  Widget _buildFriendsInterests() {
+    // Simuler des données pour les amis intéressés (à remplacer par des données réelles)
+    // Dans une implémentation réelle, ces données proviendraient du backend
+    final friendsData = _eventData!['friends_interested'] ?? [];
+    
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Titre de la section avec icône
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.purple.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.people, color: Colors.purple),
+              ),
+              const SizedBox(width: 12),
+              const Text(
+                'Qui y va ?',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                  letterSpacing: 0.3,
+                ),
+              ),
+            ],
+          ),
+          
+          const SizedBox(height: 16),
+          
+          // S'il y a des amis intéressés, les afficher
+          if (friendsData.isNotEmpty)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Avatars des amis avec style
+                SizedBox(
+                  height: 80,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: friendsData.length,
+                    itemBuilder: (context, index) {
+                      final friend = friendsData[index];
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 12),
+                        child: Column(
+                          children: [
+                            // Avatar de l'ami
+                            Container(
+                              width: 50,
+                              height: 50,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: Colors.purple.withOpacity(0.3),
+                                  width: 2,
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.purple.withOpacity(0.2),
+                                    blurRadius: 4,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(25),
+                                child: Image.network(
+                                  friend['avatarUrl'] ?? 'https://ui-avatars.com/api/?name=${Uri.encodeComponent(friend['name'] ?? 'User')}&background=random',
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (context, error, stackTrace) => Container(
+                                    color: Colors.grey[300],
+                                    child: const Center(
+                                      child: Icon(Icons.person, color: Colors.grey),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            
+                            const SizedBox(height: 4),
+                            
+                            // Nom de l'ami
+                            Text(
+                              friend['name'] ?? 'User',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                
+                const SizedBox(height: 16),
+                
+                // Informations sur les intérêts
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Colors.purple.withOpacity(0.1),
+                        Colors.blue.withOpacity(0.05),
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.purple.withOpacity(0.2)),
+                  ),
+                  child: Column(
+                    children: [
+                      // Ligne pour les likes
+                      Row(
+                        children: [
+                          const Icon(Icons.favorite, color: Colors.red, size: 20),
+                          const SizedBox(width: 8),
+                          Text(
+                            '${_eventData!['likes_count'] ?? 0} personnes intéressées',
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.black87,
+                            ),
+                          ),
+                        ],
+                      ),
+                      
+                      const SizedBox(height: 8),
+                      
+                      // Ligne pour les participations
+                      Row(
+                        children: [
+                          const Icon(Icons.check_circle, color: Colors.blue, size: 20),
+                          const SizedBox(width: 8),
+                          Text(
+                            '${_eventData!['going_count'] ?? 0} personnes y participent',
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.black87,
+                            ),
+                          ),
+                        ],
+                      ),
+                      
+                      const SizedBox(height: 8),
+                      
+                      // Ligne pour les amis qui y vont
+                      Row(
+                        children: [
+                          const Icon(Icons.people, color: Colors.purple, size: 20),
+                          const SizedBox(width: 8),
+                          Text(
+                            '${friendsData.length} de vos amis y seront',
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.black87,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            )
+          else
+            // Message par défaut si aucun ami n'est intéressé
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.grey.withOpacity(0.05),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.grey.withOpacity(0.1)),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.1),
+                          blurRadius: 4,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: const Icon(Icons.people_outline, color: Colors.grey),
+                  ),
+                  const SizedBox(width: 16),
+                  const Expanded(
+                    child: Text(
+                      'Soyez le premier de vos amis à montrer de l\'intérêt pour cet événement !',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            
+          // Bouton pour inviter des amis
+          Padding(
+            padding: const EdgeInsets.only(top: 16.0),
+            child: Center(
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  // Logic to invite friends
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Invitation envoyée !'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.share, size: 16),
+                label: const Text('Inviter des amis'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.purple,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(30),
+                  ),
+                  elevation: 2,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   /// Lancer une URL
