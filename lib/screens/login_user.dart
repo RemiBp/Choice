@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/auth_service.dart';
 import 'register_user.dart';
+import '../main.dart'; // Import pour MainNavigation
 
 class LoginUserPage extends StatefulWidget {
   @override
@@ -31,10 +32,26 @@ class _LoginUserPageState extends State<LoginUserPage> {
 
       if (success) {
         // La navigation sera gérée automatiquement par le Provider dans main.dart
+        // Mais nous ajoutons une navigation explicite pour assurer la compatibilité iOS
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Connexion réussie !')),
         );
+        
+        // Forcer la navigation vers l'écran principal avec les informations utilisateur
+        // après un court délai pour permettre à l'état de se propager
+        Future.delayed(const Duration(milliseconds: 300), () {
+          if (!mounted) return;
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(
+              builder: (context) => MainNavigation(
+                userId: authService.userId!,
+                accountType: authService.accountType!,
+              ),
+            ),
+            (route) => false,
+          );
+        });
       } else {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
@@ -284,10 +301,25 @@ class _LoginUserPageState extends State<LoginUserPage> {
                         
                         if (success) {
                           // La navigation sera gérée automatiquement par le Provider dans main.dart
+                          // Mais nous ajoutons une navigation explicite pour assurer la compatibilité iOS
                           if (!mounted) return;
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(content: Text('Vous êtes connecté en tant qu\'invité. Certaines fonctionnalités peuvent être limitées.')),
                           );
+                          
+                          // Forcer la navigation vers l'écran principal pour le compte invité
+                          Future.delayed(const Duration(milliseconds: 300), () {
+                            if (!mounted) return;
+                            Navigator.of(context).pushAndRemoveUntil(
+                              MaterialPageRoute(
+                                builder: (context) => MainNavigation(
+                                  userId: authService.userId!,
+                                  accountType: authService.accountType!,
+                                ),
+                              ),
+                              (route) => false,
+                            );
+                          });
                         } else {
                           if (!mounted) return;
                           ScaffoldMessenger.of(context).showSnackBar(

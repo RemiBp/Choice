@@ -25,7 +25,7 @@ String getBaseUrl() {
     if (!kIsWeb && Platform.isAndroid) {
       // Pour les tests de développement, toujours considérer comme émulateur
       // ⚠️ IMPORTANT: Mettre à true pour les tests sur émulateur, false pour le déploiement
-      const bool forceEmulatorMode = false;
+      const bool forceEmulatorMode = true;
       
       bool isEmulator = forceEmulatorMode;
       
