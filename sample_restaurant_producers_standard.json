@@ -1,0 +1,310 @@
+{
+  "_id": {
+    "$oid": "675adf63da75cfe37235c7a9"
+  },
+  "place_id": "ChIJDSlJJlR65kcRVs9pOeW17Cs",
+  "name": "Carrefour City",
+  "verified": false,
+  "photo": "https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference=AdDdOWoAcTUi05NKS8ehGPDVriG0q3nE0WLb7V-GLZO6N21OI2nIZycfSmkxuQhYWtOnoZOeoC5D7EJAchVGPIiZEQoJqwYUXvPodH2diP6H1wIt7Il9L5uY0qo8yDsabpxg7pn6oMxyXJMZTDlMyY3dnCH5rjzxFmA5l1a4Xwvqzgn3TkVt&key=AIzaSyDRvEPM8JZ1Wpn_J6ku4c3r5LQIocFmzOE",
+  "description": "Bienvenue chez Carrefour City. Profitez de nos services !",
+  "menu": [],
+  "address": "1 Pl. Stalingrad, 92190 Meudon, France",
+  "gps_coordinates": {
+    "type": "Point",
+    "coordinates": [
+      2.2343142,
+      48.8150736
+    ]
+  },
+  "category": [
+    "bakery",
+    "restaurant"
+  ],
+  "opening_hours": [
+    "Monday: 7:00 AM – 9:00 PM",
+    "Tuesday: 7:00 AM – 9:00 PM",
+    "Wednesday: 7:00 AM – 9:00 PM",
+    "Thursday: 7:00 AM – 9:00 PM",
+    "Friday: 7:00 AM – 9:00 PM",
+    "Saturday: 7:00 AM – 9:00 PM",
+    "Sunday: 9:00 AM – 1:00 PM"
+  ],
+  "phone_number": "01 45 34 11 81",
+  "website": "https://www.carrefour.fr/magasin/city-meudon",
+  "notes_globales": {
+    "service": 8,
+    "lieu": 7.52,
+    "portions": 6.81,
+    "ambiance": 6.2
+  },
+  "abonnés": 0,
+  "photos": [
+    "https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference=AdDdOWoAcTUi05NKS8ehGPDVriG0q3nE0WLb7V-GLZO6N21OI2nIZycfSmkxuQhYWtOnoZOeoC5D7EJAchVGPIiZEQoJqwYUXvPodH2diP6H1wIt7Il9L5uY0qo8yDsabpxg7pn6oMxyXJMZTDlMyY3dnCH5rjzxFmA5l1a4Xwvqzgn3TkVt&key=AIzaSyDRvEPM8JZ1Wpn_J6ku4c3r5LQIocFmzOE",
+    "https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference=AdDdOWqcu2XFq6vLaBVXRr2fF0CcgI6rTblgem6fysHyRq8aKfh8V_x-H14SI4Gs-QjiInAeLD2W06J6fEnt-jl4cJiQ60BqnSNzqQ3E_F4aygqqrSa0zk1UMNhVJbHWtJK0emHZVKv84Xq9yC4aidhhQ6ZdhSX0od20NlCqX6m_74w_1yWt&key=AIzaSyDRvEPM8JZ1Wpn_J6ku4c3r5LQIocFmzOE",
+    "https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference=AdDdOWqfJ6SRn3Sc2zb3iN1hBe7ooFNFI3hLcPOGYyR2IlJG3cs6TSkDzn_L03QbyCfAW05BeaAvP5v64FfokGvPfjUwiUBpTSW2Q5hp9Jf7Fi9CbwSugrJWJFD9ienyZX7kW-q3Hws-r3p1ks17hoZ9s9eN0lwUm7CQ3P3fcJCZDxYEjVK2&key=AIzaSyDRvEPM8JZ1Wpn_J6ku4c3r5LQIocFmzOE",
+    "https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference=AdDdOWqK2X4qdqGJKV8bd5QsJ1Dd6zIkbX14HfRNyBx8KgI7QaF0C7XAFnnBy9um91KXOnC5zo95PQKNzEJZINh7PofIEHsZMIeojNwCesWXqWlglYuaIJjzO_s0nyaOvIXpbI2F8BIkRD3_uqBk98X3YI0BeLn_RDa6VOvRjZNtSuNSQgXS&key=AIzaSyDRvEPM8JZ1Wpn_J6ku4c3r5LQIocFmzOE",
+    "https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference=AdDdOWqomMACN2674Xf3VLFmtauz4r24rOQ13U-UedrMqJXCKePhSDIYm_98MruEl8he8uK4CjcN8akqmDZbgCZSVmpOargmqgHM_VD2vm-wMjq-gVwUcTpT-dChILp3eJHvciobPdDiWZXfR8aJ0nS0IBvDiSs3a4GJYRVBSVUM7t_R1c-C&key=AIzaSyDRvEPM8JZ1Wpn_J6ku4c3r5LQIocFmzOE",
+    "https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference=AdDdOWps0FBH9I52fVQp6DAoQcxT0nqLr4h8f8F2Wt8GIQ5Ka-dgQlR6Dw0t9Q5pnrYRwM9SezYw1loloLPLVFL325Or5WvzxRKxehqRZgg4JNOKzOLbDDj2DJ_98QdumDcXnZI74PsnG1i0lQv9xVYNwtk9xeCJgA-_RhLj5ARfVlRVT3QF&key=AIzaSyDRvEPM8JZ1Wpn_J6ku4c3r5LQIocFmzOE",
+    "https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference=AdDdOWr2NmIhrutpb6lVn7xqdQ8wrqnustY19mOT5sMP8Tsq1g_HVzbJB1FpUsMvYBmRT2wRSqz8Jo8yxfNkePRY0wNhLFydKJPdNTt_nR48qFNYnZc2WqXS6u-edl-z3JrjeV3o1lZk3H4Z6e-Pm39Fn0ctodMhL62KJfWIZgqjjhegVHfg&key=AIzaSyDRvEPM8JZ1Wpn_J6ku4c3r5LQIocFmzOE",
+    "https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference=AdDdOWp3j5jyh4kARoe-6Te_Icz-fiazroiqXWftayuluy1I5DZMga4Y77r5pVCSmyg41V4fP2SgLgRtJ2LQ-kQi1-zakJgL_h4FeowAfiMpFr9eYvZ5Zd27XJreSNO8avz3m_5D8-2-bfFp8qrPzi7XQxWRLBJ898Eg2Ll0r2oWfcQ5EB6P&key=AIzaSyDRvEPM8JZ1Wpn_J6ku4c3r5LQIocFmzOE",
+    "https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference=AdDdOWrxcTRr3zg4KVUCa7FiS0JOi2ztG-mTpIHdEgaofls6J_jrR9dPnr9TBkiwYKKJtpDJqgiKWpPmG75mf0fiQvxeyP_-hmPwHDOrX2Me5eCNQuz5DvpKv2L-PVitd1DA9AObJ8ergqHAd0JEkRx4r3kZiW9nVa8B1vyIFtw4xRNItVT5&key=AIzaSyDRvEPM8JZ1Wpn_J6ku4c3r5LQIocFmzOE",
+    "https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference=AdDdOWox5r7QX-GCk9OpYE-x558rh6FV4_ipP2VxLnUMNDlO_lEYqwUmphKjc6bhe4GFfTmKYvGZqYbs1St1g0UayjLrFMts2HfvAcfz1-JEj5nqeWpS1kTp-SWz-k-yGrnfyUvcFUAmVd7K9E64JxvHcQUD8npeYa7zr22aEDKjaNnUhDv2&key=AIzaSyDRvEPM8JZ1Wpn_J6ku4c3r5LQIocFmzOE"
+  ],
+  "__v": 0,
+  "business_status": "OPERATIONAL",
+  "international_phone_number": "+33 1 45 34 11 81",
+  "maps_url": "https://www.google.com/maps/place/?q=place_id:ChIJDSlJJlR65kcRVs9pOeW17Cs",
+  "popular_times": [
+    {
+      "name": "Monday",
+      "data": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        19,
+        28,
+        32,
+        34,
+        39,
+        45,
+        46,
+        39,
+        42,
+        59,
+        70,
+        74,
+        61,
+        43,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "Tuesday",
+      "data": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        18,
+        32,
+        43,
+        52,
+        61,
+        59,
+        48,
+        39,
+        42,
+        60,
+        75,
+        88,
+        64,
+        34,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "Wednesday",
+      "data": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        20,
+        32,
+        41,
+        49,
+        60,
+        68,
+        59,
+        47,
+        41,
+        43,
+        66,
+        78,
+        70,
+        48,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "Thursday",
+      "data": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        19,
+        26,
+        32,
+        36,
+        48,
+        63,
+        57,
+        50,
+        46,
+        63,
+        71,
+        79,
+        65,
+        42,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "Friday",
+      "data": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        23,
+        33,
+        42,
+        53,
+        63,
+        69,
+        52,
+        52,
+        59,
+        88,
+        98,
+        100,
+        69,
+        44,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "Saturday",
+      "data": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        10,
+        28,
+        50,
+        73,
+        84,
+        73,
+        66,
+        58,
+        66,
+        68,
+        77,
+        76,
+        63,
+        34,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "Sunday",
+      "data": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        36,
+        54,
+        56,
+        50,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "price_level": null,
+  "rating": 3.6,
+  "serves_vegetarian_food": "Non spécifié",
+  "service_options": {
+    "dine_in": "Non spécifié",
+    "takeout": "Non spécifié",
+    "delivery": "Disponible"
+  },
+  "structured_data": {
+    "Menus Globaux": [],
+    "Items Indépendants": [],
+    "_id": {
+      "$oid": "67d0ce839ad15d70adfc1587"
+    }
+  },
+  "user_ratings_total": 240,
+  "posts": [
+    {
+      "$oid": "677d97774fc38a33b7718204"
+    },
+    {
+      "$oid": "677d9a364fc38a33b7718210"
+    },
+    {
+      "$oid": "67818db364f99a896e3813d4"
+    },
+    {
+      "$oid": "67818e0b64f99a896e3813f1"
+    },
+    {
+      "$oid": "67818e1664f99a896e3813f5"
+    }
+  ],
+  "choice": 0,
+  "conversations": [
+    {
+      "$oid": "6787e8e2df276f5bc846ae97"
+    }
+  ],
+  "followers": [
+    "677db5b562dbd1a04ed621c8",
+    "677db5b562dbd1a04ed621ca"
+  ],
+  "following": [
+    {
+      "$oid": "675adf63da75cfe37235c7ac"
+    }
+  ]
+}

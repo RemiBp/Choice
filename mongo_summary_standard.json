@@ -1,0 +1,38 @@
+{
+  "choice": {
+    "collections": [
+      "posts",
+      "ai_queries",
+      "Posts",
+      "users",
+      "chat_messages",
+      "Users",
+      "Producers"
+    ],
+    "has_posts": true
+  },
+  "restauration": {
+    "collections": [
+      "producers",
+      "Users",
+      "users",
+      "ingredients_reference",
+      "chat_messages",
+      "RestaurationParis",
+      "Posts"
+    ],
+    "restaurant_collections": [
+      "producers"
+    ]
+  },
+  "loisir": {
+    "collections": [
+      "Loisir_Paris_Evenements",
+      "Configuration",
+      "Loisir_Paris_Producers"
+    ],
+    "event_collections": [
+      "Loisir_Paris_Evenements"
+    ]
+  }
+}
