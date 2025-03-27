@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 class CustomFilterChip extends StatelessWidget {
   final String label;
   final IconData? icon;
-  final VoidCallback onTap;
+  final Function(bool) onToggle;
   final bool isSelected;
   final Color? selectedColor;
   final Widget? avatar;
@@ -12,7 +12,7 @@ class CustomFilterChip extends StatelessWidget {
     Key? key,
     required this.label,
     this.icon,
-    required this.onTap,
+    required this.onToggle,
     required this.isSelected,
     this.selectedColor,
     this.avatar,
@@ -53,7 +53,7 @@ class CustomFilterChip extends StatelessWidget {
             ? (selectedColor ?? Theme.of(context).primaryColor).withOpacity(0.3) 
             : Colors.transparent,
         elevation: isSelected ? 2 : 0,
-        onPressed: onTap,
+        onPressed: () => onToggle(!isSelected),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(20),
           side: BorderSide(

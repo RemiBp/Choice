@@ -44,8 +44,9 @@ class _SliverAppBarDelegate extends SliverPersistentHeaderDelegate {
 
 class MyProfileScreen extends StatefulWidget {
   final String userId;
+  final bool isCurrentUser;
 
-  const MyProfileScreen({Key? key, required this.userId}) : super(key: key);
+  const MyProfileScreen({Key? key, required this.userId, this.isCurrentUser = true}) : super(key: key);
 
   @override
   State<MyProfileScreen> createState() => _MyProfileScreenState();

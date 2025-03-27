@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:math' show sin, cos, sqrt, atan2, pi;
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide FilterChip;
 import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:location/location.dart';
@@ -11,7 +11,6 @@ import 'dart:math' as math;
 import 'utils.dart';
 import '../widgets/maps/adaptive_map_widget.dart';
 import 'map_screen.dart';
-import 'map_leisure_screen.dart';
 import 'producer_screen.dart';
 import '../services/api_service.dart';
 import '../widgets/filters/filter_panel.dart';
@@ -209,12 +208,9 @@ class _MapFriendsScreenState extends State<MapFriendsScreen> {
           print("❌ Erreur lors de la mise à jour périodique de la position: $e");
         }
       });
+      
+      print("✅ Suivi de localisation en direct activé");
     }
-  }
-  
-  // Helper function to convert degrees to radians
-  double _degreesToRadians(double degrees) {
-    return degrees * pi / 180;
   }
 
   /// Calculate distance between two coordinates using Haversine formula
@@ -233,583 +229,496 @@ class _MapFriendsScreenState extends State<MapFriendsScreen> {
     
     return earthRadius * c;
   }
-  
-  /// Load the friends list from the backend
+
+  /// Helper function to convert degrees to radians
+  double _degreesToRadians(double degrees) {
+    return degrees * pi / 180;
+  }
+
+  /// Load friends list from backend
   Future<void> _loadFriendsList() async {
     try {
       setState(() {
         _isLoading = true;
       });
 
-      final friends = await _apiService.getFriends(widget.userId ?? '');
+      final friends = await _apiService.getUserFriends(widget.userId ?? '');
       
       if (friends.isEmpty) {
         _showSnackBar("Vous n'avez pas encore d'amis. Ajoutez des amis pour voir leurs activités.");
       } else {
         setState(() {
-          _friendsList = friends;
+          _friendsList = friends.map((friend) => {
+            '_id': friend.id,
+            'name': friend.name,
+            'avatar': friend.avatar,
+            'status': friend.status,
+            'lastSeen': friend.lastSeen,
+            'location': friend.location,
+            'interests': friend.interests,
+            'choices': friend.choices,
+          }).toList();
         });
-        print("✅ ${_friendsList.length} amis chargés");
       }
     } catch (e) {
-      print("❌ Exception lors de la requête de liste d'amis: $e");
-      _showSnackBar("Erreur lors du chargement des amis. Veuillez réessayer.");
-      _createMockFriendsList();
+      print("❌ Erreur lors du chargement de la liste d'amis: $e");
+      _showSnackBar("Erreur réseau lors du chargement des amis.");
     } finally {
       setState(() {
         _isLoading = false;
       });
     }
   }
-  
-  /// Create a mock friends list for demo
-  void _createMockFriendsList() {
-    _friendsList = [
-      {
-        "id": "1",
-        "name": "Sophie Martin",
-        "avatar": "https://randomuser.me/api/portraits/women/44.jpg",
-        "interests": ["Théâtre", "Musique", "Gastronomie"]
-      },
-      {
-        "id": "2",
-        "name": "Thomas Dubois",
-        "avatar": "https://randomuser.me/api/portraits/men/32.jpg",
-        "interests": ["Cinéma", "Art", "Danse"]
-      },
-      {
-        "id": "3",
-        "name": "Julie Laurent",
-        "avatar": "https://randomuser.me/api/portraits/women/68.jpg",
-        "interests": ["Musique", "Festival", "Bar"]
-      },
-      {
-        "id": "4",
-        "name": "Antoine Bernard",
-        "avatar": "https://randomuser.me/api/portraits/men/41.jpg",
-        "interests": ["Gastronomie", "Vin", "Jazz"]
-      },
-      {
-        "id": "5",
-        "name": "Emma Petit",
-        "avatar": "https://randomuser.me/api/portraits/women/33.jpg",
-        "interests": ["Exposition", "Musée", "Opéra"]
-      }
-    ];
-  }
-  
-  /// Fetch friends' activity from the backend
+
+  /// Fetch friends' activity and create markers
   Future<void> _fetchFriendsActivity() async {
-    if (!mounted) return;
-    
+    if (_friendsList.isEmpty) return;
+
     setState(() {
       _isLoading = true;
+      _markers.clear();
     });
 
     try {
-      final activities = await _apiService.getFriendsActivity(
-        userId: widget.userId ?? '',
-        latitude: _initialPosition.latitude,
-        longitude: _initialPosition.longitude,
-        showInterests: _showInterests,
-        showChoices: _showChoices,
-        selectedFriends: _selectedFriends,
-        selectedCategories: _selectedCategories,
-      );
+      for (var friend in _friendsList) {
+        if (_selectedFriends.isNotEmpty && !_selectedFriends.contains(friend['_id'])) {
+          continue;
+        }
 
-      if (activities.isEmpty) {
-        _showSnackBar("Aucune activité trouvée pour vos amis dans cette zone.");
-        setState(() {
-          _markers.clear();
-          _isLoading = false;
-        });
-        return;
+        // Fetch friend's interests
+        if (_showInterests) {
+          final interests = await _apiService.getFriendInterests(friend['_id']);
+          if (interests.isNotEmpty) {
+            _createInterestMarkers(interests, friend);
+          }
+        }
+
+        // Fetch friend's choices
+        if (_showChoices) {
+          final choices = await _apiService.getFriendChoices(friend['_id']);
+          if (choices.isNotEmpty) {
+            _createChoiceMarkers(choices, friend);
+          }
+        }
       }
 
-      _processMarkers(activities);
+      if (_markers.isNotEmpty && _mapController != null) {
+        _fitMarkersOnMap();
+      }
     } catch (e) {
-      print("❌ Exception lors de la requête: $e");
-      _showSnackBar("Erreur lors du chargement des activités. Veuillez réessayer.");
-      _createMockFriendsActivity();
+      print("❌ Erreur lors de la récupération des activités des amis: $e");
+      _showSnackBar("Erreur lors du chargement des activités des amis.");
     } finally {
       setState(() {
         _isLoading = false;
       });
     }
   }
-  
-  /// Create mock friends' activity data for demo
-  void _createMockFriendsActivity() {
-    List<Map<String, dynamic>> mockActivities = [
-      {
-        "id": "act1",
-        "type": "interest",
-        "location": {"type": "Point", "coordinates": [2.3522, 48.8566]}, // Paris
-        "venue": {
-          "id": "v1",
-          "name": "Théâtre de la Ville",
-          "category": "Théâtre",
-          "address": "2 Place du Châtelet, 75004 Paris",
-          "photo": "https://images.unsplash.com/photo-1503095396549-807759245b35?w=500&q=80"
-        },
-        "friends": [
-          {"id": "1", "name": "Sophie Martin", "avatar": "https://randomuser.me/api/portraits/women/44.jpg"},
-          {"id": "3", "name": "Julie Laurent", "avatar": "https://randomuser.me/api/portraits/women/68.jpg"}
-        ],
-        "date": "2023-11-15T19:30:00Z"
-      },
-      {
-        "id": "act2",
-        "type": "choice",
-        "location": {"type": "Point", "coordinates": [2.3488, 48.8534]}, // Near Notre-Dame
-        "venue": {
-          "id": "v2",
-          "name": "Musée du Louvre",
-          "category": "Musée",
-          "address": "Rue de Rivoli, 75001 Paris",
-          "photo": "https://images.unsplash.com/photo-1605628738224-3fbd9b8b75de?w=500&q=80"
-        },
-        "friends": [
-          {"id": "2", "name": "Thomas Dubois", "avatar": "https://randomuser.me/api/portraits/men/32.jpg"},
-          {"id": "5", "name": "Emma Petit", "avatar": "https://randomuser.me/api/portraits/women/33.jpg"}
-        ],
-        "date": "2023-11-10T14:00:00Z"
-      },
-      {
-        "id": "act3",
-        "type": "interest",
-        "location": {"type": "Point", "coordinates": [2.3404, 48.8600]}, // Near Opéra
-        "venue": {
-          "id": "v3",
-          "name": "Palais Garnier",
-          "category": "Opéra",
-          "address": "Place de l'Opéra, 75009 Paris",
-          "photo": "https://images.unsplash.com/photo-1609881142780-7a1a2a552a9e?w=500&q=80"
-        },
-        "friends": [
-          {"id": "4", "name": "Antoine Bernard", "avatar": "https://randomuser.me/api/portraits/men/41.jpg"},
-          {"id": "5", "name": "Emma Petit", "avatar": "https://randomuser.me/api/portraits/women/33.jpg"}
-        ],
-        "date": "2023-11-20T20:00:00Z"
-      },
-      {
-        "id": "act4",
-        "type": "choice",
-        "location": {"type": "Point", "coordinates": [2.3580, 48.8637]}, // Near Centre Pompidou
-        "venue": {
-          "id": "v4",
-          "name": "Centre Pompidou",
-          "category": "Exposition",
-          "address": "Place Georges-Pompidou, 75004 Paris",
-          "photo": "https://images.unsplash.com/photo-1575379573799-a6e591618046?w=500&q=80"
-        },
-        "friends": [
-          {"id": "2", "name": "Thomas Dubois", "avatar": "https://randomuser.me/api/portraits/men/32.jpg"},
-          {"id": "1", "name": "Sophie Martin", "avatar": "https://randomuser.me/api/portraits/women/44.jpg"}
-        ],
-        "date": "2023-11-05T11:00:00Z"
-      },
-      {
-        "id": "act5",
-        "type": "interest",
-        "location": {"type": "Point", "coordinates": [2.3376, 48.8606]}, // Near Comédie Française
-        "venue": {
-          "id": "v5",
-          "name": "La Comédie-Française",
-          "category": "Théâtre",
-          "address": "1 Place Colette, 75001 Paris",
-          "photo": "https://images.unsplash.com/photo-1503095396549-807759245b35?w=500&q=80"
-        },
-        "friends": [
-          {"id": "3", "name": "Julie Laurent", "avatar": "https://randomuser.me/api/portraits/women/68.jpg"}
-        ],
-        "date": "2023-11-25T19:00:00Z"
-      }
-    ];
-    
-    _processMarkers(mockActivities);
-  }
-  
-  /// Process activity data into map markers
-  void _processMarkers(List<dynamic> activities) {
-    if (!mounted) return;
-    
-    Set<Marker> newMarkers = {};
-    
-    for (var activity in activities) {
-      try {
-        // Verify that location and coordinates exist and are valid
-        if (activity['location'] == null || activity['location']['coordinates'] == null) {
-          print('❌ Missing coordinates for an activity');
-          continue;
+
+  /// Create markers for friend's interests
+  void _createInterestMarkers(List<dynamic> interests, Map<String, dynamic> friend) {
+    for (var interest in interests) {
+      if (interest['venue'] != null && interest['venue']['location'] != null) {
+        final coordinates = interest['venue']['location']['coordinates'];
+        if (coordinates != null && coordinates.length >= 2) {
+          final marker = Marker(
+            markerId: MarkerId('interest_${interest['_id']}'),
+            position: LatLng(coordinates[1], coordinates[0]),
+            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
+            infoWindow: InfoWindow(
+              title: interest['venue']['name'] ?? 'Lieu inconnu',
+              snippet: 'Intérêt de ${friend['name']}',
+            ),
+          );
+          setState(() {
+            _markers.add(marker);
+          });
         }
-        
-        final List coordinates = activity['location']['coordinates'];
-        
-        // Verify that coordinates is a list with at least 2 elements
-        if (coordinates.length < 2 || activity['id'] == null) {
-          print('❌ Incomplete coordinates or missing ID');
-          continue;
-        }
-        
-        // Safely convert to double
-        double lon = coordinates[0] is num ? coordinates[0].toDouble() : 0.0;
-        double lat = coordinates[1] is num ? coordinates[1].toDouble() : 0.0;
-        
-        // Verify that coordinates are within valid limits
-        if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
-          print('❌ Invalid coordinates: out of bounds (lat: $lat, lon: $lon)');
-          continue;
-        }
-        
-        final String id = activity['id'];
-        final String venueName = activity['venue']?['name'] ?? 'Lieu sans nom';
-        final String venueCategory = activity['venue']?['category'] ?? 'Catégorie inconnue';
-        final String activityType = activity['type'] ?? 'interest';
-        final List<dynamic> friends = activity['friends'] ?? [];
-        
-        // Get appropriate marker color based on activity type and category
-        final BitmapDescriptor markerIcon = _getMarkerIcon(activityType, venueCategory);
-        
-        // Create the marker
-        Marker marker = Marker(
-          markerId: MarkerId(id),
-          position: LatLng(lat, lon),
-          icon: markerIcon,
-          infoWindow: InfoWindow(
-            title: venueName,
-            snippet: "$venueCategory • ${friends.length} ami${friends.length > 1 ? 's' : ''}",
-          ),
-          onTap: () {
-            // Show detailed activity view
-            _showActivityDetails(context, activity);
-          },
-        );
-        
-        newMarkers.add(marker);
-      } catch (e) {
-        print("❌ Error creating marker: $e");
-      }
-    }
-    
-    setState(() {
-      _markers = newMarkers;
-    });
-    
-    // Adjust map to show all markers
-    if (_markers.isNotEmpty && _mapController != null) {
-      _fitMarkersOnMap();
-    }
-  }
-  
-  /// Get a marker icon based on activity type and venue category
-  BitmapDescriptor _getMarkerIcon(String activityType, String category) {
-    // Colors based on activity type
-    if (activityType == 'interest') {
-      // Blue hues for interests
-      if (category.toLowerCase().contains('théâtre') || category.toLowerCase().contains('theatre')) {
-        return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure);
-      } else if (category.toLowerCase().contains('musique') || category.toLowerCase().contains('concert')) {
-        return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue);
-      } else if (category.toLowerCase().contains('ciném') || category.toLowerCase().contains('cinema')) {
-        return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueCyan);
-      } else {
-        return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue);
-      }
-    } else {
-      // Green hues for choices (visited places)
-      if (category.toLowerCase().contains('théâtre') || category.toLowerCase().contains('theatre')) {
-        return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen);
-      } else if (category.toLowerCase().contains('musique') || category.toLowerCase().contains('concert')) {
-        return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen);
-      } else if (category.toLowerCase().contains('ciném') || category.toLowerCase().contains('cinema')) {
-        return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen);
-      } else {
-        return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen);
       }
     }
   }
-  
-  /// Show activity details dialog
-  void _showActivityDetails(BuildContext context, Map<String, dynamic> activity) {
-    final String venueName = activity['venue']?['name'] ?? 'Lieu sans nom';
-    final String venueCategory = activity['venue']?['category'] ?? 'Catégorie inconnue';
-    final String venueAddress = activity['venue']?['address'] ?? 'Adresse inconnue';
-    final List<dynamic> friends = activity['friends'] ?? [];
-    final String activityType = activity['type'] ?? 'interest';
-    final String photoUrl = activity['venue']?['photo'] ?? 
-      'https://images.unsplash.com/photo-1518998053901-5348d3961a04?w=500&q=80';
-    
-    // Format date
-    String formattedDate = 'Date inconnue';
-    if (activity['date'] != null) {
-      try {
-        DateTime date = DateTime.parse(activity['date']);
-        formattedDate = '${date.day}/${date.month}/${date.year} à ${date.hour}:${date.minute.toString().padLeft(2, '0')}';
-      } catch (e) {
-        print("❌ Error parsing date: $e");
+
+  /// Create markers for friend's choices
+  void _createChoiceMarkers(List<dynamic> choices, Map<String, dynamic> friend) {
+    for (var choice in choices) {
+      if (choice['venue'] != null && choice['venue']['location'] != null) {
+        final coordinates = choice['venue']['location']['coordinates'];
+        if (coordinates != null && coordinates.length >= 2) {
+          final marker = Marker(
+            markerId: MarkerId('choice_${choice['_id']}'),
+            position: LatLng(coordinates[1], coordinates[0]),
+            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+            infoWindow: InfoWindow(
+              title: choice['venue']['name'] ?? 'Lieu inconnu',
+              snippet: 'Choix de ${friend['name']}',
+            ),
+          );
+          setState(() {
+            _markers.add(marker);
+          });
+        }
       }
     }
-    
+  }
+
+  /// Show interest details dialog
+  void _showInterestDetails(Map<String, dynamic> interest, Map<String, dynamic> friend) {
     showDialog(
       context: context,
       builder: (context) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        clipBehavior: Clip.antiAlias,
-        insetPadding: const EdgeInsets.symmetric(horizontal: 20),
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(16),
         child: Container(
-          width: 320,
+          width: double.infinity,
+          constraints: BoxConstraints(
+            maxWidth: 400,
+            maxHeight: MediaQuery.of(context).size.height * 0.7,
+          ),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                spreadRadius: 5,
+                blurRadius: 15,
+                offset: const Offset(0, 5),
+              ),
+            ],
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Header image with venue name overlay
-              Stack(
-                children: [
-                  // Header image
-                  Container(
-                    height: 150,
-                    width: double.infinity,
-                    decoration: BoxDecoration(
-                      image: DecorationImage(
-                        image: NetworkImage(photoUrl),
-                        fit: BoxFit.cover,
+              // En-tête avec image
+              ClipRRect(
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(16),
+                  topRight: Radius.circular(16),
+                ),
+                child: Stack(
+                  children: [
+                    // Image de l'établissement
+                    SizedBox(
+                      height: 180,
+                      child: interest['venue'] != null && 
+                             interest['venue']['photo'] != null && 
+                             interest['venue']['photo'].toString().isNotEmpty
+                          ? Image.network(
+                              interest['venue']['photo'],
+                              fit: BoxFit.cover,
+                              width: double.infinity,
+                              errorBuilder: (context, error, stackTrace) {
+                                return Container(
+                                  color: Colors.blue.withOpacity(0.2),
+                                  child: const Center(
+                                    child: Icon(Icons.interests, size: 50, color: Colors.blue),
+                                  ),
+                                );
+                              },
+                            )
+                          : Container(
+                              color: Colors.blue.withOpacity(0.2),
+                              child: const Center(
+                                child: Icon(Icons.interests, size: 50, color: Colors.blue),
+                              ),
+                            ),
+                    ),
+                    // Gradient et badge "Intérêt"
+                    Positioned(
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
+                      child: Container(
+                        height: 100,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.transparent,
+                              Colors.black.withOpacity(0.7),
+                            ],
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-                  // Gradient overlay for better text readability
-                  Container(
-                    height: 150,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Colors.black.withOpacity(0.1),
-                          Colors.black.withOpacity(0.7),
-                        ],
+                    // Badge "Intérêt"
+                    Positioned(
+                      top: 16,
+                      left: 16,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.blue,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.favorite_border, color: Colors.white, size: 16),
+                            const SizedBox(width: 4),
+                            const Text(
+                              "Intérêt",
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                  // Venue name
-                  Positioned(
-                    bottom: 10,
-                    left: 15,
-                    right: 15,
-                    child: Text(
-                      venueName,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 22,
-                        shadows: [
-                          Shadow(
-                            color: Colors.black,
-                            offset: Offset(0, 1),
-                            blurRadius: 3,
+                    // Nom du lieu
+                    Positioned(
+                      bottom: 16,
+                      left: 16,
+                      right: 16,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            interest['venue'] != null ? 
+                              (interest['venue']['name'] ?? 'Lieu inconnu') : 
+                              'Lieu inconnu',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              shadows: [
+                                Shadow(
+                                  offset: Offset(1, 1),
+                                  blurRadius: 3,
+                                  color: Colors.black45,
+                                ),
+                              ],
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 2,
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              CircleAvatar(
+                                radius: 12,
+                                backgroundImage: friend['photo'] != null && friend['photo'].toString().isNotEmpty
+                                    ? NetworkImage(friend['photo'])
+                                    : null,
+                                child: friend['photo'] == null || friend['photo'].toString().isEmpty
+                                    ? Text(
+                                        friend['name'] != null ? friend['name'][0] : '?',
+                                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                                      )
+                                    : null,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                "${friend['name']} est intéressé(e)",
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                  shadows: [
+                                    Shadow(
+                                      offset: Offset(1, 1),
+                                      blurRadius: 2,
+                                      color: Colors.black45,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
-                      overflow: TextOverflow.ellipsis,
-                      maxLines: 2,
                     ),
-                  ),
-                  // Close button
-                  Positioned(
-                    top: 10,
-                    right: 10,
-                    child: InkWell(
-                      onTap: () => Navigator.pop(context),
+                    // Bouton de fermeture
+                    Positioned(
+                      top: 8,
+                      right: 8,
                       child: Container(
-                        padding: const EdgeInsets.all(5),
                         decoration: BoxDecoration(
                           color: Colors.black.withOpacity(0.5),
                           shape: BoxShape.circle,
                         ),
-                        child: const Icon(
-                          Icons.close,
-                          color: Colors.white,
-                          size: 20,
+                        child: IconButton(
+                          icon: const Icon(Icons.close, color: Colors.white),
+                          onPressed: () => Navigator.pop(context),
+                          iconSize: 20,
+                          constraints: const BoxConstraints(
+                            minWidth: 36,
+                            minHeight: 36,
+                          ),
+                          padding: EdgeInsets.zero,
                         ),
                       ),
                     ),
-                  ),
-                  // Activity type badge
-                  Positioned(
-                    top: 10,
-                    left: 10,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: activityType == 'interest' ? Colors.blue : Colors.green,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            activityType == 'interest' ? Icons.star_border : Icons.check_circle,
-                            color: Colors.white,
-                            size: 16,
+                  ],
+                ),
+              ),
+              // Contenu principal avec défilement
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Adresse
+                      if (interest['venue'] != null && 
+                          interest['venue']['address'] != null && 
+                          interest['venue']['address'].toString().isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Icon(Icons.location_on, color: Colors.red, size: 20),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  interest['venue']['address'],
+                                  style: TextStyle(color: Colors.grey[800], fontSize: 14),
+                                ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(width: 4),
-                          Text(
-                            activityType == 'interest' ? "Intérêt" : "Visité",
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 12,
-                            ),
+                        ),
+                      
+                      // Catégorie
+                      if (interest['venue'] != null && 
+                          interest['venue']['category'] != null && 
+                          interest['venue']['category'].toString().isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.category, color: Colors.orange, size: 20),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  interest['venue']['category'],
+                                  style: TextStyle(color: Colors.grey[800], fontSize: 14),
+                                ),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
-                    ),
+                        ),
+                      
+                      // Date d'intérêt
+                      if (interest['created_at'] != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.calendar_today, color: Colors.blue, size: 20),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  "Intéressé depuis le ${_formatDate(interest['created_at'])}",
+                                  style: TextStyle(color: Colors.grey[800], fontSize: 14),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      
+                      // Description
+                      if (interest['venue'] != null && 
+                          interest['venue']['description'] != null && 
+                          interest['venue']['description'].toString().isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                "À propos de ce lieu",
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                interest['venue']['description'],
+                                style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                              ),
+                            ],
+                          ),
+                        ),
+                      
+                      // Commentaire
+                      if (interest['comment'] != null && interest['comment'].toString().isNotEmpty)
+                        Container(
+                          margin: const EdgeInsets.only(top: 12),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                "Commentaire",
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.blue,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                interest['comment'],
+                                style: TextStyle(color: Colors.grey[700], fontSize: 14),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
                   ),
-                ],
+                ),
               ),
               
-              // Details section
-              Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+              // Boutons d'action
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.only(
+                    bottomLeft: Radius.circular(16),
+                    bottomRight: Radius.circular(16),
+                  ),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
-                    // Venue category and date
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: Colors.purple.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Text(
-                            venueCategory,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 12,
-                              color: Colors.purple,
-                            ),
-                          ),
-                        ),
-                        const Spacer(),
-                        Icon(Icons.calendar_today, size: 14, color: Colors.grey.shade600),
-                        const SizedBox(width: 4),
-                        Text(
-                          formattedDate,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey.shade600,
-                          ),
-                        ),
-                      ],
+                    _buildActionButton(
+                      icon: Icons.person,
+                      label: "Profil",
+                      color: Colors.purple,
+                      onTap: () => _navigateToFriendProfile(friend['_id']),
                     ),
-                    const SizedBox(height: 12),
-                    
-                    // Venue address
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Icon(Icons.location_on, size: 18, color: Colors.grey),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            venueAddress,
-                            style: const TextStyle(fontSize: 14),
-                          ),
-                        ),
-                      ],
+                    _buildActionButton(
+                      icon: Icons.directions,
+                      label: "Itinéraire",
+                      color: Colors.green,
+                      onTap: () {
+                        // Logique pour l'itinéraire
+                        Navigator.pop(context);
+                      },
                     ),
-                    const SizedBox(height: 16),
-                    
-                    // Friends section
-                    const Text(
-                      "Amis intéressés :",
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                    ),
-                    const SizedBox(height: 12),
-                    
-                    // Friends list
-                    if (friends.isNotEmpty)
-                      ListView.builder(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        itemCount: friends.length,
-                        itemBuilder: (context, index) {
-                          final friend = friends[index];
-                          return ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            leading: CircleAvatar(
-                              backgroundImage: NetworkImage(friend['avatar'] ?? ''),
-                              radius: 20,
-                            ),
-                            title: Text(friend['name'] ?? 'Ami inconnu'),
-                            subtitle: Text(
-                              activityType == 'interest' 
-                                ? 'Souhaite y aller' 
-                                : 'A visité cet endroit',
-                              style: TextStyle(
-                                color: activityType == 'interest' ? Colors.blue : Colors.green,
-                                fontSize: 12,
-                              ),
-                            ),
-                            onTap: () {
-                              // Navigate to friend profile
-                              Navigator.pop(context); // Close dialog first
-                              _navigateToFriendProfile(friend);
-                            },
-                          );
-                        },
-                      )
-                    else
-                      const Center(
-                        child: Text(
-                          "Aucun ami intéressé par ce lieu",
-                          style: TextStyle(fontStyle: FontStyle.italic),
-                        ),
-                      ),
-                    
-                    const SizedBox(height: 16),
-                    
-                    // Action buttons
-                    Row(
-                      children: [
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            icon: const Icon(Icons.add_circle_outline),
-                            label: const Text('AJOUTER MON INTÉRÊT'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.blue,
-                              foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                            ),
-                            onPressed: () {
-                              Navigator.pop(context);
-                              _showSnackBar("Intérêt ajouté avec succès !");
-                            },
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        ElevatedButton.icon(
-                          icon: const Icon(Icons.directions),
-                          label: const Text('ITINÉRAIRE'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.grey.shade200,
-                            foregroundColor: Colors.black87,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                          onPressed: () {
-                            Navigator.pop(context);
-                            _showSnackBar("Ouverture de l'itinéraire...");
-                          },
-                        ),
-                      ],
+                    _buildActionButton(
+                      icon: Icons.add_circle_outline,
+                      label: "Aussi intéressé",
+                      color: Colors.blue,
+                      onTap: () {
+                        // Logique pour marquer l'intérêt
+                        Navigator.pop(context);
+                        _showSnackBar("Intérêt enregistré !");
+                      },
                     ),
                   ],
                 ),
@@ -820,25 +729,513 @@ class _MapFriendsScreenState extends State<MapFriendsScreen> {
       ),
     );
   }
-  
-  /// Navigate to friend profile
-  void _navigateToFriendProfile(Map<String, dynamic> friend) {
-    _showSnackBar("Navigation vers le profil de ${friend['name']}");
-    // Implement navigation to friend profile
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => MyProfileScreen(userId: friend['id']),
+
+  // Méthode pour afficher les détails d'un choix avec une UI élégante
+  void _showChoiceDetails(Map<String, dynamic> choice, Map<String, dynamic> friend) {
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(16),
+        child: Container(
+          width: double.infinity,
+          constraints: BoxConstraints(
+            maxWidth: 400,
+            maxHeight: MediaQuery.of(context).size.height * 0.7,
+          ),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                spreadRadius: 5,
+                blurRadius: 15,
+                offset: const Offset(0, 5),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // En-tête avec image
+              ClipRRect(
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(16),
+                  topRight: Radius.circular(16),
+                ),
+                child: Stack(
+                  children: [
+                    // Image de l'établissement
+                    SizedBox(
+                      height: 180,
+                      child: choice['venue'] != null && 
+                             choice['venue']['photo'] != null && 
+                             choice['venue']['photo'].toString().isNotEmpty
+                          ? Image.network(
+                              choice['venue']['photo'],
+                              fit: BoxFit.cover,
+                              width: double.infinity,
+                              errorBuilder: (context, error, stackTrace) {
+                                return Container(
+                                  color: Colors.green.withOpacity(0.2),
+                                  child: const Center(
+                                    child: Icon(Icons.check_circle, size: 50, color: Colors.green),
+                                  ),
+                                );
+                              },
+                            )
+                          : Container(
+                              color: Colors.green.withOpacity(0.2),
+                              child: const Center(
+                                child: Icon(Icons.check_circle, size: 50, color: Colors.green),
+                              ),
+                            ),
+                    ),
+                    // Gradient et badge "Choix"
+                    Positioned(
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
+                      child: Container(
+                        height: 100,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.transparent,
+                              Colors.black.withOpacity(0.7),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    // Badge "Choix"
+                    Positioned(
+                      top: 16,
+                      left: 16,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.green,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.check_circle, color: Colors.white, size: 16),
+                            const SizedBox(width: 4),
+                            const Text(
+                              "Choix",
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    // Nom du lieu
+                    Positioned(
+                      bottom: 16,
+                      left: 16,
+                      right: 16,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            choice['venue'] != null ? 
+                              (choice['venue']['name'] ?? 'Lieu inconnu') : 
+                              'Lieu inconnu',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              shadows: [
+                                Shadow(
+                                  offset: Offset(1, 1),
+                                  blurRadius: 3,
+                                  color: Colors.black45,
+                                ),
+                              ],
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 2,
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              CircleAvatar(
+                                radius: 12,
+                                backgroundImage: friend['photo'] != null && friend['photo'].toString().isNotEmpty
+                                    ? NetworkImage(friend['photo'])
+                                    : null,
+                                child: friend['photo'] == null || friend['photo'].toString().isEmpty
+                                    ? Text(
+                                        friend['name'] != null ? friend['name'][0] : '?',
+                                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                                      )
+                                    : null,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                "${friend['name']} y est allé(e)",
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                  shadows: [
+                                    Shadow(
+                                      offset: Offset(1, 1),
+                                      blurRadius: 2,
+                                      color: Colors.black45,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    // Bouton de fermeture
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.5),
+                          shape: BoxShape.circle,
+                        ),
+                        child: IconButton(
+                          icon: const Icon(Icons.close, color: Colors.white),
+                          onPressed: () => Navigator.pop(context),
+                          iconSize: 20,
+                          constraints: const BoxConstraints(
+                            minWidth: 36,
+                            minHeight: 36,
+                          ),
+                          padding: EdgeInsets.zero,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // Contenu principal avec défilement
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Date de visite
+                      if (choice['visit_date'] != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.event, color: Colors.green, size: 20),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  "Visite le ${_formatDate(choice['visit_date'])}",
+                                  style: const TextStyle(
+                                    color: Colors.green,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      
+                      // Adresse
+                      if (choice['venue'] != null && 
+                          choice['venue']['address'] != null && 
+                          choice['venue']['address'].toString().isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Icon(Icons.location_on, color: Colors.red, size: 20),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  choice['venue']['address'],
+                                  style: TextStyle(color: Colors.grey[800], fontSize: 14),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      
+                      // Catégorie
+                      if (choice['venue'] != null && 
+                          choice['venue']['category'] != null && 
+                          choice['venue']['category'].toString().isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.category, color: Colors.orange, size: 20),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  choice['venue']['category'],
+                                  style: TextStyle(color: Colors.grey[800], fontSize: 14),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      
+                      // Note
+                      if (choice['rating'] != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 16),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.star, color: Colors.amber, size: 20),
+                              const SizedBox(width: 8),
+                              Text(
+                                "${choice['rating'].toStringAsFixed(1)}/5",
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.amber,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                "noté par ${friend['name']}",
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      
+                      // Avis
+                      if (choice['review'] != null && choice['review'].toString().isNotEmpty)
+                        Container(
+                          margin: const EdgeInsets.only(top: 8, bottom: 16),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.green.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.green.withOpacity(0.3)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  CircleAvatar(
+                                    radius: 14,
+                                    backgroundImage: friend['photo'] != null && friend['photo'].toString().isNotEmpty
+                                        ? NetworkImage(friend['photo'])
+                                        : null,
+                                    child: friend['photo'] == null || friend['photo'].toString().isEmpty
+                                        ? Text(
+                                            friend['name'] != null ? friend['name'][0] : '?',
+                                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                                          )
+                                        : null,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    "Avis de ${friend['name']}",
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                choice['review'],
+                                style: TextStyle(color: Colors.grey[700], fontSize: 14),
+                              ),
+                            ],
+                          ),
+                        ),
+                      
+                      // Photos
+                      if (choice['photos'] != null && choice['photos'] is List && choice['photos'].isNotEmpty)
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              "Photos",
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            SizedBox(
+                              height: 100,
+                              child: ListView.builder(
+                                scrollDirection: Axis.horizontal,
+                                itemCount: choice['photos'].length,
+                                itemBuilder: (context, index) {
+                                  return GestureDetector(
+                                    onTap: () {
+                                      // Logique pour afficher la photo en plein écran
+                                    },
+                                    child: Container(
+                                      width: 100,
+                                      margin: const EdgeInsets.only(right: 8),
+                                      decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(8),
+                                        image: DecorationImage(
+                                          image: NetworkImage(choice['photos'][index]),
+                                          fit: BoxFit.cover,
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              
+              // Boutons d'action
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.only(
+                    bottomLeft: Radius.circular(16),
+                    bottomRight: Radius.circular(16),
+                  ),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _buildActionButton(
+                      icon: Icons.person,
+                      label: "Profil",
+                      color: Colors.purple,
+                      onTap: () => _navigateToFriendProfile(friend['_id']),
+                    ),
+                    _buildActionButton(
+                      icon: Icons.directions,
+                      label: "Itinéraire",
+                      color: Colors.green,
+                      onTap: () {
+                        // Logique pour l'itinéraire
+                        Navigator.pop(context);
+                      },
+                    ),
+                    _buildActionButton(
+                      icon: Icons.add_circle_outline,
+                      label: "Y aller aussi",
+                      color: Colors.blue,
+                      onTap: () {
+                        // Logique pour marquer l'intérêt
+                        Navigator.pop(context);
+                        _showSnackBar("Intérêt enregistré !");
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
-  
-  /// Adjust map to show all markers
+
+  // Construit un bouton d'action pour le bas du popup
+  Widget _buildActionButton({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: color, size: 24),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                color: color,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Formater une date
+  String _formatDate(dynamic date) {
+    if (date == null) return "Date inconnue";
+    
+    DateTime dateTime;
+    if (date is String) {
+      dateTime = DateTime.tryParse(date) ?? DateTime.now();
+    } else if (date is DateTime) {
+      dateTime = date;
+    } else {
+      return "Date inconnue";
+    }
+    
+    return "${dateTime.day.toString().padLeft(2, '0')}/${dateTime.month.toString().padLeft(2, '0')}/${dateTime.year}";
+  }
+
+  // Afficher un message dans la snackbar
+  void _showSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  /// Navigate to friend profile screen
+  void _navigateToFriendProfile(String friendId) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => MyProfileScreen(userId: friendId, isCurrentUser: false),
+      ),
+    );
+  }
+
+  /// Fit map to show all markers
   void _fitMarkersOnMap() {
     if (_markers.isEmpty || _mapController == null) return;
     
     try {
-      // Calculate bounds to include all markers
       double minLat = 90;
       double maxLat = -90;
       double minLng = 180;
@@ -851,7 +1248,6 @@ class _MapFriendsScreenState extends State<MapFriendsScreen> {
         if (marker.position.longitude > maxLng) maxLng = marker.position.longitude;
       }
       
-      // Add padding around bounds
       final latPadding = (maxLat - minLat) * 0.2;
       final lngPadding = (maxLng - minLng) * 0.2;
       
@@ -860,498 +1256,260 @@ class _MapFriendsScreenState extends State<MapFriendsScreen> {
         northeast: LatLng(maxLat + latPadding, maxLng + lngPadding),
       );
       
-      // Animate camera to include all markers
       _mapController!.animateCamera(CameraUpdate.newLatLngBounds(bounds, 50));
     } catch (e) {
-      print("❌ Error adjusting map: $e");
-      // In case of error, revert to initial position with reasonable zoom
+      print("❌ Erreur lors de l'ajustement de la carte: $e");
       _mapController!.animateCamera(CameraUpdate.newLatLngZoom(_initialPosition, 12));
     }
   }
-  
-  /// Apply custom style to the map
-  Future<void> _setMapStyle(GoogleMapController controller) async {
-    const String mapStyle = '''
-    [
-      {
-        "elementType": "geometry",
-        "stylers": [
-          {
-            "color": "#f5f5f5"
-          }
-        ]
-      },
-      {
-        "elementType": "labels.icon",
-        "stylers": [
-          {
-            "visibility": "on"
-          }
-        ]
-      },
-      {
-        "elementType": "labels.text.fill",
-        "stylers": [
-          {
-            "color": "#616161"
-          }
-        ]
-      },
-      {
-        "elementType": "labels.text.stroke",
-        "stylers": [
-          {
-            "color": "#f5f5f5"
-          }
-        ]
-      },
-      {
-        "featureType": "administrative.land_parcel",
-        "stylers": [
-          {
-            "visibility": "off"
-          }
-        ]
-      },
-      {
-        "featureType": "administrative.land_parcel",
-        "elementType": "labels.text.fill",
-        "stylers": [
-          {
-            "color": "#bdbdbd"
-          }
-        ]
-      },
-      {
-        "featureType": "poi",
-        "elementType": "geometry",
-        "stylers": [
-          {
-            "color": "#eeeeee"
-          }
-        ]
-      },
-      {
-        "featureType": "poi",
-        "elementType": "labels.text.fill",
-        "stylers": [
-          {
-            "color": "#757575"
-          }
-        ]
-      },
-      {
-        "featureType": "poi.attraction",
-        "elementType": "geometry.fill",
-        "stylers": [
-          {
-            "color": "#f9ebff"
-          }
-        ]
-      },
-      {
-        "featureType": "poi.park",
-        "elementType": "geometry",
-        "stylers": [
-          {
-            "color": "#e5e5e5"
-          }
-        ]
-      },
-      {
-        "featureType": "poi.park",
-        "elementType": "labels.text.fill",
-        "stylers": [
-          {
-            "color": "#9e9e9e"
-          }
-        ]
-      },
-      {
-        "featureType": "road",
-        "elementType": "geometry",
-        "stylers": [
-          {
-            "color": "#ffffff"
-          }
-        ]
-      },
-      {
-        "featureType": "road",
-        "elementType": "geometry.fill",
-        "stylers": [
-          {
-            "color": "#f1f1f1"
-          }
-        ]
-      },
-      {
-        "featureType": "road.arterial",
-        "elementType": "geometry.fill",
-        "stylers": [
-          {
-            "color": "#ffffff"
-          }
-        ]
-      },
-      {
-        "featureType": "road.arterial",
-        "elementType": "labels.text.fill",
-        "stylers": [
-          {
-            "color": "#757575"
-          }
-        ]
-      },
-      {
-        "featureType": "road.highway",
-        "elementType": "geometry",
-        "stylers": [
-          {
-            "color": "#dadada"
-          }
-        ]
-      },
-      {
-        "featureType": "road.highway",
-        "elementType": "labels.text.fill",
-        "stylers": [
-          {
-            "color": "#616161"
-          }
-        ]
-      },
-      {
-        "featureType": "road.local",
-        "elementType": "labels.text.fill",
-        "stylers": [
-          {
-            "color": "#9e9e9e"
-          }
-        ]
-      },
-      {
-        "featureType": "transit.line",
-        "elementType": "geometry",
-        "stylers": [
-          {
-            "color": "#e5e5e5"
-          }
-        ]
-      },
-      {
-        "featureType": "transit.station",
-        "elementType": "geometry",
-        "stylers": [
-          {
-            "color": "#eeeeee"
-          }
-        ]
-      },
-      {
-        "featureType": "water",
-        "elementType": "geometry",
-        "stylers": [
-          {
-            "color": "#c9c9c9"
-          }
-        ]
-      },
-      {
-        "featureType": "water",
-        "elementType": "geometry.fill",
-        "stylers": [
-          {
-            "color": "#d8e9f3"
-          }
-        ]
-      },
-      {
-        "featureType": "water",
-        "elementType": "labels.text.fill",
-        "stylers": [
-          {
-            "color": "#9e9e9e"
-          }
-        ]
-      }
-    ]
-    ''';
 
-    try {
-      await controller.setMapStyle(mapStyle);
-    } catch (e) {
-      print("❌ Error applying map style: $e");
-    }
-  }
-  
-  /// Show a snackbar
-  void _showSnackBar(String message) {
-    if (!mounted) return;
+  /// Toggle filter panel visibility
+  void _toggleFilterPanel() {
+    if (_isPanelAnimating) return;
     
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        behavior: SnackBarBehavior.floating,
-        action: SnackBarAction(
-          label: 'OK',
-          onPressed: () {},
+    setState(() {
+      _isPanelAnimating = true;
+      _isFilterPanelVisible = !_isFilterPanelVisible;
+    });
+  }
+
+  /// Build filter panel
+  Widget _buildFilterPanel() {
+    return Card(
+      margin: EdgeInsets.zero,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.only(
+          bottomLeft: Radius.circular(20),
+          bottomRight: Radius.circular(20),
+        ),
+      ),
+      elevation: 8,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildFilterPanelHeader(),
+            Expanded(
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Section des amis
+                    FilterSection(
+                      title: 'Amis',
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: _friendsList.map((friend) => custom.CustomFilterChip(
+                          label: friend['name'] ?? 'Ami',
+                          isSelected: _selectedFriends.contains(friend['_id']),
+                          onToggle: (selected) {
+                            setState(() {
+                              if (selected) {
+                                _selectedFriends.add(friend['_id']);
+                              } else {
+                                _selectedFriends.remove(friend['_id']);
+                              }
+                            });
+                          },
+                        )).toList(),
+                      ),
+                    ),
+                    
+                    // Section des types d'activité
+                    FilterSection(
+                      title: 'Types d\'activité',
+                      child: Column(
+                        children: [
+                          FilterToggleCard(
+                            title: 'Intérêts',
+                            subtitle: 'Lieux préférés des amis',
+                            icon: Icons.favorite,
+                            isSelected: _showInterests,
+                            onTap: () {
+                              setState(() {
+                                _showInterests = !_showInterests;
+                              });
+                            },
+                          ),
+                          const SizedBox(height: 8),
+                          FilterToggleCard(
+                            title: 'Choix',
+                            subtitle: 'Lieux visités par les amis',
+                            icon: Icons.check_circle,
+                            isSelected: _showChoices,
+                            onTap: () {
+                              setState(() {
+                                _showChoices = !_showChoices;
+                              });
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                    
+                    // Section des catégories
+                    FilterSection(
+                      title: 'Catégories',
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          'Restaurant', 'Bar', 'Café', 'Parc', 'Musée',
+                          'Théâtre', 'Cinéma', 'Shopping', 'Sport'
+                        ].map((category) => custom.CustomFilterChip(
+                          label: category,
+                          isSelected: _selectedCategories.contains(category),
+                          onToggle: (selected) {
+                            setState(() {
+                              if (selected) {
+                                _selectedCategories.add(category);
+                              } else {
+                                _selectedCategories.remove(category);
+                              }
+                            });
+                          },
+                        )).toList(),
+                      ),
+                    ),
+                    
+                    // Boutons d'action
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          OutlinedButton(
+                            onPressed: () {
+                              setState(() {
+                                _selectedFriends = [];
+                                _selectedCategories = [];
+                                _showInterests = true;
+                                _showChoices = true;
+                              });
+                              _fetchFriendsActivity();
+                            },
+                            child: const Text('Réinitialiser'),
+                          ),
+                          ElevatedButton(
+                            onPressed: () {
+                              _fetchFriendsActivity();
+                              _toggleFilterPanel();
+                            },
+                            child: const Text('Appliquer'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
-  
-  /// Build filter panel
-  Widget _buildFilterPanel() {
-    return FilterPanel(
-      isVisible: _isFilterPanelVisible,
-      onClose: () {
-        setState(() {
-          _isFilterPanelVisible = false;
-        });
-      },
-      onReset: () {
-        setState(() {
-          _showInterests = true;
-          _showChoices = true;
-          _selectedFriends.clear();
-          _selectedCategories.clear();
-        });
-        _fetchFriendsActivity();
-      },
-      filterSections: [
-        // Activity type filters
-        FilterSection(
-          title: "Types d'activités",
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: FilterToggleCard(
-                    isSelected: _showInterests,
-                    onTap: () {
-                      setState(() {
-                        _showInterests = !_showInterests;
-                      });
-                      _fetchFriendsActivity();
-                    },
-                    icon: Icons.star_border,
-                    title: "Intérêts",
-                    subtitle: "Lieux qui intéressent vos amis",
-                    selectedColor: Colors.blue,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: FilterToggleCard(
-                    isSelected: _showChoices,
-                    onTap: () {
-                      setState(() {
-                        _showChoices = !_showChoices;
-                      });
-                      _fetchFriendsActivity();
-                    },
-                    icon: Icons.check_circle_outline,
-                    title: "Visités",
-                    subtitle: "Lieux que vos amis ont visités",
-                    selectedColor: Colors.green,
-                  ),
-                ),
-              ],
+
+  /// Build filter panel header
+  Widget _buildFilterPanelHeader() {
+    return Padding(
+      padding: const EdgeInsets.only(top: 50, bottom: 16),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          const Text(
+            'Filtres',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
             ),
-          ],
-        ),
-        
-        // Friend filters
-        if (_friendsList.isNotEmpty)
-          FilterSection(
-            title: "Filtrer par ami",
-            trailing: _selectedFriends.isNotEmpty
-              ? GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      _selectedFriends.clear();
-                    });
-                    _fetchFriendsActivity();
-                  },
-                  child: Text(
-                    "Effacer (${_selectedFriends.length})",
-                    style: const TextStyle(
-                      color: Colors.blue,
-                      fontSize: 12,
-                    ),
-                  ),
-                )
-              : null,
-            children: [
-              FilterChipGroup(
-                title: 'Amis',
-                filters: _friendsList.map((friend) {
-                  final bool isSelected = _selectedFriends.contains(friend['id']);
-                  return FilterChipItem(
-                    text: friend['name'],
-                    isActive: isSelected,
-                    onTap: () {
-                      setState(() {
-                        if (isSelected) {
-                          _selectedFriends.remove(friend['id']);
-                        } else {
-                          _selectedFriends.add(friend['id']);
-                        }
-                      });
-                      _fetchFriendsActivity();
-                    },
-                  );
-                }).toList(),
-                onReset: _selectedFriends.isNotEmpty ? () {
-                  setState(() {
-                    _selectedFriends.clear();
-                  });
-                  _fetchFriendsActivity();
-                } : null,
-              ),
-            ],
           ),
-        
-        // Category filters
-        FilterSection(
-          title: "Filtrer par catégorie",
-          trailing: _selectedCategories.isNotEmpty
-            ? GestureDetector(
-                onTap: () {
-                  setState(() {
-                    _selectedCategories.clear();
-                  });
-                  _fetchFriendsActivity();
-                },
-                child: Text(
-                  "Effacer (${_selectedCategories.length})",
-                  style: const TextStyle(
-                    color: Colors.blue,
-                    fontSize: 12,
-                  ),
-                ),
-              )
-            : null,
-          children: [
-            FilterChipGroup(
-              title: 'Catégories',
-              filters: [
-                "Théâtre", "Musique", "Cinéma", "Exposition", "Musée", "Restaurant", "Bar"
-              ].map((category) {
-                final bool isSelected = _selectedCategories.contains(category);
-                return FilterChipItem(
-                  text: category,
-                  isActive: isSelected,
-                  onTap: () {
-                    setState(() {
-                      if (isSelected) {
-                        _selectedCategories.remove(category);
-                      } else {
-                        _selectedCategories.add(category);
-                      }
-                    });
-                    _fetchFriendsActivity();
-                  },
-                );
-              }).toList(),
-              onReset: _selectedCategories.isNotEmpty ? () {
-                setState(() {
-                  _selectedCategories.clear();
-                });
-                _fetchFriendsActivity();
-              } : null,
-            ),
-          ],
-        ),
-      ],
+          IconButton(
+            icon: const Icon(Icons.close),
+            onPressed: _toggleFilterPanel,
+          ),
+        ],
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: PopScope(
-        canPop: false,
-        child: Stack(
-          children: [
-            // Map
-            AdaptiveMapWidget(
-              initialPosition: _initialPosition,
-              initialZoom: 13.0,
-              markers: _markers,
-              onMapCreated: (GoogleMapController controller) {
-                _mapController = controller;
-                setState(() {
-                  _isMapReady = true;
-                });
-                
-                _setMapStyle(controller);
-                
-                if (_markers.isEmpty && _shouldShowMarkers) {
-                  _fetchFriendsActivity();
-                }
-              },
-              onTap: (position) {
-                setState(() {
-                  _isFilterPanelVisible = false;
-                });
-              },
-            ),
-            
-            // Loading indicator
-            if (_isLoading)
-              Container(
-                color: Colors.black.withOpacity(0.3),
-                child: Center(
-                  child: Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.2),
-                          blurRadius: 10,
-                          offset: const Offset(0, 5),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: const [
-                        CircularProgressIndicator(
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
-                        ),
-                        SizedBox(height: 16),
-                        Text(
-                          "Chargement des activités...",
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                      ],
-                    ),
+      body: Stack(
+        children: [
+          AdaptiveMapWidget(
+            initialPosition: _initialPosition,
+            initialZoom: 12.0,
+            markers: _markers,
+            onMapCreated: (GoogleMapController controller) {
+              _mapController = controller;
+              setState(() {
+                _isMapReady = true;
+              });
+              if (_markers.isEmpty && _shouldShowMarkers) {
+                _fetchFriendsActivity();
+              }
+            },
+          ),
+          if (_isLoading)
+            Container(
+              color: Colors.black.withOpacity(0.3),
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.2),
+                        blurRadius: 10,
+                        offset: const Offset(0, 5),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: const [
+                      CircularProgressIndicator(
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.purple),
+                      ),
+                      SizedBox(height: 16),
+                      Text(
+                        "Chargement des activités...",
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ],
                   ),
                 ),
               ),
-            
-            // Filter button
-            FloatingFilterButton(
-              isActive: _isFilterPanelVisible,
-              onTap: () {
-                setState(() {
-                  _isFilterPanelVisible = !_isFilterPanelVisible;
-                });
-              },
-              label: "Filtres",
-              activeColor: Colors.blue,
-              inactiveColor: Colors.grey,
             ),
-            
-            // Filter panel
-            if (_isFilterPanelVisible) _buildFilterPanel(),
-          ],
-        ),
+          FloatingFilterButton(
+            isActive: _isFilterPanelVisible || 
+                     _selectedFriends.isNotEmpty || 
+                     _selectedCategories.isNotEmpty,
+            onTap: _toggleFilterPanel,
+            label: 'Filtres',
+          ),
+          AnimatedPositioned(
+            top: _isFilterPanelVisible ? 0 : -MediaQuery.of(context).size.height,
+            left: 0,
+            right: 0,
+            height: MediaQuery.of(context).size.height * 0.85,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeInOut,
+            onEnd: () {
+              setState(() {
+                _isPanelAnimating = false;
+              });
+            },
+            child: _buildFilterPanel(),
+          ),
+        ],
       ),
     );
   }
-}
+} 

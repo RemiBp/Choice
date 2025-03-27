@@ -1,6 +1,10 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../utils/constants.dart';
+import 'dart:async';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/material.dart';
+import '../services/location_service.dart';
 
 class DistanceService {
   final String _baseUrl = getBaseUrl();  // Utiliser la fonction de constants.dart
@@ -40,8 +44,13 @@ class DistanceService {
   }
 }
 
+class DistanceScreen extends StatefulWidget {
+  @override
+  _DistanceScreenState createState() => _DistanceScreenState();
+}
+
 class _DistanceScreenState extends State<DistanceScreen> {
-  final DistanceService _distanceService = DistanceService();
+  final LocationService _locationService = LocationService();
   bool _isLoading = false;
   
   // Remplacer les coordonnées statiques par des nullable
@@ -60,13 +69,7 @@ class _DistanceScreenState extends State<DistanceScreen> {
     setState(() => _isLoading = true);
     try {
       // Position par défaut (Paris) en cas d'échec
-      Position? position;
-      
-      if (kIsWeb) {
-        position = await _getWebLocation();
-      } else {
-        position = await _getNativeLocation();
-      }
+      final position = await _locationService.getCurrentPosition();
 
       setState(() {
         _originLat = position?.latitude ?? 48.8566;
@@ -83,45 +86,69 @@ class _DistanceScreenState extends State<DistanceScreen> {
     }
   }
 
-  Future<Position?> _getNativeLocation() async {
-    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      throw Exception('Services de localisation désactivés');
+  // Afficher la distance entre l'origine et la destination
+  String getDistance() {
+    if (_originLat == null || _originLng == null || 
+        _destinationLat == null || _destinationLng == null) {
+      return "Veuillez sélectionner une destination";
     }
-
-    final permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      final newPermission = await Geolocator.requestPermission();
-      if (newPermission == LocationPermission.denied) {
-        throw Exception('Permission refusée');
-      }
-    }
-
-    return await Geolocator.getCurrentPosition(
-      desiredAccuracy: LocationAccuracy.high,
+    
+    final distance = _locationService.calculateDistance(
+      _originLat!, 
+      _originLng!, 
+      _destinationLat!, 
+      _destinationLng!
     );
+    
+    if (distance < 1000) {
+      return "${distance.toStringAsFixed(0)} m";
+    } else {
+      return "${(distance / 1000).toStringAsFixed(1)} km";
+    }
   }
 
-  Future<Position?> _getWebLocation() async {
-    try {
-      final completer = Completer<Position?>();
-      html.window.navigator.geolocation.getCurrentPosition((pos) {
-        completer.complete(Position(
-          latitude: pos.coords!.latitude!,
-          longitude: pos.coords!.longitude!,
-          timestamp: DateTime.now(),
-          accuracy: pos.coords!.accuracy!,
-          altitude: pos.coords!.altitude ?? 0,
-          heading: pos.coords!.heading ?? 0,
-          speed: pos.coords!.speed ?? 0,
-          speedAccuracy: 0,
-        ));
-      }, (error) {
-        completer.completeError(error);
-      });
-      return await completer.future;
-    } catch (e) {
-      throw Exception('Erreur de géolocalisation web: $e');
-    }
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Distance Calculator'),
+      ),
+      body: Center(
+        child: _isLoading 
+          ? const CircularProgressIndicator()
+          : Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  'Votre position: ${_originLat?.toStringAsFixed(4) ?? "N/A"}, ${_originLng?.toStringAsFixed(4) ?? "N/A"}',
+                  style: Theme.of(context).textTheme.bodyLarge,
+                ),
+                const SizedBox(height: 20),
+                ElevatedButton(
+                  onPressed: () {
+                    // Simuler la sélection d'une destination (à 1km au nord)
+                    setState(() {
+                      _destinationLat = (_originLat ?? 48.8566) + 0.009;
+                      _destinationLng = _originLng ?? 2.3522;
+                    });
+                  },
+                  child: const Text('Sélectionner une destination'),
+                ),
+                const SizedBox(height: 20),
+                if (_destinationLat != null)
+                  Text(
+                    'Destination: ${_destinationLat?.toStringAsFixed(4) ?? "N/A"}, ${_destinationLng?.toStringAsFixed(4) ?? "N/A"}',
+                    style: Theme.of(context).textTheme.bodyLarge,
+                  ),
+                const SizedBox(height: 20),
+                if (_destinationLat != null)
+                  Text(
+                    'Distance: ${getDistance()}',
+                    style: Theme.of(context).textTheme.headlineMedium,
+                  ),
+              ],
+            ),
+      ),
+    );
   }
 }

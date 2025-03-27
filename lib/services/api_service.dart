@@ -1,13 +1,13 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'dart:io';
-import '../utils/constants.dart';
 import '../utils/feed_constants.dart';
 import '../models/post.dart';
 import '../models/comment.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode;
 import 'package:dio/dio.dart';
 import '../screens/utils.dart';
+import 'dart:math' as math;
 
 // Enum manquant pour les types de contenu du feed du producteur
 enum ProducerFeedContentType {
@@ -277,7 +277,7 @@ class ApiService {
   }
 
   Future<List<Post>> getSavedPosts(String userId) async {
-    final url = Uri.parse('${getBaseUrl()}/api/users/$userId/saved-posts');
+    final url = Uri.parse('${_baseUrl}/api/users/$userId/saved-posts');
     try {
       final response = await http.get(url);
       if (response.statusCode == 200) {
@@ -292,7 +292,7 @@ class ApiService {
   }
 
   Future<String> uploadMedia(String userId, dynamic media) async {
-    final url = Uri.parse('${getBaseUrl()}/api/media/upload');
+    final url = Uri.parse('${_baseUrl}/api/media/upload');
     
     try {
       late http.MultipartRequest request;
@@ -324,7 +324,7 @@ class ApiService {
   /// Télécharger une image de profil et retourner son URL
   Future<String?> uploadImage(String imagePath) async {
     try {
-      final url = Uri.parse('${getBaseUrl()}/api/media/upload/profile');
+      final url = Uri.parse('${_baseUrl}/api/media/upload/profile');
       
       // Vérifier si le fichier existe
       final file = File(imagePath);
@@ -369,8 +369,9 @@ class ApiService {
   static Future<Map<String, dynamic>> getUserProfile(String userId) async {
     try {
       print('🔍 Récupération du profil utilisateur $userId');
-
-      final uri = Uri.parse('${getBaseUrl()}/api/user/$userId');
+      
+      final baseUrl = getBaseUrl();
+      final uri = Uri.parse('${baseUrl}/api/user/$userId');
       print('🔍 Requête vers : $uri');
 
       final response = await http.get(uri);
@@ -393,8 +394,9 @@ class ApiService {
   static Future<List<dynamic>> getUserFavorites(String userId) async {
     try {
       print('🔍 Récupération des favoris pour $userId');
-
-      final uri = Uri.parse('${getBaseUrl()}/api/user/$userId/favorites');
+      
+      final baseUrl = getBaseUrl();
+      final uri = Uri.parse('${baseUrl}/api/user/$userId/favorites');
       print('🔍 Requête vers : $uri');
 
       final response = await http.get(uri);
@@ -417,7 +419,7 @@ class ApiService {
   Future<Map<String, dynamic>> getProducerDetails(String producerId) async {
     try {
       print('🔍 Chargement des détails pour le producteur $producerId');
-      final uri = Uri.parse('${getBaseUrl()}/api/producers/$producerId');
+      final uri = Uri.parse('${_baseUrl}/api/producers/$producerId');
       final response = await http.get(uri);
 
       if (response.statusCode == 200) {
@@ -435,7 +437,7 @@ class ApiService {
 
   Future<Map<String, dynamic>> getProducerLeisureDetails(String producerId) async {
     try {
-      final url = Uri.parse('${getBaseUrl()}/api/leisureproducers/$producerId');
+      final url = Uri.parse('${_baseUrl}/api/leisureproducers/$producerId');
       print('🔍 Requête détails producteur loisir vers : $url');
       
       final response = await http.get(url);
@@ -470,8 +472,9 @@ class ApiService {
       }..removeWhere((key, value) => value == null);
 
       print('🔍 Recherche : $query');
-
-      final uri = Uri.parse('${getBaseUrl()}/api/search');
+      
+      final baseUrl = getBaseUrl();
+      final uri = Uri.parse('${baseUrl}/api/search');
       print('🔍 Requête vers : $uri');
 
       final response = await http.post(
@@ -496,7 +499,7 @@ class ApiService {
 
   Future<List<Post>> getFeed(String userId, int page, int limit) async {
     try {
-      final url = Uri.parse('${getBaseUrl()}/api/posts').replace(
+      final url = Uri.parse('${_baseUrl}/api/posts').replace(
         queryParameters: {
           'userId': userId,
           'page': page.toString(),
@@ -548,7 +551,7 @@ class ApiService {
     Map<String, String>? queryParams,
   }) async {
     try {
-      final url = Uri.parse('${getBaseUrl()}/$endpoint')
+      final url = Uri.parse('${_baseUrl}/$endpoint')
           .replace(queryParameters: queryParams);
 
       print('🔍 Requête feed vers : $url');
@@ -595,7 +598,7 @@ class ApiService {
     required String userId,
   }) async {
     try {
-      final url = Uri.parse('${getBaseUrl()}/api/posts/$postId/view');
+      final url = Uri.parse('${_baseUrl}/api/posts/$postId/view');
       
       final response = await http.post(
         url,
@@ -610,398 +613,6 @@ class ApiService {
       print('❌ Erreur trackPostView: $e');
       return false;
     }
-  }
-
-  /// Récupérer la liste des amis
-  Future<List<Map<String, dynamic>>> getFriends(String userId) async {
-    try {
-      final url = Uri.parse('${getBaseUrl()}/api/friends').replace(
-        queryParameters: {'userId': userId}
-      );
-      
-      final response = await http.get(url);
-      if (response.statusCode == 200) {
-        return List<Map<String, dynamic>>.from(json.decode(response.body));
-      }
-      throw Exception('Erreur lors de la récupération des amis');
-    } catch (e) {
-      print('❌ Erreur getFriends: $e');
-      rethrow;
-    }
-  }
-
-  /// Récupérer les activités des amis
-  Future<List<Map<String, dynamic>>> getFriendsActivity({
-    required String userId,
-    double? latitude,
-    double? longitude,
-    double radius = 10000,
-    bool showInterests = true,
-    bool showChoices = true,
-    List<String>? selectedFriends,
-    List<String>? selectedCategories,
-  }) async {
-    try {
-      final queryParams = {
-        'userId': userId,
-        if (latitude != null) 'latitude': latitude.toString(),
-        if (longitude != null) 'longitude': longitude.toString(),
-        'radius': radius.toString(),
-        'showInterests': showInterests.toString(),
-        'showChoices': showChoices.toString(),
-        if (selectedFriends?.isNotEmpty ?? false) 'friends': selectedFriends!.join(','),
-        if (selectedCategories?.isNotEmpty ?? false) 'categories': selectedCategories!.join(','),
-      };
-
-      final url = Uri.parse('${getBaseUrl()}/api/friendsActivity').replace(
-        queryParameters: queryParams
-      );
-      
-      final response = await http.get(url);
-      if (response.statusCode == 200) {
-        return List<Map<String, dynamic>>.from(json.decode(response.body));
-      }
-      throw Exception('Erreur lors de la récupération des activités des amis');
-    } catch (e) {
-      print('❌ Erreur getFriendsActivity: $e');
-      rethrow;
-    }
-  }
-
-  // Méthode spécifique pour le feed des producteurs
-  Future<Map<String, dynamic>> _fetchProducerFeed(int page, ProducerFeedContentType filter, String producerId) async {
-    // API endpoint to get producer-specific feed
-    String endpoint = '';
-    switch (filter) {
-      case ProducerFeedContentType.venue:
-        endpoint = 'api/producers/$producerId/venue-posts';
-        break;
-      case ProducerFeedContentType.interactions:
-        endpoint = 'api/producers/$producerId/interactions';
-        break;
-      case ProducerFeedContentType.localTrends:
-        endpoint = 'api/producers/$producerId/local-trends';
-        break;
-    }
-    
-    final response = await fetchFeed(
-      endpoint: endpoint,
-      queryParams: {
-        'page': page.toString(),
-        'limit': '10',
-      },
-    );
-    
-    return response;
-  }
-
-  // Renommer la deuxième méthode fetchFeed pour éviter le conflit
-  Future<Map<String, dynamic>> fetchProducerFeed({
-    required String endpoint,
-    required Map<String, String> queryParams,
-  }) async {
-    try {
-      final Uri uri = _buildUri(endpoint, queryParams);
-      print('🔍 Récupération du feed: $uri');
-      
-      final response = await http.get(uri);
-      
-      if (response.statusCode == 200) {
-        return json.decode(response.body);
-      } else {
-        print('⚠️ Erreur API: ${response.statusCode}. Utilisation des données mockées.');
-        // Générer des données mockées temporaires si l'API n'est pas disponible
-        return _generateMockFeedData(endpoint, queryParams);
-      }
-    } catch (e) {
-      print('❌ Exception: $e. Utilisation des données mockées.');
-      // Générer des données mockées temporaires si l'API n'est pas disponible
-      return _generateMockFeedData(endpoint, queryParams);
-    }
-  }
-  
-  Uri _buildUri(String endpoint, Map<String, String> queryParams) {
-    String baseUrl = _baseUrl;
-    
-    // Nettoyer le baseUrl s'il termine par un slash
-    if (baseUrl.endsWith('/')) {
-      baseUrl = baseUrl.substring(0, baseUrl.length - 1);
-    }
-    
-    // Nettoyer l'endpoint s'il commence par un slash
-    if (endpoint.startsWith('/')) {
-      endpoint = endpoint.substring(1);
-    }
-    
-    final Uri uri = Uri.parse('$baseUrl/$endpoint').replace(queryParameters: queryParams);
-    return uri;
-  }
-  
-  Map<String, dynamic> _generateMockFeedData(String endpoint, Map<String, String> queryParams) {
-    final int page = int.tryParse(queryParams['page'] ?? '1') ?? 1;
-    final int limit = int.tryParse(queryParams['limit'] ?? '10') ?? 10;
-    
-    bool isRestaurantProducer = !endpoint.contains('leisure');
-    bool isLocalTrends = endpoint.contains('local-trends');
-    bool isInteractions = endpoint.contains('interactions');
-    bool isVenue = endpoint.contains('venue-posts');
-    
-    List<Map<String, dynamic>> items = [];
-    
-    // Déterminer quel type de contenu générer
-    for (int i = 0; i < limit * 2; i++) { // Générer plus d'items pour pouvoir les trier
-      if (isLocalTrends) {
-        items.add(_generateLocalTrendPost(isRestaurantProducer, i));
-      } else if (isInteractions) {
-        items.add(_generateInteractionPost(isRestaurantProducer, i));
-      } else {
-        items.add(_generateVenuePost(isRestaurantProducer, i));
-      }
-    }
-    
-    // Trier les posts selon l'algorithme intelligent
-    items = FeedConstants.sortPostsByScore(items);
-    
-    // Prendre seulement le nombre d'items demandés après tri
-    if (items.length > limit) {
-      items = items.sublist(0, limit);
-    }
-    
-    return {
-      'items': items,
-      'hasMore': page < 3, // Limiter à 3 pages pour les données mockées
-      'page': page,
-      'total_pages': 3,
-      'total_items': 30,
-    };
-  }
-  
-  Map<String, dynamic> _generateVenuePost(bool isRestaurantProducer, int index) {
-    final timestamp = DateTime.now().subtract(Duration(hours: index * 3));
-    final Map<String, dynamic> post = {
-      '_id': 'venue_post_${timestamp.millisecondsSinceEpoch}_$index',
-      'posted_at': timestamp.toIso8601String(),
-      'time_posted': timestamp.toIso8601String(),
-      'isProducerPost': true,
-      'isLeisureProducer': !isRestaurantProducer,
-      'producer_id': 'producer_${timestamp.millisecondsSinceEpoch}',
-      'likes': List.generate(5 + index, (i) => 'user_$i'),
-      'likes_count': 5 + index,
-      'interested_count': 3 + index,
-      'interestedCount': 3 + index,
-      'choice_count': 2 + index,
-      'choiceCount': 2 + index,
-      'comments': List.generate(1 + (index % 3), (i) => {
-        'id': 'comment_${i}_${timestamp.millisecondsSinceEpoch}',
-        'userId': 'user_commenter_$i',
-        'username': 'Utilisateur ${i + 1}',
-        'userAvatar': 'https://picsum.photos/id/${50 + i}/100/100',
-        'content': 'Commentaire ${i + 1} sur ce lieu. ${isRestaurantProducer ? "J\'adore ce restaurant !" : "Super endroit pour se détendre !"}',
-        'timestamp': DateTime.now().subtract(Duration(hours: i)).toIso8601String(),
-        'likes': List.generate(i, (j) => 'user_$j'),
-      }),
-    };
-    
-    // Ajouter des champs spécifiques selon le type de producteur
-    if (isRestaurantProducer) {
-      post.addAll({
-        'content': 'Nouvelle spécialité de la semaine ! Notre chef vous propose ${index % 2 == 0 ? "une création unique" : "un plat traditionnel"} à découvrir dès maintenant. #gastronomie',
-        'author_name': 'Restaurant Le Gourmet',
-        'author_avatar': 'https://picsum.photos/id/${100 + index}/100/100',
-        'author_id': 'restaurant_producer_1',
-        'media': [
-          {
-            'type': 'image',
-            'url': 'https://picsum.photos/id/${200 + index}/600/400',
-            'thumbnail': 'https://picsum.photos/id/${200 + index}/100/100',
-            'aspectRatio': 1.5,
-          }
-        ],
-        'tags': ['restaurant', 'gastronomie', 'cuisine', 'paris'],
-        'location': {
-          'name': 'Restaurant Le Gourmet',
-          'address': '123 Rue de Paris, 75001 Paris',
-          'latitude': 48.856614,
-          'longitude': 2.3522219,
-        }
-      });
-    } else {
-      post.addAll({
-        'content': 'Nouvel événement à ne pas manquer ! ${index % 2 == 0 ? "Une exposition exceptionnelle" : "Un spectacle unique"} vous attend ce weekend. #culture #loisirs',
-        'author_name': 'Espace Culturel Lumière',
-        'author_avatar': 'https://picsum.photos/id/${150 + index}/100/100',
-        'author_id': 'leisure_producer_1',
-        'media': [
-          {
-            'type': 'image',
-            'url': 'https://picsum.photos/id/${250 + index}/600/400',
-            'thumbnail': 'https://picsum.photos/id/${250 + index}/100/100',
-            'aspectRatio': 1.5,
-          }
-        ],
-        'tags': ['culture', 'exposition', 'loisirs', 'paris'],
-        'location': {
-          'name': 'Espace Culturel Lumière',
-          'address': '45 Avenue des Arts, 75014 Paris',
-          'latitude': 48.845614,
-          'longitude': 2.3422219,
-        }
-      });
-    }
-    
-    return post;
-  }
-  
-  Map<String, dynamic> _generateInteractionPost(bool isRestaurantProducer, int index) {
-    final timestamp = DateTime.now().subtract(Duration(days: index % 7, hours: index * 2));
-    final Map<String, dynamic> post = {
-      '_id': 'interaction_${timestamp.millisecondsSinceEpoch}_$index',
-      'posted_at': timestamp.toIso8601String(),
-      'time_posted': timestamp.toIso8601String(),
-      'isProducerPost': false,
-      'isUserPost': true,
-      'user_id': 'user_${100 + index}',
-      'producer_id': 'producer_${timestamp.millisecondsSinceEpoch}',
-      'likes': List.generate(3 + (index % 5), (i) => 'user_$i'),
-      'likes_count': 3 + (index % 5),
-      'comments': List.generate(index % 3, (i) => {
-        'id': 'comment_${i}_${timestamp.millisecondsSinceEpoch}',
-        'userId': 'user_commenter_$i',
-        'username': 'Utilisateur ${i + 1}',
-        'userAvatar': 'https://picsum.photos/id/${50 + i}/100/100',
-        'content': 'Super expérience, merci !',
-        'timestamp': DateTime.now().subtract(Duration(hours: i)).toIso8601String(),
-        'likes': List.generate(i, (j) => 'user_$j'),
-      }),
-    };
-    
-    // Ajouter des champs spécifiques selon le type de producteur
-    if (isRestaurantProducer) {
-      final int rating = 4 + (index % 2);
-      post.addAll({
-        'content': 'J\'ai passé un excellent moment au restaurant ! ${rating}/5 ⭐️ La nourriture était ${rating == 5 ? "excellente" : "très bonne"} et le service impeccable.',
-        'author_name': 'Jean Dupont',
-        'author_avatar': 'https://picsum.photos/id/${300 + index}/100/100',
-        'author_id': 'user_${100 + index}',
-        'media': [
-          {
-            'type': 'image',
-            'url': 'https://picsum.photos/id/${400 + index}/600/400',
-            'thumbnail': 'https://picsum.photos/id/${400 + index}/100/100',
-            'aspectRatio': 1.5,
-          }
-        ],
-        'rating': rating,
-        'location': {
-          'name': 'Restaurant Le Gourmet',
-          'address': '123 Rue de Paris, 75001 Paris',
-          'latitude': 48.856614,
-          'longitude': 2.3522219,
-        }
-      });
-    } else {
-      final int rating = 4 + (index % 2);
-      post.addAll({
-        'content': 'Superbe exposition ! ${rating}/5 ⭐️ J\'ai adoré découvrir ces œuvres exceptionnelles dans un cadre aussi agréable.',
-        'author_name': 'Marie Martin',
-        'author_avatar': 'https://picsum.photos/id/${350 + index}/100/100',
-        'author_id': 'user_${150 + index}',
-        'media': [
-          {
-            'type': 'image',
-            'url': 'https://picsum.photos/id/${450 + index}/600/400',
-            'thumbnail': 'https://picsum.photos/id/${450 + index}/100/100',
-            'aspectRatio': 1.5,
-          }
-        ],
-        'rating': rating,
-        'location': {
-          'name': 'Espace Culturel Lumière',
-          'address': '45 Avenue des Arts, 75014 Paris',
-          'latitude': 48.845614,
-          'longitude': 2.3422219,
-        }
-      });
-    }
-    
-    return post;
-  }
-  
-  Map<String, dynamic> _generateLocalTrendPost(bool isRestaurantProducer, int index) {
-    final timestamp = DateTime.now().subtract(Duration(days: index % 3, hours: index));
-    final isCompetitor = index % 3 == 0;
-    
-    final Map<String, dynamic> post = {
-      '_id': 'trend_${timestamp.millisecondsSinceEpoch}_$index',
-      'posted_at': timestamp.toIso8601String(),
-      'time_posted': timestamp.toIso8601String(),
-      'isProducerPost': true,
-      'isLeisureProducer': !isRestaurantProducer,
-      'is_trending': true,
-      'trend_score': 80 + (index % 20),
-      'producer_id': isCompetitor ? 'competitor_${index}' : 'producer_${timestamp.millisecondsSinceEpoch}',
-      'is_competitor': isCompetitor,
-      'likes': List.generate(10 + index, (i) => 'user_$i'),
-      'likes_count': 10 + index,
-      'interested_count': 7 + index,
-      'interestedCount': 7 + index,
-      'comments': [],
-    };
-    
-    // Ajouter des champs spécifiques selon le type de producteur
-    if (isRestaurantProducer) {
-      post.addAll({
-        'content': isCompetitor 
-            ? 'Découvrez notre nouvelle carte de saison ! Des saveurs uniques qui raviront vos papilles. #gastronomie'
-            : 'Tendances culinaires à Paris : les plats qui font fureur en ce moment ! #foodtrends',
-        'author_name': isCompetitor ? 'Restaurant Concurrent' : 'Tendances Gastronomiques',
-        'author_avatar': 'https://picsum.photos/id/${500 + index}/100/100',
-        'author_id': isCompetitor ? 'competitor_${index}' : 'trends_1',
-        'media': [
-          {
-            'type': 'image',
-            'url': 'https://picsum.photos/id/${600 + index}/600/400',
-            'thumbnail': 'https://picsum.photos/id/${600 + index}/100/100',
-            'aspectRatio': 1.5,
-          }
-        ],
-        'tags': ['restaurant', 'gastronomie', 'tendances', 'paris'],
-        'location': isCompetitor ? {
-          'name': 'Restaurant Concurrent',
-          'address': '456 Boulevard Saint-Germain, 75006 Paris',
-          'latitude': 48.853614,
-          'longitude': 2.3392219,
-          'distance': '2.3 km'
-        } : null
-      });
-    } else {
-      post.addAll({
-        'content': isCompetitor 
-            ? 'Exposition exceptionnelle ce weekend ! Venez nombreux découvrir nos nouvelles acquisitions. #culture'
-            : 'Les événements culturels à ne pas manquer ce mois-ci à Paris ! #culturaltrends',
-        'author_name': isCompetitor ? 'Galerie Concurrente' : 'Guide Culturel Paris',
-        'author_avatar': 'https://picsum.photos/id/${550 + index}/100/100',
-        'author_id': isCompetitor ? 'competitor_${index}' : 'trends_2',
-        'media': [
-          {
-            'type': 'image',
-            'url': 'https://picsum.photos/id/${650 + index}/600/400',
-            'thumbnail': 'https://picsum.photos/id/${650 + index}/100/100',
-            'aspectRatio': 1.5,
-          }
-        ],
-        'tags': ['culture', 'exposition', 'tendances', 'paris'],
-        'location': isCompetitor ? {
-          'name': 'Galerie Concurrente',
-          'address': '789 Rue de Rivoli, 75001 Paris',
-          'latitude': 48.863614,
-          'longitude': 2.3372219,
-          'distance': '3.1 km'
-        } : null
-      });
-    }
-    
-    return post;
   }
 
   /// Marque un contenu comme intéressant
@@ -1113,5 +724,453 @@ class ApiService {
       'isProducerPost': true,
       'isLeisureProducer': false,
     };
+  }
+
+  // Méthode pour obtenir les données utilisateur
+  // Suppression de cette méthode dupliquée - nous conservons getUserProfile ci-dessus
+  
+  // Méthode pour obtenir les favoris de l'utilisateur
+  // Suppression de cette méthode dupliquée - nous conservons getUserFavorites ci-dessus
+  
+  // Méthode pour obtenir les détails d'un producteur
+  // Suppression de cette méthode dupliquée - nous conservons getProducerDetails ci-dessus
+
+  // Méthode pour rechercher des producteurs
+  Future<List<dynamic>> searchProducers(String query, {int? page}) async {
+    try {
+      final uri = Uri.parse('${_baseUrl}/api/search');
+      final response = await http.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'query': query,
+          'page': page ?? 1,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return data['results'] ?? [];
+      } else {
+        throw Exception('Failed to search producers');
+      }
+    } catch (e) {
+      throw Exception('Error searching producers: $e');
+    }
+  }
+
+  // Méthode pour obtenir les publications d'un producteur
+  Future<List<dynamic>> getProducerPosts(String producerId, {int page = 1, int limit = 10}) async {
+    try {
+      final url = Uri.parse('${_baseUrl}/api/posts').replace(
+        queryParameters: {
+          'producerId': producerId,
+          'page': page.toString(),
+          'limit': limit.toString(),
+        },
+      );
+      final response = await http.get(url);
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return data['posts'] ?? [];
+      } else {
+        throw Exception('Failed to load producer posts');
+      }
+    } catch (e) {
+      throw Exception('Error getting producer posts: $e');
+    }
+  }
+
+  // Méthode générique pour les appels d'API
+  Future<dynamic> apiCall(String endpoint, {
+    String method = 'GET',
+    Map<String, dynamic>? params,
+    Map<String, dynamic>? data,
+    Map<String, String>? headers,
+  }) async {
+    try {
+      final url = Uri.parse('${_baseUrl}/$endpoint')
+          .replace(queryParameters: params);
+      
+      headers ??= {'Content-Type': 'application/json'};
+      
+      http.Response response;
+      switch (method.toUpperCase()) {
+        case 'GET':
+          response = await http.get(url, headers: headers);
+          break;
+        case 'POST':
+          response = await http.post(
+            url,
+            headers: headers,
+            body: data != null ? json.encode(data) : null,
+          );
+          break;
+        case 'PUT':
+          response = await http.put(
+            url,
+            headers: headers,
+            body: data != null ? json.encode(data) : null,
+          );
+          break;
+        case 'DELETE':
+          response = await http.delete(url, headers: headers);
+          break;
+        default:
+          throw Exception('Unsupported method: $method');
+      }
+      
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        if (response.body.isEmpty) return {};
+        return json.decode(response.body);
+      } else {
+        throw Exception('API call failed: ${response.statusCode}');
+      }
+    } catch (e) {
+      throw Exception('API call error: $e');
+    }
+  }
+
+  // Enregistrer une vue sur un post
+  Future<void> recordPostView(String postId) async {
+    try {
+      final url = Uri.parse('${_baseUrl}/api/posts/$postId/view');
+      final response = await http.post(url);
+      
+      if (response.statusCode != 200) {
+        throw Exception('Failed to record post view');
+      }
+    } catch (e) {
+      // Silently fail as this is non-critical
+      print('Error recording post view: $e');
+    }
+  }
+
+  // Obtenir les amis d'un utilisateur
+  Future<List<dynamic>> getUserFriends(String userId, {int page = 1, int limit = 20}) async {
+    try {
+      final Uri uri = Uri.parse('$_baseUrl/api/users/$userId/friends');
+      
+      final response = await http.get(uri);
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else {
+        print('Erreur lors de la récupération des amis: ${response.statusCode}');
+        // Données simulées pour les tests
+        return [
+          {
+            'id': 'friend1',
+            'name': 'Alice Dupont',
+            'avatar': 'https://randomuser.me/api/portraits/women/12.jpg',
+            'status': 'online',
+            'lastSeen': DateTime.now().toIso8601String(),
+          },
+          {
+            'id': 'friend2',
+            'name': 'Thomas Martin',
+            'avatar': 'https://randomuser.me/api/portraits/men/33.jpg',
+            'status': 'offline',
+            'lastSeen': DateTime.now().subtract(Duration(hours: 2)).toIso8601String(),
+          },
+          {
+            'id': 'friend3',
+            'name': 'Sophie Petit',
+            'avatar': 'https://randomuser.me/api/portraits/women/56.jpg',
+            'status': 'online',
+            'lastSeen': DateTime.now().toIso8601String(),
+          }
+        ];
+      }
+    } catch (e) {
+      print('❌ Erreur lors de la récupération des amis: $e');
+      // Données simulées pour les tests
+      return [
+        {
+          'id': 'friend1',
+          'name': 'Alice Dupont',
+          'avatar': 'https://randomuser.me/api/portraits/women/12.jpg',
+          'status': 'online',
+          'lastSeen': DateTime.now().toIso8601String(),
+        },
+        {
+          'id': 'friend2',
+          'name': 'Thomas Martin',
+          'avatar': 'https://randomuser.me/api/portraits/men/33.jpg',
+          'status': 'offline',
+          'lastSeen': DateTime.now().subtract(Duration(hours: 2)).toIso8601String(),
+        }
+      ];
+    }
+  }
+
+  // Récupérer les centres d'intérêt d'un ami
+  Future<List<dynamic>> getFriendInterests(String friendId) async {
+    try {
+      final Uri uri = Uri.parse('$_baseUrl/api/users/$friendId/interests');
+      
+      final response = await http.get(uri);
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else {
+        print('Erreur lors de la récupération des intérêts: ${response.statusCode}');
+        // Données simulées pour les tests
+        return [
+          {
+            '_id': 'interest1',
+            'venue': {
+              'name': 'Café des Arts',
+              'category': 'Café',
+              'location': {
+                'type': 'Point',
+                'coordinates': [2.3522, 48.8566]
+              },
+              'address': '15 rue des Arts, Paris',
+              'photo': 'https://images.unsplash.com/photo-1554118811-1e0d58224f24?ixlib=rb-1.2.1&w=1080&q=80',
+              'description': 'Un café charmant au cœur de Paris'
+            },
+            'created_at': DateTime.now().subtract(Duration(days: 2)).toIso8601String(),
+            'comment': 'J\'aimerais bien essayer ce café bientôt'
+          },
+          {
+            '_id': 'interest2',
+            'venue': {
+              'name': 'Restaurant La Bonne Table',
+              'category': 'Restaurant',
+              'location': {
+                'type': 'Point',
+                'coordinates': [2.3612, 48.8676]
+              },
+              'address': '27 avenue Montaigne, Paris',
+              'photo': 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?ixlib=rb-1.2.1&w=1080&q=80',
+              'description': 'Cuisine traditionnelle française dans un cadre élégant'
+            },
+            'created_at': DateTime.now().subtract(Duration(days: 5)).toIso8601String()
+          }
+        ];
+      }
+    } catch (e) {
+      print('❌ Erreur lors de la récupération des intérêts: $e');
+      // Données simulées pour les tests
+      return [
+        {
+          '_id': 'interest1',
+          'venue': {
+            'name': 'Café des Arts',
+            'category': 'Café',
+            'location': {
+              'type': 'Point',
+              'coordinates': [2.3522, 48.8566]
+            },
+            'address': '15 rue des Arts, Paris',
+            'photo': 'https://images.unsplash.com/photo-1554118811-1e0d58224f24?ixlib=rb-1.2.1&w=1080&q=80'
+          },
+          'created_at': DateTime.now().subtract(Duration(days: 2)).toIso8601String()
+        }
+      ];
+    }
+  }
+
+  // Récupérer les choix d'un ami
+  Future<List<dynamic>> getFriendChoices(String friendId) async {
+    try {
+      final Uri uri = Uri.parse('$_baseUrl/api/users/$friendId/choices');
+      
+      final response = await http.get(uri);
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else {
+        print('Erreur lors de la récupération des choix: ${response.statusCode}');
+        // Données simulées pour les tests
+        return [
+          {
+            '_id': 'choice1',
+            'venue': {
+              'name': 'Bistrot du Coin',
+              'category': 'Restaurant',
+              'location': {
+                'type': 'Point',
+                'coordinates': [2.3522, 48.8566]
+              },
+              'address': '42 rue de la Paix, Paris',
+              'photo': 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?ixlib=rb-1.2.1&w=1080&q=80',
+              'description': 'Bistrot traditionnel parisien'
+            },
+            'visit_date': DateTime.now().subtract(Duration(days: 7)).toIso8601String(),
+            'rating': 4.5,
+            'review': 'Excellent bistrot, service attentionné et cuisine délicieuse'
+          },
+          {
+            '_id': 'choice2',
+            'venue': {
+              'name': 'Le Café Moderne',
+              'category': 'Café',
+              'location': {
+                'type': 'Point',
+                'coordinates': [2.3452, 48.8596]
+              },
+              'address': '12 boulevard Haussman, Paris',
+              'photo': 'https://images.unsplash.com/photo-1534040385115-33dcb3acba5b?ixlib=rb-1.2.1&w=1080&q=80',
+              'description': 'Café moderne avec une belle terrasse'
+            },
+            'visit_date': DateTime.now().subtract(Duration(days: 14)).toIso8601String(),
+            'rating': 4.0,
+            'review': 'Beau café, bons produits et belle décoration'
+          }
+        ];
+      }
+    } catch (e) {
+      print('❌ Erreur lors de la récupération des choix: $e');
+      // Données simulées pour les tests
+      return [
+        {
+          '_id': 'choice1',
+          'venue': {
+            'name': 'Bistrot du Coin',
+            'category': 'Restaurant',
+            'location': {
+              'type': 'Point',
+              'coordinates': [2.3522, 48.8566]
+            },
+            'address': '42 rue de la Paix, Paris',
+            'photo': 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?ixlib=rb-1.2.1&w=1080&q=80'
+          },
+          'visit_date': DateTime.now().subtract(Duration(days: 7)).toIso8601String(),
+          'rating': 4.5
+        }
+      ];
+    }
+  }
+
+  // Récupérer l'historique des emplacements
+  Future<List<dynamic>> getLocationHistory() async {
+    try {
+      final Uri uri = Uri.parse('$_baseUrl/api/location-history');
+      
+      final response = await http.get(uri);
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else {
+        print('Erreur lors de la récupération de l\'historique: ${response.statusCode}');
+        return [];
+      }
+    } catch (e) {
+      print('❌ Erreur lors de la récupération de l\'historique: $e');
+      return [];
+    }
+  }
+
+  // Récupérer les points chauds dans une zone
+  Future<List<dynamic>> getHotspots(double latitude, double longitude, {double radius = 2000}) async {
+    try {
+      final Uri uri = Uri.parse('$_baseUrl/api/location-history/hotspots')
+        .replace(queryParameters: {
+          'latitude': latitude.toString(),
+          'longitude': longitude.toString(),
+          'radius': radius.toString()
+        });
+
+      final response = await http.get(uri);
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else {
+        print('Erreur lors de la récupération des points chauds: ${response.statusCode}');
+        return [];
+      }
+    } catch (e) {
+      print('❌ Erreur lors de la récupération des points chauds: $e');
+      return [];
+    }
+  }
+
+  // Récupérer la localisation d'un producteur
+  Future<Map<String, dynamic>> getProducerLocation(String producerId) async {
+    try {
+      final Uri uri = Uri.parse('$_baseUrl/api/producers/$producerId/location');
+      
+      final response = await http.get(uri);
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else {
+        print('Erreur lors de la récupération de la localisation: ${response.statusCode}');
+        return {};
+      }
+    } catch (e) {
+      print('❌ Erreur lors de la récupération de la localisation: $e');
+      return {};
+    }
+  }
+
+  /// Obtient les producteurs proches d'une position donnée
+  Future<List<dynamic>> getNearbyProducers(double latitude, double longitude, {double radius = 5000}) async {
+    try {
+      final url = Uri.parse('$_baseUrl/api/producers/nearby')
+        .replace(queryParameters: {
+          'lat': latitude.toString(),
+          'lon': longitude.toString(),
+          'radius': radius.toString(),
+        });
+        
+      final response = await http.get(url);
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return data['producers'] ?? [];
+      } else {
+        print('❌ Erreur lors de la récupération des producteurs: ${response.statusCode}');
+        return [];
+      }
+    } catch (e) {
+      print('❌ Exception: $e');
+      // Retourner des données fictives en cas d'erreur
+      return _getFakeProducers(latitude, longitude);
+    }
+  }
+  
+  /// Génère des données factices de producteurs
+  List<Map<String, dynamic>> _getFakeProducers(double latitude, double longitude) {
+    final List<Map<String, dynamic>> fakeProducers = [];
+    final random = math.Random();
+    
+    final List<String> categories = ['Restaurant', 'Café', 'Bar', 'Boulangerie', 'Épicerie'];
+    final List<String> tags = ['Bio', 'Local', 'Végétarien', 'Vegan', 'Sans gluten', 'Zéro déchet'];
+    
+    // Générer 10 producteurs aléatoires
+    for (int i = 0; i < 10; i++) {
+      // Position aléatoire dans un rayon de 5km
+      final double distance = random.nextDouble() * 0.05;
+      final double angle = random.nextDouble() * math.pi * 2;
+      final double lat = latitude + distance * math.sin(angle);
+      final double lon = longitude + distance * math.cos(angle);
+      
+      fakeProducers.add({
+        '_id': 'fake_${i}_${random.nextInt(10000)}',
+        'name': 'Producteur ${i + 1}',
+        'description': 'Un super endroit à découvrir !',
+        'address': '${random.nextInt(100)} rue Example, Paris',
+        'category': categories[random.nextInt(categories.length)],
+        'tags': List.generate(
+          random.nextInt(3) + 1, 
+          (_) => tags[random.nextInt(tags.length)]
+        ),
+        'rating': (3 + random.nextInt(20) / 10).toStringAsFixed(1),
+        'is_from_friend': random.nextBool(),
+        'gps_coordinates': {
+          'type': 'Point',
+          'coordinates': [lon, lat]
+        },
+        'friend_interests': random.nextBool() 
+          ? List.generate(random.nextInt(3) + 1, (_) => tags[random.nextInt(tags.length)])
+          : [],
+      });
+    }
+    
+    return fakeProducers;
   }
 }

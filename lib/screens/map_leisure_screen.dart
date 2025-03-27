@@ -2,7 +2,7 @@ import 'dart:isolate';
 import 'dart:async';
 import 'dart:math' show sin, cos, sqrt, atan2, pi;
 import 'package:flutter/foundation.dart' show kIsWeb, compute;
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide FilterChip;
 import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:location/location.dart';
@@ -17,6 +17,14 @@ import 'utils.dart';
 import '../widgets/maps/adaptive_map_widget.dart';
 import 'map_screen.dart'; // Importer la carte des restaurants
 import 'map_friends.dart'; // Importer l'écran MapFriendsScreen
+import '../widgets/filters/floating_filter_button.dart';
+import '../widgets/filters/filter_panel.dart';
+import '../widgets/filters/filter_section.dart';
+import '../widgets/filters/filter_toggle_card.dart';
+import '../widgets/filters/filter_chip_group.dart';
+import '../widgets/filters/custom_filter_chip.dart' as custom;
+import 'producer_screen.dart';
+import '../services/api_service.dart';
 
 class MapLeisureScreen extends StatefulWidget {
   const MapLeisureScreen({Key? key}) : super(key: key);
@@ -280,8 +288,8 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
   }
 
   // Contrôle du panneau de filtres
-  bool _isFilterPanelVisible = false;
-  bool _isPanelAnimating = false; // Pour éviter les clics multiples pendant l'animation
+  bool _isFilterPanelVisible = false; // Pour contrôler la visibilité du panneau de filtres
+  bool _isPanelAnimating = false; // Pour éviter les animations multiples
 
   // CATEGORY_MAPPING selon l'instruction du projet
   final Map<String, String> CATEGORY_MAPPING = {
@@ -2295,130 +2303,352 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: PopScope(
-        canPop: false,
-        child: Stack(
-          children: [
-            AdaptiveMapWidget(
-              initialPosition: _initialPosition,
-              initialZoom: 12.0,
-              markers: _markers,
-              onMapCreated: (GoogleMapController controller) {
-                _mapController = controller;
-                setState(() {
-                  _isMapReady = true;
-                });
-                _setMapStyle(controller);
-                if (_markers.isEmpty && _shouldShowMarkers) {
-                  _fetchNearbyProducers(_initialPosition.latitude, _initialPosition.longitude);
-                }
-              },
-            ),
-            if (_isLoading)
-              Container(
-                color: Colors.black.withOpacity(0.3),
-                child: Center(
-                  child: Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.2),
-                          blurRadius: 10,
-                          offset: const Offset(0, 5),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: const [
-                        CircularProgressIndicator(
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.purple),
-                        ),
-                        SizedBox(height: 16),
-                        Text(
-                          "Chargement des lieux...",
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                      ],
-                    ),
+      body: Stack(
+        children: [
+          AdaptiveMapWidget(
+            initialLatLng: _initialPosition,
+            initialZoom: 12.0,
+            markers: _markers,
+            onMapCreated: (GoogleMapController controller) {
+              _mapController = controller;
+              setState(() {
+                _isMapReady = true;
+              });
+              _setMapStyle(controller);
+              if (_markers.isEmpty && _shouldShowMarkers) {
+                _fetchNearbyProducers(_initialPosition.latitude, _initialPosition.longitude);
+              }
+            },
+          ),
+          if (_isLoading)
+            Container(
+              color: Colors.black.withOpacity(0.3),
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.2),
+                        blurRadius: 10,
+                        offset: const Offset(0, 5),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: const [
+                      CircularProgressIndicator(
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.purple),
+                      ),
+                      SizedBox(height: 16),
+                      Text(
+                        "Chargement des lieux...",
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ],
                   ),
                 ),
               ),
-            Positioned(
-              top: 16,
-              right: 16,
-              child: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.1),
-                      blurRadius: 4,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
+            ),
+          Positioned(
+            top: 16,
+            right: 16,
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 12,
+                        height: 12,
+                        decoration: const BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.green,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      const Text(
+                        "Élevé",
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Container(
+                        width: 12,
+                        height: 12,
+                        decoration: const BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.orange,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      const Text(
+                        "Moyen",
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Container(
+                        width: 12,
+                        height: 12,
+                        decoration: const BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.red,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      const Text(
+                        "Faible",
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          
+          // Ajouter le bouton de filtres flottant
+          FloatingFilterButton(
+            isActive: _isFilterPanelVisible || _selectedProducerCategory != null || _selectedEventCategory != null || _selectedEmotions.isNotEmpty,
+            onTap: _toggleFilterPanel,
+            label: 'Filtres',
+          ),
+          
+          // Panneau de filtres qui s'affiche/se cache
+          AnimatedPositioned(
+            top: _isFilterPanelVisible ? 0 : -MediaQuery.of(context).size.height,
+            left: 0,
+            right: 0,
+            height: MediaQuery.of(context).size.height * 0.85,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeInOut,
+            onEnd: () {
+              setState(() {
+                _isPanelAnimating = false;
+              });
+            },
+            child: _buildFilterPanel(),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  // Méthode pour basculer l'affichage du panneau de filtres
+  void _toggleFilterPanel() {
+    if (_isPanelAnimating) return;
+    
+    setState(() {
+      _isPanelAnimating = true;
+      _isFilterPanelVisible = !_isFilterPanelVisible;
+    });
+  }
+  
+  // Construction du panneau de filtres
+  Widget _buildFilterPanel() {
+    return Card(
+      margin: EdgeInsets.zero,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.only(
+          bottomLeft: Radius.circular(20),
+          bottomRight: Radius.circular(20),
+        ),
+      ),
+      elevation: 8,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Barre de titre avec bouton de fermeture
+            _buildFilterPanelHeader(),
+            
+            // Contenu principal des filtres dans un défilement
+            Expanded(
+              child: SingleChildScrollView(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Row(
-                      children: [
-                        Container(
-                          width: 12,
-                          height: 12,
-                          decoration: const BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: Colors.green,
+                    // Section rayon de recherche
+                    FilterSection(
+                      title: 'Rayon de recherche',
+                      child: Column(
+                        children: [
+                          // Slider pour le rayon
+                          Slider(
+                            value: _selectedRadius,
+                            min: 500,
+                            max: 10000,
+                            divisions: 19,
+                            onChanged: (value) {
+                              setState(() {
+                                _selectedRadius = value;
+                              });
+                            },
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        const Text(
-                          "Élevé",
-                          style: TextStyle(fontSize: 12),
-                        ),
-                      ],
+                          // Affichage de la valeur
+                          Text(
+                            _selectedRadius < 1000 
+                                ? '${_selectedRadius.toInt()} m' 
+                                : '${(_selectedRadius / 1000).toStringAsFixed(1)} km',
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
                     ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        Container(
-                          width: 12,
-                          height: 12,
-                          decoration: const BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: Colors.orange,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        const Text(
-                          "Moyen",
-                          style: TextStyle(fontSize: 12),
-                        ),
-                      ],
+                    
+                    // Section types d'établissement culturel
+                    FilterSection(
+                      title: 'Type d\'établissement',
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          'Théâtre', 'Cinéma', 'Musée', 'Galerie d\'art', 'Concert', 
+                          'Festival', 'Exposition', 'Danse', 'Opéra', 'Bibliothèque',
+                          'Patrimoine', 'Site historique', 'Parc d\'attractions'
+                        ].map((category) => custom.CustomFilterChip(
+                          label: category,
+                          isSelected: _selectedProducerCategory == category,
+                          onToggle: (selected) {
+                            setState(() {
+                              if (selected) {
+                                _selectedProducerCategory = category;
+                              } else {
+                                _selectedProducerCategory = null;
+                              }
+                            });
+                          },
+                        )).toList().cast<Widget>(),
+                      ),
                     ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        Container(
-                          width: 12,
-                          height: 12,
-                          decoration: const BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: Colors.red,
+                    
+                    // Section types d'événements
+                    FilterSection(
+                      title: 'Type d\'événement',
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          'Pièce de théâtre', 'Film', 'Exposition temporaire', 'Concert',
+                          'Performance', 'Visite guidée', 'Atelier', 'Conférence',
+                          'Spectacle de danse', 'Opéra', 'Spectacle jeune public'
+                        ].map((category) => custom.CustomFilterChip(
+                          label: category,
+                          isSelected: _selectedEventCategory == category,
+                          onToggle: (selected) {
+                            setState(() {
+                              if (selected) {
+                                _selectedEventCategory = category;
+                              } else {
+                                _selectedEventCategory = null;
+                              }
+                            });
+                          },
+                        )).toList().cast<Widget>(),
+                      ),
+                    ),
+                    
+                    // Section émotions
+                    FilterSection(
+                      title: 'Émotions recherchées',
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          'Joie', 'Surprise', 'Émerveillement', 'Réflexion',
+                          'Nostalgie', 'Admiration', 'Inspiration', 'Détente',
+                          'Suspense', 'Rire', 'Émotion'
+                        ].map((emotion) => custom.CustomFilterChip(
+                          label: emotion,
+                          isSelected: _selectedEmotions.contains(emotion),
+                          onToggle: (selected) {
+                            setState(() {
+                              if (selected) {
+                                _selectedEmotions.add(emotion);
+                              } else {
+                                _selectedEmotions.remove(emotion);
+                              }
+                            });
+                          },
+                        )).toList().cast<Widget>(),
+                      ),
+                    ),
+                    
+                    // Section gamme de prix
+                    FilterSection(
+                      title: 'Gamme de prix',
+                      child: Column(
+                        children: [
+                          RangeSlider(
+                            values: RangeValues(_minPrice, _maxPrice),
+                            min: 0,
+                            max: 100,
+                            divisions: 20,
+                            onChanged: (RangeValues values) {
+                              setState(() {
+                                _minPrice = values.start;
+                                _maxPrice = values.end;
+                              });
+                            },
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        const Text(
-                          "Faible",
-                          style: TextStyle(fontSize: 12),
-                        ),
-                      ],
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text('${_minPrice.toInt()}€'),
+                              Text('${_maxPrice.toInt()}€ ou plus'),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    
+                    // Boutons d'action
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          // Bouton pour réinitialiser les filtres
+                          OutlinedButton(
+                            onPressed: _resetFilters,
+                            child: const Text('Réinitialiser'),
+                          ),
+                          
+                          // Bouton pour appliquer les filtres
+                          ElevatedButton(
+                            onPressed: () {
+                              _applyFilters();
+                              _toggleFilterPanel();
+                            },
+                            child: const Text('Appliquer'),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
@@ -2428,6 +2658,49 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
         ),
       ),
     );
+  }
+  
+  // Construction de l'en-tête du panneau de filtres
+  Widget _buildFilterPanelHeader() {
+    return Padding(
+      padding: const EdgeInsets.only(top: 50, bottom: 16),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          const Text(
+            'Filtres',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close),
+            onPressed: _toggleFilterPanel,
+          ),
+        ],
+      ),
+    );
+  }
+  
+  // Méthode pour réinitialiser tous les filtres
+  void _resetFilters() {
+    setState(() {
+      _selectedRadius = 5000;
+      _selectedProducerCategory = null;
+      _selectedEventCategory = null;
+      _selectedEmotions = [];
+      _minMiseEnScene = 0;
+      _minJeuActeurs = 0;
+      _minScenario = 0;
+      _minPrice = 0;
+      _maxPrice = 100;
+    });
+  }
+  
+  // Méthode pour appliquer les filtres et rafraîchir les données
+  void _applyFilters() {
+    _fetchNearbyProducers(_initialPosition.latitude, _initialPosition.longitude);
   }
   
   /// Création d'un bouton stylisé pour les options de carte
@@ -2619,576 +2892,6 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
     );
   }
 
-  Widget _buildFilterPanel() {
-    // Obtenir la hauteur d'écran pour définir une taille maximale
-    final screenHeight = MediaQuery.of(context).size.height;
-    final screenWidth = MediaQuery.of(context).size.width;
-    
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: const BorderRadius.only(
-          topRight: Radius.circular(20),
-          bottomRight: Radius.circular(20),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.2),
-            blurRadius: 8,
-            offset: const Offset(2, 2),
-          ),
-        ],
-      ),
-      margin: const EdgeInsets.only(right: 10),
-      width: screenWidth * 0.85, // Limiter la largeur à 85% de l'écran
-      child: DefaultTabController(
-        length: 2,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // En-tête avec onglets et bouton fermer - style amélioré
-            Container(
-              decoration: const BoxDecoration(
-                color: Colors.purple,
-                borderRadius: BorderRadius.only(topRight: Radius.circular(20)),
-              ),
-              child: Row(
-                children: [
-                  // Bouton fermer à gauche avec style amélioré
-                  Container(
-                    margin: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      shape: BoxShape.circle,
-                    ),
-                    child: IconButton(
-                      icon: const Icon(Icons.close, color: Colors.white),
-                      onPressed: () {
-                        setState(() {
-                          _isFilterPanelVisible = false;
-                        });
-                      },
-                      tooltip: "Fermer les filtres",
-                    ),
-                  ),
-                  // Titre des filtres avec icône
-                  Expanded(
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: const [
-                        Icon(Icons.filter_list, color: Colors.white, size: 20),
-                        SizedBox(width: 8),
-                        Text(
-                          "Critères",
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 18,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  // Bouton réinitialiser à droite avec style amélioré
-                  Container(
-                    margin: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: TextButton.icon(
-                      icon: const Icon(Icons.refresh, color: Colors.white, size: 16),
-                      label: const Text(
-                        "Réinitialiser",
-                        style: TextStyle(color: Colors.white, fontSize: 12),
-                      ),
-                      onPressed: () {
-                        setState(() {
-                          _selectedProducerCategory = null;
-                          _selectedEventCategory = null;
-                          _minMiseEnScene = 0;
-                          _minJeuActeurs = 0;
-                          _minScenario = 0;
-                          _selectedEmotions.clear();
-                          _minPrice = 0;
-                          _maxPrice = 1000;
-                          _selectedRadius = 5000;
-                        });
-                      },
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        minimumSize: Size.zero,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            // Onglets avec style amélioré
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.grey.shade100,
-              ),
-              child: TabBar(
-                labelColor: Colors.purple,
-                unselectedLabelColor: Colors.grey.shade600,
-                indicatorColor: Colors.purple,
-                indicatorWeight: 3,
-                labelStyle: const TextStyle(fontWeight: FontWeight.bold),
-                tabs: const [
-                  Tab(
-                    icon: Icon(Icons.business, size: 20),
-                    text: "Producteurs",
-                  ),
-                  Tab(
-                    icon: Icon(Icons.event, size: 20),
-                    text: "Événements",
-                  ),
-                ],
-              ),
-            ),
-            // Contenu des onglets avec hauteur contrainte
-            SizedBox(
-              height: screenHeight * 0.5, // Hauteur fixe qui correspond à 50% de l'écran
-              child: TabBarView(
-                children: [
-                  _buildProducerFilters(),
-                  _buildEventFilters(),
-                ],
-              ),
-            ),
-            // Bouton Appliquer avec style amélioré
-            Container(
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.only(bottomRight: Radius.circular(20)),
-              ),
-              padding: const EdgeInsets.all(16.0),
-              child: ElevatedButton.icon(
-                icon: const Icon(Icons.search),
-                label: const Text('RECHERCHER', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.purple,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  elevation: 3,
-                ),
-                onPressed: () {
-                  _applyProducerFilters();
-                  // Fermer automatiquement le panneau après application
-                  setState(() {
-                    _isFilterPanelVisible = false;
-                  });
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildProducerFilters() {
-    // Liste complète des catégories de lieux de loisirs
-    final List<String> venueCategories = [
-      'Théâtre', 'Musique', 'Cinéma', 'Danse', 'Musée', 
-      'Galerie d\'art', 'Parc d\'attractions', 'Escape Game',
-      'Bar à jeux', 'Salle de concert', 'Opéra', 'Cirque'
-    ];
-    
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.theater_comedy, size: 18, color: Colors.purple),
-              const SizedBox(width: 8),
-              const Text(
-                "Catégorie lieu",
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          // Utiliser un ListView.builder avec hauteur fixe pour rendre la liste défilante
-          SizedBox(
-            height: 120, // Hauteur fixe pour permettre le défilement
-            child: Card(
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: Colors.grey.shade300),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: SingleChildScrollView(
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: venueCategories.map((category) {
-                      // Récupérer l'emoji correspondant à la catégorie
-                      String emoji = _getEmojiForCategory(category);
-                      return FilterChip(
-                        avatar: Text(emoji, style: const TextStyle(fontSize: 14)),
-                        label: Text(category),
-                        selected: _selectedProducerCategory == category,
-                        selectedColor: _getCategoryColor(category).withOpacity(0.2),
-                        onSelected: (selected) {
-                          setState(() {
-                            _selectedProducerCategory = selected ? category : null;
-                          });
-                        },
-                      );
-                    }).toList(),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          
-          const Text(
-            "Rayon de recherche",
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-          ),
-          const SizedBox(height: 8),
-          Column(
-            children: [
-              Slider(
-                value: _selectedRadius,
-                min: 1000,
-                max: 50000,
-                divisions: 49,
-                label: "${(_selectedRadius/1000).toStringAsFixed(1)} km",
-                onChanged: (value) {
-                  setState(() {
-                    _selectedRadius = value;
-                  });
-                },
-              ),
-              Text(
-                "Distance : ${(_selectedRadius/1000).toStringAsFixed(1)} km", 
-                style: const TextStyle(fontStyle: FontStyle.italic)
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          
-          ElevatedButton.icon(
-            onPressed: () {
-              _applyProducerFilters();
-              // Fermer automatiquement le panneau après application
-              setState(() {
-                _isFilterPanelVisible = false;
-              });
-            },
-            icon: const Icon(Icons.search),
-            label: const Text('Rechercher des lieux'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.purple,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildEventFilters() {
-    // Liste détaillée des émotions possibles
-    final List<Map<String, dynamic>> emotions = [
-      {'label': 'Drôle', 'value': 'drôle', 'emoji': '😂'},
-      {'label': 'Émouvant', 'value': 'émouvant', 'emoji': '😢'},
-      {'label': 'Haletant', 'value': 'haletant', 'emoji': '😮'},
-      {'label': 'Intense', 'value': 'intense', 'emoji': '😲'},
-      {'label': 'Poignant', 'value': 'poignant', 'emoji': '💔'},
-      {'label': 'Réfléchi', 'value': 'réfléchi', 'emoji': '🤔'},
-      {'label': 'Joyeux', 'value': 'joyeux', 'emoji': '😊'},
-      {'label': 'Surprenant', 'value': 'surprenant', 'emoji': '😯'},
-      {'label': 'Inspirant', 'value': 'inspirant', 'emoji': '✨'},
-      {'label': 'Relaxant', 'value': 'relaxant', 'emoji': '😌'},
-    ];
-    
-    // Catégories d'événements plus complètes
-    final List<Map<String, dynamic>> eventCategories = [
-      {'label': 'Théâtre', 'value': 'Théâtre', 'emoji': '🎭'},
-      {'label': 'Comédie', 'value': 'Comédie', 'emoji': '😁'},
-      {'label': 'Drame', 'value': 'Drame', 'emoji': '😔'},
-      {'label': 'Musique', 'value': 'Musique', 'emoji': '🎵'},
-      {'label': 'Concert', 'value': 'Concert', 'emoji': '🎸'},
-      {'label': 'Danse', 'value': 'Danse', 'emoji': '💃'},
-      {'label': 'Exposition', 'value': 'Exposition', 'emoji': '🎨'},
-      {'label': 'Festival', 'value': 'Festival', 'emoji': '🎪'},
-      {'label': 'Cinéma', 'value': 'Cinéma', 'emoji': '🎬'},
-    ];
-    
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            "Catégorie d'événement",
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-          ),
-          const SizedBox(height: 8),
-          // Rendre les catégories défilantes pour éviter la surcharge visuelle
-          SizedBox(
-            height: 120,
-            child: Card(
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: Colors.grey.shade300),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: SingleChildScrollView(
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: eventCategories.map((category) {
-                      return FilterChip(
-                        avatar: Text(category['emoji']),
-                        label: Text(category['label']),
-                        selected: _selectedEventCategory == category['value'],
-                        selectedColor: _getCategoryColor(category['value']).withOpacity(0.2),
-                        onSelected: (selected) {
-                          setState(() {
-                            _selectedEventCategory = selected ? category['value'] : null;
-                          });
-                        },
-                      );
-                    }).toList(),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          
-          // Notes minimales pour l'événement - dynamique selon la catégorie sélectionnée
-          _selectedEventCategory != null
-          ? Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Obtenir les aspects spécifiques à la catégorie
-                Builder(builder: (context) {
-                  final categoryDetails = _getCategoryDetails(_selectedEventCategory!);
-                  final List<String> aspects = List<String>.from(categoryDetails['aspects'] ?? []);
-                  
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Texte d'information avec catégorie
-                      Text(
-                        "Critères spécifiques : $_selectedEventCategory",
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        "Sélectionnez vos critères d'importance pour cette catégorie :",
-                        style: TextStyle(fontSize: 13, fontStyle: FontStyle.italic, color: Colors.grey.shade700),
-                      ),
-                      const SizedBox(height: 12),
-                      
-                      // Carte pour les sliders d'aspects spécifiques
-                      Card(
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          side: BorderSide(color: Colors.grey.shade300),
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.all(12),
-                          child: aspects.isEmpty
-                              ? const Center(
-                                  child: Text(
-                                    "Aucun critère spécifique disponible pour cette catégorie",
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(fontStyle: FontStyle.italic),
-                                  ),
-                                )
-                              : Column(
-                                  children: [
-                                    // Construire dynamiquement les sliders selon les aspects de la catégorie
-                                    for (int i = 0; i < aspects.length; i++) ...[
-                                      _buildRatingSlider(
-                                        aspects[i].substring(0, 1).toUpperCase() + aspects[i].substring(1), // Première lettre en majuscule
-                                        _selectedAspects.contains(aspects[i]) ? _minMiseEnScene : 0, // Utiliser une valeur par défaut si aspect sélectionné
-                                        (value) {
-                                          setState(() {
-                                            if (value > 0) {
-                                              if (!_selectedAspects.contains(aspects[i])) {
-                                                _selectedAspects.add(aspects[i]);
-                                              }
-                                              
-                                              // Stocker la valeur dans la variable appropriée selon l'aspect
-                                              if (aspects[i].contains("mise en scène")) {
-                                                _minMiseEnScene = value;
-                                              } else if (aspects[i].contains("jeu des acteurs")) {
-                                                _minJeuActeurs = value;
-                                              } else if (aspects[i].contains("texte") || aspects[i].contains("scénario")) {
-                                                _minScenario = value;
-                                              }
-                                            } else {
-                                              _selectedAspects.remove(aspects[i]);
-                                            }
-                                          });
-                                        },
-                                      ),
-                                      if (i < aspects.length - 1) const Divider(),
-                                    ],
-                                  ],
-                                ),
-                        ),
-                      ),
-                    ],
-                  );
-                }),
-              ],
-            )
-          : Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.purple.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.purple.withOpacity(0.3)),
-              ),
-              child: Column(
-                children: [
-                  const Icon(Icons.info_outline, color: Colors.purple, size: 24),
-                  const SizedBox(height: 8),
-                  const Text(
-                    "Sélectionnez une catégorie pour voir les critères spécifiques",
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontWeight: FontWeight.w500),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    "Exemple : Théâtre → mise en scène, jeu des acteurs, etc.",
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
-                  ),
-                ],
-              ),
-            ),
-          const SizedBox(height: 16),
-          
-          // Émotions recherchées - avec émojis
-          const Text(
-            "Émotions recherchées",
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-          ),
-          const SizedBox(height: 8),
-          // Rendre les émotions défilantes pour ne pas surcharger l'interface
-          SizedBox(
-            height: 120,
-            child: Card(
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: Colors.grey.shade300),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: SingleChildScrollView(
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: emotions.map((emotion) => FilterChip(
-                      avatar: Text(emotion['emoji']),
-                      label: Text(emotion['label']),
-                      selected: _selectedEmotions.contains(emotion['value']),
-                      selectedColor: Colors.purple.withOpacity(0.2),
-                      checkmarkColor: Colors.purple,
-                      onSelected: (isSelected) {
-                        setState(() {
-                          if (isSelected) {
-                            _selectedEmotions.add(emotion['value']);
-                          } else {
-                            _selectedEmotions.remove(emotion['value']);
-                          }
-                        });
-                      },
-                    )).toList(),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          
-          // Prix avec affichage plus clair
-          const Text(
-            "Gamme de prix (€)",
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-          ),
-          const SizedBox(height: 8),
-          Column(
-            children: [
-              RangeSlider(
-                values: RangeValues(_minPrice, _maxPrice),
-                min: 0,
-                max: 1000,
-                divisions: 100,
-                labels: RangeLabels(
-                  "${_minPrice.round()}€", 
-                  "${_maxPrice.round()}€",
-                ),
-                onChanged: (values) {
-                  setState(() {
-                    _minPrice = values.start;
-                    _maxPrice = values.end;
-                  });
-                },
-                activeColor: Colors.orange,
-              ),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text("Min: ${_minPrice.round()}€"),
-                  Text("Max: ${_maxPrice.round()}€"),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          
-          ElevatedButton.icon(
-            onPressed: () {
-              _applyEventFilters();
-              // Fermer automatiquement le panneau après application
-              setState(() {
-                _isFilterPanelVisible = false;
-              });
-            },
-            icon: const Icon(Icons.search),
-            label: const Text('Rechercher des événements'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.orange,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-  
   /// Widget pour afficher une statistique d'intérêt avec émoji et valeur
   Widget _buildInterestStat(String emoji, String label, String value) {
     return Column(
@@ -3226,52 +2929,35 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
       ],
     );
   }
-  
-  /// Widget amélioré pour les sliders de notation avec retour visuel plus clair
-  Widget _buildRatingSlider(String label, double value, Function(double) onChanged) {
-    // Définir une couleur basée sur la valeur pour un retour visuel
-    Color sliderColor = value < 3 ? Colors.grey :
-                        value < 6 ? Colors.blue :
-                        value < 8 ? Colors.orange : Colors.green;
-    
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: value > 0 ? sliderColor.withOpacity(0.2) : Colors.grey.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: value > 0 ? sliderColor : Colors.grey.withOpacity(0.3),
-                  width: 1,
-                ),
-              ),
-              child: Text(
-                value > 0 ? value.toStringAsFixed(1) : "Non spécifié",
-                style: TextStyle(
-                  color: value > 0 ? sliderColor : Colors.grey,
-                  fontWeight: FontWeight.w500,
-                  fontSize: 12,
-                ),
-              ),
-            ),
-          ],
-        ),
-        Slider(
-          value: value,
-          min: 0,
-          max: 10,
-          divisions: 10,
-          label: value.toStringAsFixed(1),
-          activeColor: sliderColor,
-          onChanged: onChanged,
-        ),
-      ],
+}
+
+class AdaptiveMapWidget extends StatelessWidget {
+  final LatLng initialLatLng;
+  final double initialZoom;
+  final Set<Marker> markers;
+  final Function(GoogleMapController) onMapCreated;
+
+  const AdaptiveMapWidget({
+    Key? key,
+    required this.initialLatLng,
+    this.initialZoom = 14.0,
+    required this.markers,
+    required this.onMapCreated,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return GoogleMap(
+      initialCameraPosition: CameraPosition(
+        target: initialLatLng,
+        zoom: initialZoom,
+      ),
+      markers: markers,
+      onMapCreated: onMapCreated,
+      myLocationEnabled: true,
+      myLocationButtonEnabled: true,
+      zoomControlsEnabled: false,
+      mapType: MapType.normal,
     );
   }
 }

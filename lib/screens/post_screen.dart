@@ -3,6 +3,7 @@ import 'package:choice_app/screens/profile_screen.dart'; // Import correct du fi
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'utils.dart';
+import '../widgets/profile_post_card.dart'; // Import du widget ProfilePostCard
 
 class PostScreen extends StatefulWidget {
   final String userId;
@@ -67,93 +68,12 @@ class _PostScreenState extends State<PostScreen> {
 
   /// Construit la carte d'un post
   Widget _buildPostCard(Map<String, dynamic> post) {
-    final String title = post['title']?.toString() ?? 'Titre non spécifié';
-    final String content = post['content']?.toString() ?? 'Contenu non disponible';
-    final String? mediaUrl = (post['media'] as List?)?.isNotEmpty == true ? post['media'][0]?.toString() : null;
-    final String? authorId = post['producer_id']?.toString() ?? post['user_id']?.toString();
-    final bool isProducer = post['producer_id'] != null;
-
-    return Card(
-      margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 15),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(15),
-      ),
-      elevation: 5,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (mediaUrl != null)
-            GestureDetector(
-              onTap: () => _showPostDetail(post),
-              child: ClipRRect(
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(15),
-                  topRight: Radius.circular(15),
-                ),
-                child: Image.network(
-                  mediaUrl,
-                  height: 200,
-                  width: double.infinity,
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) =>
-                      const Icon(Icons.broken_image, size: 100),
-                ),
-              ),
-            ),
-          Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (authorId != null)
-                  GestureDetector(
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => ProfileScreen(userId: authorId),
-                        ),
-                      );
-                    },
-                    child: Row(
-                      children: [
-                        const CircleAvatar(
-                          radius: 20,
-                          backgroundImage: NetworkImage(
-                              'https://via.placeholder.com/150'), // Image par défaut
-                        ),
-                        const SizedBox(width: 10),
-                        Text(
-                          'Auteur : $authorId', // Remplacez avec des données utilisateur si disponibles
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                const SizedBox(height: 10),
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black,
-                  ),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  content,
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 14, color: Colors.black87),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+    return ProfilePostCard(
+      post: post,
+      userId: widget.userId,
+      onRefresh: () {
+        _fetchPosts();
+      },
     );
   }
 

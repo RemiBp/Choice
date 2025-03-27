@@ -9,6 +9,7 @@ import 'dart:math' as Math;
 import 'eventLeisure_screen.dart'; // Import nécessaire pour afficher les événements
 import '../utils/leisureHelpers.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import '../widgets/profile_post_card.dart';  // Import du widget ProfilePostCard
 
 class ProducerLeisureScreen extends StatefulWidget {
   final String producerId;
@@ -1098,60 +1099,31 @@ class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> with Sing
   
   // Section pour afficher les posts du producteur
   Widget _buildPostsSection() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Titre de la section avec icône
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Colors.blue.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(Icons.article, color: Colors.blue, size: 24),
-              ),
-              const SizedBox(width: 12),
-              Text(
-                'Publications',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.blue,
-                  letterSpacing: 0.5,
-                ),
-              ),
-              const Spacer(),
-              // Bouton pour rafraîchir les posts
-              IconButton(
-                icon: Icon(Icons.refresh, color: Colors.blue.shade400),
-                onPressed: _fetchProducerPosts,
-              ),
-            ],
-          ),
-          
-          const SizedBox(height: 16),
-          
-          // Affichage des posts
-          _isLoadingPosts
-              ? const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(32.0),
-                    child: CircularProgressIndicator(),
-                  ),
-                )
-              : _hasPostsError
-                  ? _buildPostsErrorWidget()
-                  : _producerPosts.isEmpty
-                      ? _buildEmptyPostsMessage()
-                      : Column(
-                          children: _producerPosts.map<Widget>((post) => _buildPostItem(post)).toList(),
-                        ),
-        ],
-      ),
+    if (_isLoadingPosts) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    
+    if (_hasPostsError) {
+      return _buildErrorMessage('Impossible de charger les publications');
+    }
+    
+    if (_producerPosts.isEmpty) {
+      return _buildEmptyPostsMessage();
+    }
+    
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: _producerPosts.length,
+      itemBuilder: (context, index) {
+        final post = _producerPosts[index];
+        return ProfilePostCard(
+          post: post,
+          userId: widget.userId ?? '',
+          onRefresh: () {
+            _fetchProducerPosts();
+          },
+        );
+      },
     );
   }
     // Si les données sont chargées mais nulles
@@ -1265,12 +1237,7 @@ class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> with Sing
                         ? _buildPostsErrorWidget()
                         : _producerPosts.isEmpty
                           ? _buildEmptyPostsMessage()
-                          : Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                              child: Column(
-                                children: _producerPosts.map<Widget>((post) => _buildPostItem(post)).toList(),
-                              ),
-                            ),
+                          : _buildPostsSection(),
                   ),
                 ),
                 
@@ -2506,6 +2473,47 @@ class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> with Sing
                 ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildErrorMessage(String message) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 30.0, horizontal: 20.0),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.error_outline,
+            size: 60,
+            color: Colors.red[300],
+          ),
+          const SizedBox(height: 16),
+          Text(
+            message,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w500,
+              color: Colors.grey[800],
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton(
+            onPressed: () {
+              setState(() {
+                _isLoadingPosts = true;
+                _hasPostsError = false;
+              });
+              _fetchProducerPosts();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.deepPurple,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Réessayer'),
           ),
         ],
       ),

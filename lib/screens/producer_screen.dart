@@ -9,11 +9,19 @@ import 'producerLeisure_screen.dart';
 import '../utils.dart';
 import 'map_screen.dart';
 
+import '../models/producer.dart';
+
 class ProducerScreen extends StatefulWidget {
   final String producerId;
+  final Producer? producer; // Rendre le paramètre optionnel
   final String? userId;
 
-  const ProducerScreen({Key? key, required this.producerId, this.userId}) : super(key: key);
+  const ProducerScreen({
+    Key? key, 
+    required this.producerId, 
+    this.producer,
+    this.userId,
+  }) : super(key: key);
 
   @override
   State<ProducerScreen> createState() => _ProducerScreenState();
@@ -3171,9 +3179,7 @@ class _ProducerScreenState extends State<ProducerScreen> with SingleTickerProvid
                             Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (context) => MapScreen(
-                                  initialPosition: LatLng(lat, lon),
-                                ),
+                                builder: (context) => MapScreen(),
                               ),
                             );
                           },
@@ -3472,9 +3478,7 @@ class _ProducerScreenState extends State<ProducerScreen> with SingleTickerProvid
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (context) => MapScreen(
-                            initialPosition: const LatLng(48.8566, 2.3522),
-                          ),
+                          builder: (context) => MapScreen(),
                         ),
                       );
                     },

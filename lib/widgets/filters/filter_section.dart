@@ -2,13 +2,13 @@ import 'package:flutter/material.dart';
 
 class FilterSection extends StatelessWidget {
   final String title;
-  final List<Widget> children;
+  final Widget child;
   final Widget? trailing;
 
   const FilterSection({
     Key? key,
     required this.title,
-    required this.children,
+    required this.child,
     this.trailing,
   }) : super(key: key);
 
@@ -35,7 +35,7 @@ class FilterSection extends StatelessWidget {
             ],
           ),
         ),
-        ...children,
+        child,
         const Divider(height: 32),
       ],
     );

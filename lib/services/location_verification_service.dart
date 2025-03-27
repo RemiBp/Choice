@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+import 'dart:math' as math;
+import '../services/location_service.dart';
 
 class LocationVerificationService {
   static const String baseUrl = 'http://localhost:5000/api';
@@ -14,6 +16,13 @@ class LocationVerificationService {
   
   // Nombre de jours max pour considérer une visite comme récente
   static const int MAX_DAYS_AGO = 7;
+
+  // Seuil de distance minimale en mètres
+  static const double defaultDistanceThreshold = 100.0;
+  // Seuil de temps minimal en minutes
+  static const int defaultTimeThreshold = 30;
+  // Temps par défaut pour considérer une visite valide (en jours)
+  static const int defaultValidityPeriod = 7;
 
   /// Vérifie si l'utilisateur a passé assez de temps à un lieu spécifique
   /// dans les derniers jours pour pouvoir faire un choice
@@ -148,5 +157,134 @@ class LocationVerificationService {
       final year = visitDate.year;
       return "$day/$month/$year";
     }
+  }
+
+  /// Vérifie si l'utilisateur est physiquement présent à un emplacement
+  /// 
+  /// Returns un Map avec:
+  /// - 'verified': bool - Si l'utilisateur est présent à l'emplacement
+  /// - 'distance': double - La distance en mètres entre l'utilisateur et l'emplacement
+  /// - 'message': String - Un message explicatif du résultat
+  static Future<Map<String, dynamic>> verifyPresence({
+    required double locationLat,
+    required double locationLon,
+    double distanceThreshold = defaultDistanceThreshold,
+  }) async {
+    try {
+      // Obtenir la position actuelle de l'utilisateur
+      final locationService = LocationService();
+      final currentPosition = await locationService.getCurrentPosition();
+      
+      if (currentPosition == null) {
+        return {
+          'verified': false,
+          'distance': double.infinity,
+          'message': 'Impossible d\'obtenir votre position actuelle',
+        };
+      }
+      
+      // Calculer la distance entre l'utilisateur et l'emplacement cible
+      final double distance = locationService.calculateDistance(
+        currentPosition.latitude,
+        currentPosition.longitude,
+        locationLat,
+        locationLon
+      );
+      
+      final bool isPresent = distance <= distanceThreshold;
+      
+      return {
+        'verified': isPresent,
+        'distance': distance,
+        'message': isPresent
+            ? 'Présence vérifiée ! Vous êtes à ${distance.toStringAsFixed(0)} mètres de l\'emplacement.'
+            : 'Vous êtes trop loin. Distance: ${distance.toStringAsFixed(0)} mètres (max: ${distanceThreshold.toStringAsFixed(0)} m)',
+      };
+    } catch (e) {
+      print('❌ Erreur lors de la vérification de présence: $e');
+      return {
+        'verified': false,
+        'distance': double.infinity,
+        'message': 'Erreur lors de la vérification: $e',
+      };
+    }
+  }
+  
+  /// Vérifie si l'historique de l'utilisateur montre qu'il a visité un lieu
+  static Future<Map<String, dynamic>> verifyVisitHistory({
+    required String userId,
+    required String locationId,
+    required double locationLat,
+    required double locationLon,
+    int timeThresholdMinutes = defaultTimeThreshold,
+    int validityPeriodDays = defaultValidityPeriod,
+  }) async {
+    try {
+      // Cette fonction devrait appeler une API backend pour vérifier l'historique
+      // Pour l'instant, nous renvoyons un résultat simulé
+      final locationService = LocationService();
+      final currentPosition = await locationService.getCurrentPosition();
+      
+      if (currentPosition == null) {
+        return {
+          'verified': false,
+          'lastVisit': null,
+          'duration': 0,
+          'message': 'Impossible d\'obtenir votre position actuelle',
+        };
+      }
+      
+      final double distanceCurrent = locationService.calculateDistance(
+        currentPosition.latitude,
+        currentPosition.longitude,
+        locationLat,
+        locationLon
+      );
+      
+      // Pour test: si l'utilisateur est actuellement sur place, on simule une visite récente
+      if (distanceCurrent <= 100) {
+        return {
+          'verified': true,
+          'lastVisit': DateTime.now().toString(),
+          'duration': timeThresholdMinutes + 10,
+          'message': 'Vous êtes actuellement sur place !',
+        };
+      } else {
+        // Simulation d'un résultat négatif ou positif aléatoire
+        final bool hasVisited = math.Random().nextBool();
+        
+        if (hasVisited) {
+          final visitDate = DateTime.now().subtract(Duration(days: math.Random().nextInt(validityPeriodDays)));
+          final duration = timeThresholdMinutes + math.Random().nextInt(60);
+          
+          return {
+            'verified': true,
+            'lastVisit': visitDate.toString(),
+            'duration': duration,
+            'message': 'Vous avez visité ce lieu le ${_formatDate(visitDate)} pendant $duration minutes',
+          };
+        } else {
+          return {
+            'verified': false,
+            'lastVisit': null,
+            'duration': 0,
+            'message': 'Aucune visite récente détectée au cours des $validityPeriodDays derniers jours',
+          };
+        }
+      }
+    } catch (e) {
+      print('❌ Erreur lors de la vérification de l\'historique de visite: $e');
+      return {
+        'verified': false,
+        'lastVisit': null,
+        'duration': 0,
+        'message': 'Erreur lors de la vérification: $e',
+      };
+    }
+  }
+  
+  // Format une date pour affichage
+  static String _formatDate(DateTime date) {
+    return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
   }
 }

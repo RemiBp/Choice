@@ -12,13 +12,15 @@ import 'feed/post_interaction_bar.dart';
 class ProfilePostCard extends StatefulWidget {
   final Map<String, dynamic> post;
   final String userId;
-  final VoidCallback? onRefresh;
+  final VoidCallback onRefresh;
+  final Color? themeColor;
 
   const ProfilePostCard({
     Key? key,
     required this.post,
     required this.userId,
-    this.onRefresh,
+    required this.onRefresh,
+    this.themeColor,
   }) : super(key: key);
 
   @override
@@ -92,7 +94,7 @@ class _ProfilePostCardState extends State<ProfilePostCard> {
           if (_likesCount < 0) _likesCount = 0;
         });
       } else if (widget.onRefresh != null) {
-        widget.onRefresh!();
+        widget.onRefresh();
       }
     } catch (e) {
       print('❌ Error liking post: $e');
@@ -135,7 +137,7 @@ class _ProfilePostCardState extends State<ProfilePostCard> {
           if (_interestedCount < 0) _interestedCount = 0;
         });
       } else if (widget.onRefresh != null) {
-        widget.onRefresh!();
+        widget.onRefresh();
       }
     } catch (e) {
       print('❌ Error marking interest: $e');
@@ -178,7 +180,7 @@ class _ProfilePostCardState extends State<ProfilePostCard> {
           if (_choiceCount < 0) _choiceCount = 0;
         });
       } else if (widget.onRefresh != null) {
-        widget.onRefresh!();
+        widget.onRefresh();
       }
     } catch (e) {
       print('❌ Error marking choice: $e');
@@ -344,7 +346,7 @@ class _ProfilePostCardState extends State<ProfilePostCard> {
         _showCommentsSheet();
         
         if (widget.onRefresh != null) {
-          widget.onRefresh!();
+          widget.onRefresh();
         }
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -387,50 +389,31 @@ class _ProfilePostCardState extends State<ProfilePostCard> {
 
   @override
   Widget build(BuildContext context) {
-    final bool isProducerPost = widget.post['isProducerPost'] == true || 
-                             widget.post['producer_id'] != null;
-    final bool isLeisureProducer = widget.post['isLeisureProducer'] == true;
-    
-    // Get media items
-    final List<dynamic> mediaItems = widget.post['media'] ?? [];
-    
-    // Get author info
-    String authorName = '';
-    String authorAvatar = '';
-    String authorId = '';
-    
-    if (widget.post['author'] is Map) {
-      final author = widget.post['author'] as Map;
-      authorName = author['name'] ?? '';
-      authorAvatar = author['avatar'] ?? '';
-      authorId = author['id'] ?? '';
-    } else {
-      authorName = widget.post['author_name'] ?? '';
-      authorAvatar = widget.post['author_avatar'] ?? widget.post['author_photo'] ?? '';
-      authorId = widget.post['author_id'] ?? widget.post['user_id'] ?? '';
-    }
-    
+    final String title = widget.post['title']?.toString() ?? 'Sans titre';
+    final String content = widget.post['content']?.toString() ?? 'Aucun contenu';
+    final String? authorId = widget.post['producer_id']?.toString() ?? widget.post['user_id']?.toString();
+    final bool isProducer = widget.post['producer_id'] != null;
+    final List<dynamic> mediaList = widget.post['media'] ?? [];
+    final String? mediaUrl = mediaList.isNotEmpty ? mediaList[0]?.toString() : null;
+
     return Card(
-      margin: const EdgeInsets.all(8),
+      margin: const EdgeInsets.only(bottom: 16),
       elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Post header
+          // En-tête du post avec les informations de l'auteur
           Padding(
             padding: const EdgeInsets.all(12),
             child: Row(
               children: [
-                GestureDetector(
-                  onTap: () => _navigateToProfile(context, authorId, isProducerPost, isLeisureProducer),
-                  child: CircleAvatar(
-                    backgroundImage: CachedNetworkImageProvider(
-                      authorAvatar.isNotEmpty
-                          ? authorAvatar
-                          : 'https://via.placeholder.com/150',
-                    ),
-                  ),
+                CircleAvatar(
+                  radius: 20,
+                  backgroundImage: NetworkImage(widget.post['authorProfileImage'] ?? 'https://via.placeholder.com/40'),
+                  backgroundColor: Colors.grey[200],
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -438,258 +421,168 @@ class _ProfilePostCardState extends State<ProfilePostCard> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        authorName,
+                        widget.post['authorName'] ?? 'Utilisateur',
                         style: const TextStyle(
                           fontWeight: FontWeight.bold,
-                          fontSize: 16,
+                          fontSize: 14,
                         ),
                       ),
                       Text(
-                        _formatTimestamp(widget.post['posted_at'] ?? widget.post['time_posted'] ?? ''),
-                        style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                        _formatDate(widget.post['created_at']),
+                        style: TextStyle(
+                          color: Colors.grey[600],
+                          fontSize: 12,
+                        ),
                       ),
                     ],
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.more_vert),
-                  onPressed: () {
-                    _showPostOptions(context);
-                  },
+                  icon: const Icon(Icons.more_vert, size: 20),
+                  onPressed: () => _showPostOptions(context),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
                 ),
               ],
             ),
           ),
 
-          // Post content
-          if (widget.post['content'] != null && widget.post['content'].toString().isNotEmpty)
+          // Contenu du post
+          if (content.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Text(
-                widget.post['content'],
-                style: const TextStyle(fontSize: 16),
+                content,
+                style: const TextStyle(fontSize: 14),
+                maxLines: 4,
+                overflow: TextOverflow.ellipsis,
               ),
             ),
 
-          // Post media
-          if (mediaItems.isNotEmpty)
-            AspectRatio(
-              aspectRatio: 16 / 9,
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Colors.grey[200],
-                ),
-                child: GestureDetector(
-                  onTap: () {
-                    _showFullScreenMedia(context, mediaItems);
-                  },
-                  child: Hero(
-                    tag: 'post-media-${widget.post['_id']}',
-                    child: CachedNetworkImage(
-                      imageUrl: mediaItems[0]['url'] ?? mediaItems[0].toString(),
-                      fit: BoxFit.cover,
-                      placeholder: (context, url) => const Center(
-                        child: CircularProgressIndicator(),
-                      ),
-                      errorWidget: (context, url, error) => const Icon(
-                        Icons.error,
-                        size: 50,
-                        color: Colors.grey,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-
-          // Post interactions
-          PostInteractionBar(
-            isLiked: _isLiked,
-            isInterested: _isInterested,
-            isChoice: _isChoice,
-            likesCount: _likesCount,
-            interestedCount: _interestedCount,
-            choiceCount: _choiceCount,
-            commentsCount: _commentsCount,
-            onLike: _handleLike,
-            onInterested: _handleInterested,
-            onChoice: _handleChoice,
-            onComment: _showCommentsSheet,
-            onShare: () {}, // À implémenter
-            isProducerPost: isProducerPost,
-            isLeisureProducer: isLeisureProducer,
-          ),
-          
-          // Post location reference if any
-          if (widget.post['locationName'] != null && widget.post['locationName'].toString().isNotEmpty)
+          // Image du post si disponible
+          if (mediaUrl != null)
             Padding(
-              padding: const EdgeInsets.all(12),
-              child: Row(
-                children: [
-                  const Icon(Icons.location_on, size: 16, color: Colors.grey),
-                  const SizedBox(width: 4),
-                  Text(
-                    widget.post['locationName'],
-                    style: TextStyle(
-                      color: Colors.grey[600],
-                      fontSize: 14,
-                    ),
+              padding: const EdgeInsets.only(top: 8),
+              child: ClipRRect(
+                borderRadius: const BorderRadius.only(
+                  bottomLeft: Radius.circular(12),
+                  bottomRight: Radius.circular(12),
+                ),
+                child: Image.network(
+                  mediaUrl,
+                  height: 200,
+                  width: double.infinity,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => Container(
+                    height: 200,
+                    color: Colors.grey[300],
+                    child: const Icon(Icons.broken_image, size: 50, color: Colors.white),
                   ),
-                ],
+                ),
               ),
+            ),
+
+          // Barre d'interaction (likes, interests, choices)
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: PostInteractionBar(
+              post: widget.post,
+              userId: widget.userId,
+              onRefresh: widget.onRefresh,
+              themeColor: widget.themeColor,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Formater la date de création du post
+  String _formatDate(dynamic dateString) {
+    if (dateString == null) return 'Date inconnue';
+    try {
+      final DateTime date = DateTime.parse(dateString.toString());
+      final DateTime now = DateTime.now();
+      final Duration difference = now.difference(date);
+
+      if (difference.inDays > 365) {
+        return 'Il y a ${(difference.inDays / 365).floor()} an(s)';
+      } else if (difference.inDays > 30) {
+        return 'Il y a ${(difference.inDays / 30).floor()} mois';
+      } else if (difference.inDays > 0) {
+        return 'Il y a ${difference.inDays} jour(s)';
+      } else if (difference.inHours > 0) {
+        return 'Il y a ${difference.inHours} heure(s)';
+      } else if (difference.inMinutes > 0) {
+        return 'Il y a ${difference.inMinutes} minute(s)';
+      } else {
+        return 'À l\'instant';
+      }
+    } catch (e) {
+      return 'Date invalide';
+    }
+  }
+
+  // Afficher les options du post
+  void _showPostOptions(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: const Icon(Icons.share),
+            title: const Text('Partager'),
+            onTap: () {
+              Navigator.pop(context);
+              // Logique de partage
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.bookmark_border),
+            title: const Text('Sauvegarder'),
+            onTap: () {
+              Navigator.pop(context);
+              // Logique de sauvegarde
+            },
+          ),
+          if (widget.post['user_id'] == widget.userId || widget.post['producer_id'] == widget.userId)
+            ListTile(
+              leading: const Icon(Icons.delete_outline, color: Colors.red),
+              title: const Text('Supprimer', style: TextStyle(color: Colors.red)),
+              onTap: () {
+                Navigator.pop(context);
+                _confirmDelete(context);
+              },
             ),
         ],
       ),
     );
   }
 
-  void _showFullScreenMedia(BuildContext context, List<dynamic> mediaItems) {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => Scaffold(
-          backgroundColor: Colors.black,
-          appBar: AppBar(
-            backgroundColor: Colors.black,
-            iconTheme: const IconThemeData(color: Colors.white),
+  // Confirmer la suppression d'un post
+  void _confirmDelete(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Supprimer ce post ?'),
+        content: const Text('Cette action est irréversible. Voulez-vous vraiment supprimer ce post ?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Annuler'),
           ),
-          body: PageView.builder(
-            itemCount: mediaItems.length,
-            itemBuilder: (context, index) {
-              final mediaUrl = mediaItems[index]['url'] ?? mediaItems[index].toString();
-              return GestureDetector(
-                onTap: () {
-                  Navigator.of(context).pop();
-                },
-                child: Center(
-                  child: Hero(
-                    tag: index == 0 ? 'post-media-${widget.post['_id']}' : 'post-media-${widget.post['_id']}-$index',
-                    child: CachedNetworkImage(
-                      imageUrl: mediaUrl,
-                      fit: BoxFit.contain,
-                      placeholder: (context, url) => const Center(
-                        child: CircularProgressIndicator(color: Colors.white),
-                      ),
-                      errorWidget: (context, url, error) => const Icon(
-                        Icons.error,
-                        size: 100,
-                        color: Colors.white54,
-                      ),
-                    ),
-                  ),
-                ),
-              );
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              // Logique de suppression
+              // Après la suppression, appeler onRefresh pour mettre à jour l'UI
+              widget.onRefresh();
             },
+            child: const Text('Supprimer', style: TextStyle(color: Colors.red)),
           ),
-        ),
+        ],
       ),
     );
-  }
-
-  void _navigateToProfile(BuildContext context, String id, bool isProducer, bool isLeisure) {
-    if (id.isEmpty) return;
-    
-    if (isProducer) {
-      if (isLeisure) {
-        // Navigate to leisure producer profile
-        _fetchAndNavigateToLeisureProducer(context, id);
-      } else {
-        // Navigate to restaurant producer profile
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ProducerScreen(producerId: id),
-          ),
-        );
-      }
-    } else {
-      // Navigate to user profile
-      // TODO: Implement navigation to user profile
-    }
-  }
-
-  Future<void> _fetchAndNavigateToLeisureProducer(BuildContext context, String id) async {
-    try {
-      final url = Uri.parse('${getBaseUrl()}/api/leisureProducers/$id');
-      final response = await http.get(url);
-      
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ProducerLeisureScreen(producerData: data),
-          ),
-        );
-      } else {
-        print('❌ Failed to fetch leisure producer: ${response.body}');
-      }
-    } catch (e) {
-      print('❌ Error fetching leisure producer: $e');
-    }
-  }
-
-  void _showPostOptions(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      builder: (context) {
-        return Container(
-          padding: const EdgeInsets.symmetric(vertical: 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.content_copy),
-                title: const Text('Copier le contenu'),
-                onTap: () {
-                  Navigator.pop(context);
-                  Clipboard.setData(ClipboardData(text: widget.post['content'] ?? ''));
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Contenu copié !')),
-                  );
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.report),
-                title: const Text('Signaler'),
-                onTap: () {
-                  Navigator.pop(context);
-                  // TODO: Implement report functionality
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.share),
-                title: const Text('Partager'),
-                onTap: () {
-                  Navigator.pop(context);
-                  // TODO: Implement share functionality
-                },
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  String _formatTimestamp(String timeStr) {
-    try {
-      final DateTime time = DateTime.parse(timeStr);
-      final DateTime now = DateTime.now();
-      final Duration difference = now.difference(time);
-      
-      if (difference.inMinutes < 1) {
-        return 'À l\'instant';
-      } else if (difference.inHours < 1) {
-        return 'Il y a ${difference.inMinutes} min';
-      } else if (difference.inDays < 1) {
-        return 'Il y a ${difference.inHours} h';
-      } else if (difference.inDays < 7) {
-        return 'Il y a ${difference.inDays} j';
-      } else {
-        return '${time.day}/${time.month}/${time.year}';
-      }
-    } catch (e) {
-      return '';
-    }
   }
 }

@@ -955,6 +955,116 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
       ),
     );
   }
+  
+  Widget _buildRecommendationsTab() {
+    if (_recommendations == null) {
+      return Center(child: Text('Aucune donnée disponible'));
+    }
+    
+    // Vérifier si les listes de recommandations sont vides
+    bool hasNoRecommendations = _recommendations!.contentStrategy.isEmpty && 
+                               _recommendations!.engagementTactics.isEmpty && 
+                               _recommendations!.growthOpportunities.isEmpty;
+                               
+    if (hasNoRecommendations) {
+      return Center(child: Text('Aucune recommandation disponible'));
+    }
+    
+    return SingleChildScrollView(
+      padding: EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildRecommendationSection(
+            'Stratégie de contenu',
+            'Améliorez votre stratégie de contenu pour maximiser l\'engagement',
+            _recommendations!.contentStrategy,
+            Colors.blue.shade700,
+          ),
+          SizedBox(height: 16),
+          _buildRecommendationSection(
+            'Tactiques d\'engagement',
+            'Augmentez l\'engagement de votre audience avec ces approches',
+            _recommendations!.engagementTactics,
+            Colors.purple.shade700,
+          ),
+          SizedBox(height: 16),
+          _buildRecommendationSection(
+            'Opportunités de croissance',
+            'Exploitez ces opportunités pour développer votre présence',
+            _recommendations!.growthOpportunities,
+            Colors.green.shade700,
+          ),
+        ],
+      ),
+    );
+  }
+  
+  Widget _buildRecommendationSection(String title, String description, List<Recommendation> recommendations, Color color) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 16,
+          ),
+        ),
+        SizedBox(height: 8),
+        Text(description),
+        SizedBox(height: 8),
+        ...recommendations.map((recommendation) => _buildRecommendationCard(recommendation)).toList(),
+      ],
+    );
+  }
+  
+  Widget _buildRecommendationCard(Recommendation recommendation) {
+    return Card(
+      margin: EdgeInsets.only(bottom: 16),
+      child: Padding(
+        padding: EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              recommendation.title,
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+            ),
+            SizedBox(height: 8),
+            Text(recommendation.description),
+            SizedBox(height: 12),
+            // Afficher l'action suggérée dans un conteneur stylisé
+            Container(
+              padding: EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.arrow_forward, color: Colors.blue, size: 18),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      recommendation.action,
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blue,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class HourlyBarChartPainter extends CustomPainter {

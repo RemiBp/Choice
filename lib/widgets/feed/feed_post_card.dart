@@ -18,6 +18,7 @@ class FeedPostCard extends StatefulWidget {
   final Function() onInterested;
   final Function() onChoice;
   final Function() onComment;
+  final Function()? onRefresh;
 
   const FeedPostCard({
     Key? key,
@@ -31,6 +32,7 @@ class FeedPostCard extends StatefulWidget {
     required this.onInterested,
     required this.onChoice,
     required this.onComment,
+    this.onRefresh,
   }) : super(key: key);
 
   @override
@@ -220,21 +222,17 @@ class _FeedPostCardState extends State<FeedPostCard> {
               ),
 
             // Interaction bar
-            PostInteractionBar(
-              isLiked: widget.post.isLiked ?? false,
-              isInterested: widget.post.isInterested ?? false,
-              isChoice: widget.post.isChoice ?? false,
-              likesCount: widget.post.likesCount ?? 0,
-              interestedCount: widget.post.interestedCount ?? 0,
-              choiceCount: widget.post.choiceCount ?? 0,
-              commentsCount: widget.post.comments.length,
-              onLike: () => widget.onLike(),
-              onInterested: () => widget.onInterested(),
-              onChoice: () => widget.onChoice(),
-              onComment: () => widget.onComment(),
-              onShare: () {}, // Implémentation du partage à venir
-              isProducerPost: widget.post.isProducerPost,
-              isLeisureProducer: widget.post.isLeisureProducer,
+            Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: PostInteractionBar(
+                post: _convertPostToMap(),
+                userId: widget.currentUserId,
+                onRefresh: () {
+                  if (widget.onRefresh != null) {
+                    widget.onRefresh!();
+                  }
+                },
+              ),
             ),
 
             // Recent comments
@@ -319,5 +317,18 @@ class _FeedPostCardState extends State<FeedPostCard> {
         ),
       ),
     );
+  }
+
+  // Convertir l'objet Post en Map pour la compatibilité avec PostInteractionBar
+  Map<String, dynamic> _convertPostToMap() {
+    return {
+      '_id': widget.post.id,
+      'user_id': widget.post.userId,
+      'producer_id': widget.post.producerId,
+      'likes': widget.post.likes,
+      'interests': widget.post.interests,
+      'choices': widget.post.choices,
+      // Autres propriétés nécessaires
+    };
   }
 } 

@@ -2833,8 +2833,7 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
                     context,
                     MaterialPageRoute(
                       builder: (context) => MapScreen(
-                        initialPosition: LatLng(lat, lon),
-                        producerId: widget.producerId,
+                        userId: widget.producerId,
                       ),
                     ),
                   );
@@ -4539,7 +4538,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> with SingleTick
                                 feature,
                                 style: TextStyle(
                                   fontSize: 14,
-                                  color: isSelected ? _primaryColor.shade900 : Colors.black87,
+                                  color: isSelected ? _darkColor : Colors.black87,
                                 ),
                               ),
                             ),

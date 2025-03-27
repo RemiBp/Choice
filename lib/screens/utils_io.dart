@@ -25,7 +25,7 @@ String getBaseUrl() {
     if (!kIsWeb && Platform.isAndroid) {
       // Pour les tests de développement, toujours considérer comme émulateur
       // ⚠️ IMPORTANT: Mettre à true pour les tests sur émulateur, false pour le déploiement
-      const bool forceEmulatorMode = true;
+      const bool forceEmulatorMode = false;
       
       bool isEmulator = forceEmulatorMode;
       
@@ -54,6 +54,7 @@ String getBaseUrl() {
         return "http://10.0.2.2:5000";
       } else {
         print("🔗 Appareil Android physique détecté - Utilisation de l'URL cloud: https://api.choiceapp.fr");
+        return "https://api.choiceapp.fr";
       }
     }
     

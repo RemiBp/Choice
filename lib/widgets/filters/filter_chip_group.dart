@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
-import 'filter_chip.dart';
+import 'custom_filter_chip.dart';
 
 class FilterChipGroup extends StatelessWidget {
   final String title;
-  final List<FilterChipItem> filters;
+  final List<Widget> items;
   final VoidCallback? onReset;
 
   const FilterChipGroup({
     Key? key,
     required this.title,
-    required this.filters,
+    required this.items,
     this.onReset,
   }) : super(key: key);
 
@@ -48,7 +48,7 @@ class FilterChipGroup extends StatelessWidget {
           child: ListView(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            children: filters,
+            children: items,
           ),
         ),
       ],

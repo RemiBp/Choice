@@ -49,9 +49,9 @@
             </intent-filter>
         </activity>
 
-        <!-- Configuration pour les versions Android 12+ -->
+        <!-- Service de localisation pour Android 12+ -->
         <service
-            android:name="com.baseflow.geolocator.GeolocatorLocationService"
+            android:name="com.lyokone.location.FlutterLocationService"
             android:foregroundServiceType="location"
             android:enabled="true"
             android:exported="false"/>

@@ -1,106 +1,122 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/services.dart';
+import 'package:location/location.dart';
+import 'dart:math' as math;
 import 'location_service.dart' as location_service;
 
-/// Implémentation pour les plateformes mobiles utilisant method channels
+/// Implémentation native (Android/iOS) du service de localisation
 class LocationService implements location_service.LocationService {
-  static const _methodChannel = MethodChannel('fr.choiceapp.app/location');
-  static const _eventChannel = EventChannel('fr.choiceapp.app/location_updates');
-  
-  // Cache pour l'état de la permission
-  location_service.LocationPermission? _lastPermission;
-  
+  static final LocationService _instance = LocationService._internal();
+
+  factory LocationService() => _instance;
+
+  LocationService._internal();
+
+  final Location _location = Location();
+
   @override
   Future<bool> isLocationServiceEnabled() async {
-    try {
-      // Utiliser Paris comme position de secours si erreur
-      final result = await _methodChannel.invokeMethod<bool>('isLocationServiceEnabled');
-      return result ?? false;
-    } catch (e) {
-      print('❌ Erreur lors de la vérification des services de localisation: $e');
-      return false;
+    bool serviceEnabled = await _location.serviceEnabled();
+    if (!serviceEnabled) {
+      serviceEnabled = await _location.requestService();
     }
+    return serviceEnabled;
   }
 
   @override
-  Future<location_service.LocationPermission> requestPermission() async {
-    try {
-      final result = await _methodChannel.invokeMethod<String>('requestPermission');
-      _lastPermission = _parsePermissionString(result);
-      return _lastPermission!;
-    } catch (e) {
-      print('❌ Erreur lors de la demande de permissions: $e');
-      return location_service.LocationPermission.denied;
-    }
-  }
-
-  @override
-  Future<location_service.LocationPermission> checkPermission() async {
-    // Si nous avons déjà vérifié la permission, retourner la valeur en cache
-    if (_lastPermission != null) {
-      return _lastPermission!;
+  Future<bool> checkAndRequestPermission() async {
+    PermissionStatus permission = await _location.hasPermission();
+    
+    if (permission == PermissionStatus.denied) {
+      permission = await _location.requestPermission();
     }
     
+    return permission == PermissionStatus.granted || 
+           permission == PermissionStatus.grantedLimited;
+  }
+
+  @override
+  Future<location_service.LocationPosition?> getCurrentPosition() async {
     try {
-      final result = await _methodChannel.invokeMethod<String>('checkPermission');
-      _lastPermission = _parsePermissionString(result);
-      return _lastPermission!;
+      bool serviceEnabled = await isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        return null;
+      }
+
+      bool permissionGranted = await checkAndRequestPermission();
+      if (!permissionGranted) {
+        return null;
+      }
+
+      await _location.changeSettings(
+        accuracy: LocationAccuracy.high,
+        interval: 10000,
+        distanceFilter: 10,
+      );
+
+      LocationData locationData = await _location.getLocation();
+      
+      if (locationData.latitude != null && locationData.longitude != null) {
+        return location_service.LocationPosition(
+          latitude: locationData.latitude!,
+          longitude: locationData.longitude!,
+          accuracy: locationData.accuracy,
+          altitude: locationData.altitude,
+          heading: locationData.heading,
+          speed: locationData.speed,
+          timestamp: DateTime.fromMillisecondsSinceEpoch(
+            (locationData.time ?? DateTime.now().millisecondsSinceEpoch).toInt(),
+          ),
+        );
+      }
+      
+      return null;
     } catch (e) {
-      print('❌ Erreur lors de la vérification des permissions: $e');
-      return location_service.LocationPermission.denied;
+      print('❌ Erreur de localisation: $e');
+      return null;
     }
   }
 
   @override
-  Future<location_service.LocationPosition> getCurrentPosition() async {
-    try {
-      final result = await _methodChannel.invokeMethod<Map<String, dynamic>>('getCurrentPosition');
-      
-      if (result != null) {
-        return location_service.LocationPosition(
-          latitude: result['latitude'] as double? ?? 48.8566, // Paris par défaut
-          longitude: result['longitude'] as double? ?? 2.3522,
-          accuracy: result['accuracy'] as double?,
-          altitude: result['altitude'] as double?,
-          heading: result['heading'] as double?,
-          speed: result['speed'] as double?,
-          timestamp: result['timestamp'] != null 
-              ? DateTime.fromMillisecondsSinceEpoch(result['timestamp'] as int) 
-              : DateTime.now(),
-        );
-      } else {
-        // Retourner Paris par défaut
-        return location_service.LocationPosition(
-          latitude: 48.8566,
-          longitude: 2.3522,
-          timestamp: DateTime.now(),
-        );
-      }
-    } catch (e) {
-      print('❌ Erreur lors de la récupération de la position: $e');
-      // Retourner Paris par défaut
+  Stream<location_service.LocationPosition> getPositionStream() {
+    return _location.onLocationChanged.map((locationData) {
       return location_service.LocationPosition(
-        latitude: 48.8566,
-        longitude: 2.3522,
-        timestamp: DateTime.now(),
+        latitude: locationData.latitude!,
+        longitude: locationData.longitude!,
+        accuracy: locationData.accuracy,
+        altitude: locationData.altitude,
+        heading: locationData.heading,
+        speed: locationData.speed,
+        timestamp: DateTime.fromMillisecondsSinceEpoch(
+          (locationData.time ?? DateTime.now().millisecondsSinceEpoch).toInt(),
+        ),
       );
-    }
+    });
   }
-  
-  // Convertit les chaînes de permission en enum
-  location_service.LocationPermission _parsePermissionString(String? permission) {
-    switch (permission) {
-      case 'denied':
-        return location_service.LocationPermission.denied;
-      case 'deniedForever':
-        return location_service.LocationPermission.deniedForever;
-      case 'whileInUse':
-        return location_service.LocationPermission.whileInUse;
-      case 'always':
-        return location_service.LocationPermission.always;
-      default:
-        return location_service.LocationPermission.denied;
-    }
+
+  @override
+  double calculateDistance(
+    double startLatitude, 
+    double startLongitude, 
+    double endLatitude, 
+    double endLongitude
+  ) {
+    const int earthRadius = 6371000; // en mètres
+    
+    double lat1Rad = startLatitude * (math.pi / 180);
+    double lat2Rad = endLatitude * (math.pi / 180);
+    double lon1Rad = startLongitude * (math.pi / 180);
+    double lon2Rad = endLongitude * (math.pi / 180);
+    
+    double latDiff = lat2Rad - lat1Rad;
+    double lonDiff = lon2Rad - lon1Rad;
+    
+    double a = math.sin(latDiff / 2) * math.sin(latDiff / 2) +
+               math.cos(lat1Rad) * math.cos(lat2Rad) *
+               math.sin(lonDiff / 2) * math.sin(lonDiff / 2);
+    double c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a));
+    
+    return earthRadius * c;
   }
 }

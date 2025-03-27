@@ -7,6 +7,7 @@ import '../utils/custom_heatmap.dart' hide WeightedLatLng;
 import 'package:cached_network_image/cached_network_image.dart';
 import 'utils.dart';
 import '../models/user_hotspot.dart' as models;
+import '../models/faker_data.dart';
 
 class HeatmapScreen extends StatefulWidget {
   final String userId;
@@ -150,143 +151,41 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
   
   Future<List<models.UserHotspot>> _fetchHotspots(double latitude, double longitude) async {
     try {
-      final url = Uri.parse(
-        '${getBaseUrl()}/api/location-history/hotspots?'
-        'latitude=$latitude&longitude=$longitude&radius=2000'
+      final url = Uri.parse('${getBaseUrl()}/api/location-history/hotspots').replace(
+        queryParameters: {
+          'latitude': latitude.toString(),
+          'longitude': longitude.toString(),
+          'radius': '2000', // 2km par défaut
+        },
       );
       
       final response = await http.get(url);
       
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
-        
-        // Parse the JSON data into UserHotspot objects
         return data.map((item) => models.UserHotspot.fromJson(item)).toList();
       } else {
-        throw Exception('Failed to load hotspots: ${response.statusCode}');
+        print('❌ Erreur lors de la récupération des hotspots: ${response.statusCode}');
+        
+        // Utiliser des données fictives en cas d'erreur
+        print('ℹ️ Utilisation de données simulées pour la carte de chaleur');
+        return FakerData.generateFakeHotspots(
+          LatLng(latitude, longitude), 
+          15, // 15 hotspots
+          maxRadius: 2000
+        );
       }
     } catch (e) {
-      print('❌ Error fetching hotspots: $e');
+      print('❌ Exception lors de la récupération des hotspots: $e');
       
-      // Return sample data for UI demonstration if API fails
-      return _getSampleHotspots(latitude, longitude);
+      // Utiliser des données fictives en cas d'erreur
+      print('ℹ️ Utilisation de données simulées pour la carte de chaleur');
+      return FakerData.generateFakeHotspots(
+        LatLng(latitude, longitude), 
+        15, // 15 hotspots
+        maxRadius: 2000
+      );
     }
-  }
-  
-  // Generate sample hotspots for UI demonstration
-  List<models.UserHotspot> _getSampleHotspots(double latitude, double longitude) {
-    return [
-      models.UserHotspot(
-        id: '1',
-        latitude: latitude,
-        longitude: longitude,
-        zoneName: 'Votre établissement',
-        intensity: 0.9,
-        visitorCount: 245,
-        timeDistribution: {
-          'morning': 0.2,
-          'afternoon': 0.3,
-          'evening': 0.5,
-        },
-        dayDistribution: {
-          'monday': 0.05,
-          'tuesday': 0.05,
-          'wednesday': 0.1,
-          'thursday': 0.15,
-          'friday': 0.25,
-          'saturday': 0.3,
-          'sunday': 0.1,
-        },
-      ),
-      models.UserHotspot(
-        id: '2',
-        latitude: latitude + 0.002,
-        longitude: longitude + 0.001,
-        zoneName: 'Zone commerciale',
-        intensity: 0.8,
-        visitorCount: 189,
-        timeDistribution: {
-          'morning': 0.3,
-          'afternoon': 0.5,
-          'evening': 0.2,
-        },
-        dayDistribution: {
-          'monday': 0.1,
-          'tuesday': 0.15,
-          'wednesday': 0.15,
-          'thursday': 0.15,
-          'friday': 0.20,
-          'saturday': 0.15,
-          'sunday': 0.1,
-        },
-      ),
-      models.UserHotspot(
-        id: '3',
-        latitude: latitude - 0.0015,
-        longitude: longitude + 0.0025,
-        zoneName: 'Parc public',
-        intensity: 0.6,
-        visitorCount: 142,
-        timeDistribution: {
-          'morning': 0.4,
-          'afternoon': 0.4,
-          'evening': 0.2,
-        },
-        dayDistribution: {
-          'monday': 0.05,
-          'tuesday': 0.05,
-          'wednesday': 0.1,
-          'thursday': 0.1,
-          'friday': 0.15,
-          'saturday': 0.3,
-          'sunday': 0.25,
-        },
-      ),
-      models.UserHotspot(
-        id: '4',
-        latitude: latitude + 0.001,
-        longitude: longitude - 0.002,
-        zoneName: 'Zone résidentielle',
-        intensity: 0.5,
-        visitorCount: 97,
-        timeDistribution: {
-          'morning': 0.1,
-          'afternoon': 0.2,
-          'evening': 0.7,
-        },
-        dayDistribution: {
-          'monday': 0.15,
-          'tuesday': 0.15,
-          'wednesday': 0.15,
-          'thursday': 0.15,
-          'friday': 0.15,
-          'saturday': 0.15,
-          'sunday': 0.1,
-        },
-      ),
-      models.UserHotspot(
-        id: '5',
-        latitude: latitude - 0.003,
-        longitude: longitude - 0.001,
-        zoneName: 'Transport public',
-        intensity: 0.7,
-        visitorCount: 168,
-        timeDistribution: {
-          'morning': 0.45,
-          'afternoon': 0.1,
-          'evening': 0.45,
-        },
-        dayDistribution: {
-          'monday': 0.2,
-          'tuesday': 0.2,
-          'wednesday': 0.2,
-          'thursday': 0.2,
-          'friday': 0.2,
-          'saturday': 0.0,
-          'sunday': 0.0,
-        },
-      ),
-    ];
   }
   
   void _applyFilters() {
