@@ -53,6 +53,21 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
   String _selectedPlan = 'gratuit';
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   
+  // Filtres pour les menus
+  Map<String, bool> _menuFilters = {
+    'Enfant': false,
+    'Végétarien': false,
+    'Sans Gluten': false,
+    'Bien-être': false,
+    'Spécial': false,
+  };
+  
+  // Pour la gestion des campagnes marketing
+  bool _hasActiveCampaign = false;
+  String _campaignType = '';
+  int _campaignReach = 0;
+  DateTime? _campaignEndDate;
+  
   @override
   void initState() {
     super.initState();
@@ -1528,6 +1543,24 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
   }
 
   Widget _buildProfileTab(Map<String, dynamic> data) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildProfileHeader(data),
+          const SizedBox(height: 24),
+          _buildMenuSection(data),
+          const SizedBox(height: 24),
+          _buildCampaignSection(),
+          const SizedBox(height: 16),
+          _buildMap(data['location']?['coordinates']),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProfileHeader(Map<String, dynamic> data) {
     final followersCount = (data['followers'] is Map && data['followers']?['count'] is int)
         ? data['followers']['count']
         : 0;
@@ -1541,267 +1574,484 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
         ? data['choiceUsers']['count']
         : 0;
     
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            _buildCommunityStats('Followers', followersCount, Icons.people, () {
+              _navigateToFollowersList(data, 'followers');
+            }),
+            _buildCommunityStats('Following', followingCount, Icons.person_add, () {
+              _navigateToFollowersList(data, 'following');
+            }),
+            _buildCommunityStats('Interested', interestedCount, Icons.emoji_objects, () {
+              _navigateToFollowersList(data, 'interested');
+            }),
+            _buildCommunityStats('Choices', choicesCount, Icons.check_circle, () {
+              _navigateToFollowersList(data, 'choices');
+            }),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Text(
+          data['description'] ?? 'Description non spécifiée',
+          style: TextStyle(
+            fontSize: 15,
+            color: Colors.grey[700],
+            height: 1.5,
+          ),
+        ),
+        const SizedBox(height: 16),
+        if (data['adresse'] != null)
+          Row(
+            children: [
+              const Icon(Icons.location_on, color: Colors.deepPurple, size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  data['adresse'],
+                  style: TextStyle(fontSize: 15, color: Colors.grey[700]),
+                ),
+              ),
+            ],
+          ),
+        const SizedBox(height: 8),
+        if (data['website'] != null)
+          Row(
+            children: [
+              const Icon(Icons.link, color: Colors.deepPurple, size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  data['website'],
+                  style: TextStyle(fontSize: 15, color: Colors.grey[700]),
+                ),
+              ),
+            ],
+          ),
+      ],
+    );
+  }
+
+  Widget _buildMenuSection(Map<String, dynamic> data) {
+    // Récupérer les menus du producteur (adapter selon votre structure de données)
+    List<dynamic> menus = data['menus'] ?? [];
+    
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Carte du Menu',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.edit, color: Colors.deepPurple),
+                  onPressed: () => _showMenuEditDialog(),
+                  tooltip: 'Modifier les menus',
+                )
+              ],
+            ),
+            
+            const SizedBox(height: 16),
+            
+            // Filtres pour les menus
+            Wrap(
+              spacing: 8.0,
+              runSpacing: 8.0,
+              children: _menuFilters.keys.map((filter) {
+                return FilterChip(
+                  label: Text(filter),
+                  selected: _menuFilters[filter]!,
+                  selectedColor: Colors.deepPurple.withOpacity(0.2),
+                  checkmarkColor: Colors.deepPurple,
+                  onSelected: (selected) {
+                    setState(() {
+                      _menuFilters[filter] = selected;
+                    });
+                  },
+                );
+              }).toList(),
+            ),
+            
+            const SizedBox(height: 16),
+            
+            // Liste des menus disponibles
+            ...menus.isEmpty 
+                ? [_buildEmptyMenuMessage()]
+                : _buildFilteredMenus(menus),
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _buildFilteredMenus(List<dynamic> menus) {
+    // Filtrer les menus selon les critères sélectionnés
+    List<dynamic> filteredMenus = menus;
+    
+    if (_menuFilters.values.any((selected) => selected)) {
+      filteredMenus = menus.where((menu) {
+        // Vérifier si le menu correspond à au moins un des filtres sélectionnés
+        for (var entry in _menuFilters.entries) {
+          if (entry.value && (menu['tags']?.contains(entry.key) ?? false)) {
+            return true;
+          }
+        }
+        return false;
+      }).toList();
+    }
+    
+    if (filteredMenus.isEmpty) {
+      return [
+        Container(
+          padding: const EdgeInsets.all(16),
+          alignment: Alignment.center,
+          child: Text(
+            'Aucun menu correspondant aux filtres sélectionnés',
+            style: TextStyle(
+              color: Colors.grey[600],
+              fontSize: 16,
+            ),
+          ),
+        ),
+      ];
+    }
+    
+    return filteredMenus.map<Widget>((menu) {
+      return _buildMenuCard(menu);
+    }).toList();
+  }
+
+  Widget _buildMenuCard(dynamic menu) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: ExpansionTile(
+        title: Text(
+          menu['name'] ?? 'Menu sans nom',
+          style: const TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 16,
+          ),
+        ),
+        subtitle: Text(
+          '${menu['price'] ?? '0.00'} €',
+          style: TextStyle(
+            color: Colors.deepPurple,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        trailing: Chip(
+          label: Text(
+            menu['type'] ?? 'Standard',
+            style: TextStyle(fontSize: 12),
+          ),
+          backgroundColor: Colors.deepPurple.withOpacity(0.1),
+        ),
         children: [
-          // Followers section
-          Card(
-            elevation: 2,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.deepPurple.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Icon(Icons.people, color: Colors.deepPurple),
-                      ),
-                      const SizedBox(width: 12),
-                      const Text(
-                        'Communauté',
-                        style: TextStyle(
-                          fontSize: 18, 
-                          fontWeight: FontWeight.bold,
-                          color: Colors.black87,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      _buildCommunityStats('Followers', followersCount, Icons.people, () {
-                        _navigateToFollowersList(data, 'followers');
-                      }),
-                      _buildCommunityStats('Following', followingCount, Icons.person_add, () {
-                        _navigateToFollowersList(data, 'following');
-                      }),
-                      _buildCommunityStats('Interested', interestedCount, Icons.emoji_objects, () {
-                        _navigateToFollowersList(data, 'interested');
-                      }),
-                      _buildCommunityStats('Choices', choicesCount, Icons.check_circle, () {
-                        _navigateToFollowersList(data, 'choices');
-                      }),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-          
-          const SizedBox(height: 20),
-          
-          // Description section
-          Card(
-            elevation: 2,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.blue.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Icon(Icons.info, color: Colors.blue),
-                      ),
-                      const SizedBox(width: 12),
-                      const Text(
-                        'À propos',
-                        style: TextStyle(
-                          fontSize: 18, 
-                          fontWeight: FontWeight.bold,
-                          color: Colors.black87,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (menu['description'] != null)
                   Text(
-                    data['description'] ?? 'Description non spécifiée',
-                    style: TextStyle(
-                      fontSize: 15,
-                      color: Colors.grey[700],
-                      height: 1.5,
-                    ),
+                    menu['description'],
+                    style: TextStyle(fontSize: 14),
                   ),
-                  const SizedBox(height: 16),
-                  if (data['adresse'] != null)
-                    Row(
-                      children: [
-                        const Icon(Icons.location_on, color: Colors.deepPurple, size: 18),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            data['adresse'],
-                            style: TextStyle(fontSize: 15, color: Colors.grey[700]),
-                          ),
-                        ),
-                      ],
-                    ),
-                  const SizedBox(height: 8),
-                  if (data['website'] != null)
-                    Row(
-                      children: [
-                        const Icon(Icons.link, color: Colors.deepPurple, size: 18),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            data['website'],
-                            style: TextStyle(fontSize: 15, color: Colors.grey[700]),
-                          ),
-                        ),
-                      ],
-                    ),
-                ],
-              ),
-            ),
-          ),
-          
-          const SizedBox(height: 20),
-          
-          // Posts section
-          Card(
-            elevation: 2,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: Colors.orange.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: const Icon(Icons.post_add, color: Colors.orange),
-                          ),
-                          const SizedBox(width: 12),
-                          const Text(
-                            'Mes Posts',
-                            style: TextStyle(
-                              fontSize: 18, 
-                              fontWeight: FontWeight.bold,
-                              color: Colors.black87,
-                            ),
-                          ),
-                        ],
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.add_circle, color: Colors.deepPurple),
-                        onPressed: () => _showCreatePostDialog(),
-                      ),
-                    ],
+                  
+                const SizedBox(height: 16),
+                
+                const Text(
+                  'Détails du menu',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
                   ),
-                  const SizedBox(height: 16),
-                  FutureBuilder<List<dynamic>>(
-                    future: _fetchProducerPosts(widget.userId),
-                    builder: (context, snapshot) {
-                      if (snapshot.connectionState == ConnectionState.waiting) {
-                        return const Center(child: CircularProgressIndicator());
-                      } else if (snapshot.hasError) {
-                        return Center(child: Text('Error: ${snapshot.error}'));
-                      }
-
-                      final posts = snapshot.data ?? [];
-                      if (posts.isEmpty) {
-                        return Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.grey[100],
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: const Center(
-                            child: Text(
-                              'Aucun post pour le moment.\nCréez votre premier post!',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(color: Colors.grey),
-                            ),
-                          ),
-                        );
-                      }
-
-                      return ListView.builder(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        itemCount: posts.length,
-                        itemBuilder: (context, index) {
-                          final post = posts[index];
-                          return _buildPostCard(post);
-                        },
-                      );
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ),
-          
-          const SizedBox(height: 20),
-          
-          // Map section
-          Card(
-            elevation: 2,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.green.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Icon(Icons.map, color: Colors.green),
-                      ),
-                      const SizedBox(width: 12),
-                      const Text(
-                        'Emplacement',
-                        style: TextStyle(
-                          fontSize: 18, 
-                          fontWeight: FontWeight.bold,
-                          color: Colors.black87,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    height: 200,
-                    child: _buildMap(data['location']?['coordinates']),
-                  ),
-                ],
-              ),
+                ),
+                
+                const SizedBox(height: 8),
+                
+                ...(menu['items'] as List? ?? []).map<Widget>((item) {
+                  return ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(item['name'] ?? 'Item sans nom'),
+                    subtitle: item['description'] != null
+                        ? Text(item['description'], 
+                            style: TextStyle(fontSize: 12))
+                        : null,
+                    trailing: item['price'] != null
+                        ? Text('${item['price']} €',
+                            style: TextStyle(fontWeight: FontWeight.bold))
+                        : null,
+                  );
+                }).toList(),
+              ],
             ),
           ),
         ],
       ),
     );
+  }
+
+  Widget _buildEmptyMenuMessage() {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      alignment: Alignment.center,
+      child: Column(
+        children: [
+          Icon(
+            Icons.restaurant_menu,
+            size: 48,
+            color: Colors.grey[400],
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Aucun menu disponible',
+            style: TextStyle(
+              fontSize: 16,
+              color: Colors.grey[600],
+            ),
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton.icon(
+            icon: const Icon(Icons.add),
+            label: const Text('Ajouter un menu'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.deepPurple,
+            ),
+            onPressed: () => _showMenuEditDialog(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Méthode pour l'édition des menus
+  void _showMenuEditDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Gestion des menus'),
+        content: const Text('Bientôt disponible : éditeur de menus avancé'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Ajout d'une section pour les campagnes marketing
+  Widget _buildCampaignSection() {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Campagnes Marketing',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            
+            const SizedBox(height: 16),
+            
+            if (_hasActiveCampaign)
+              _buildActiveCampaignCard()
+            else
+              _buildCampaignOptions(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActiveCampaignCard() {
+    final daysLeft = _campaignEndDate != null
+        ? _campaignEndDate!.difference(DateTime.now()).inDays
+        : 0;
+    
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.blue.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.blue.withOpacity(0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.campaign, color: Colors.blue),
+              const SizedBox(width: 8),
+              Text(
+                'Campagne $_campaignType active',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text('Portée estimée : $_campaignReach utilisateurs'),
+          Text('Jours restants : $daysLeft jours'),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton.icon(
+                icon: const Icon(Icons.bar_chart),
+                label: const Text('Statistiques'),
+                onPressed: () {
+                  // Naviguer vers les statistiques de campagne
+                },
+              ),
+              TextButton.icon(
+                icon: const Icon(Icons.stop_circle),
+                label: const Text('Arrêter'),
+                style: TextButton.styleFrom(foregroundColor: Colors.red),
+                onPressed: () {
+                  setState(() {
+                    _hasActiveCampaign = false;
+                  });
+                },
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCampaignOptions() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Augmentez votre visibilité avec une campagne ciblée',
+          style: TextStyle(color: Colors.grey),
+        ),
+        const SizedBox(height: 16),
+        Wrap(
+          spacing: 12.0,
+          runSpacing: 12.0,
+          children: [
+            _buildCampaignOptionCard(
+              title: 'Boost Local',
+              description: 'Visibilité augmentée dans votre quartier',
+              price: '29,99 €',
+              icon: Icons.location_on,
+              color: Colors.green,
+              onTap: () => _startCampaign('Boost Local', 2500),
+            ),
+            _buildCampaignOptionCard(
+              title: 'Promo Spéciale',
+              description: 'Mise en avant de vos offres promotionnelles',
+              price: '49,99 €',
+              icon: Icons.local_offer,
+              color: Colors.orange,
+              onTap: () => _startCampaign('Promo Spéciale', 5000),
+            ),
+            _buildCampaignOptionCard(
+              title: 'Premium',
+              description: 'Visibilité maximale et analyses détaillées',
+              price: '99,99 €',
+              icon: Icons.star,
+              color: Colors.purple,
+              onTap: () => _startCampaign('Premium', 10000),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCampaignOptionCard({
+    required String title,
+    required String description,
+    required String price,
+    required IconData icon,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        width: MediaQuery.of(context).size.width * 0.42,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: color.withOpacity(0.3)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, color: color),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: color,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              description,
+              style: const TextStyle(fontSize: 12),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              price,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _startCampaign(String type, int reach) {
+    setState(() {
+      _hasActiveCampaign = true;
+      _campaignType = type;
+      _campaignReach = reach;
+      _campaignEndDate = DateTime.now().add(const Duration(days: 30));
+    });
   }
 
   Widget _buildCommunityStats(String label, int count, IconData icon, VoidCallback onTap) {

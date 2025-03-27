@@ -35,11 +35,33 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
   String? _error;
   String _selectedPeriod = '30'; // 30 jours par défaut
   
+  // Nouvelles variables pour l'affichage du profil connecté
+  String _userName = '';
+  String _userPhoto = '';
+  Map<String, dynamic>? _userProfile;
+  
+  // Variables pour les campagnes
+  bool _showCampaignCreator = false;
+  String _selectedCampaignType = 'Visibilité locale';
+  final List<String> _campaignTypes = [
+    'Visibilité locale',
+    'Boost national',
+    'Promotion spéciale',
+    'Événement à venir'
+  ];
+  final Map<String, double> _campaignPrices = {
+    'Visibilité locale': 29.99,
+    'Boost national': 59.99,
+    'Promotion spéciale': 39.99,
+    'Événement à venir': 49.99
+  };
+  
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
     _loadInitialData();
+    _loadUserProfile();
   }
   
   @override
@@ -86,6 +108,29 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
     }
   }
   
+  Future<void> _loadUserProfile() async {
+    try {
+      final baseUrl = getBaseUrl();
+      final url = Uri.parse('$baseUrl/api/users/me');
+      
+      final response = await http.get(
+        url,
+        headers: {'Content-Type': 'application/json'},
+      );
+      
+      if (response.statusCode == 200) {
+        final userData = json.decode(response.body);
+        setState(() {
+          _userProfile = userData;
+          _userName = userData['name'] ?? 'Utilisateur';
+          _userPhoto = userData['photo'] ?? '';
+        });
+      }
+    } catch (e) {
+      print('❌ Erreur lors du chargement du profil: $e');
+    }
+  }
+  
   void _updatePeriod(String period) {
     if (_selectedPeriod != period) {
       setState(() {
@@ -99,10 +144,10 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Croissance & Portée'),
+        title: const Text('Croissance & Portée'),
         bottom: TabBar(
           controller: _tabController,
-          tabs: [
+          tabs: const [
             Tab(text: 'Aperçu'),
             Tab(text: 'Tendances'),
             Tab(text: 'Recommandations'),
@@ -110,23 +155,23 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
         ),
         actions: [
           PopupMenuButton<String>(
-            icon: Icon(Icons.calendar_today),
+            icon: const Icon(Icons.calendar_today),
             tooltip: 'Période d\'analyse',
             onSelected: _updatePeriod,
             itemBuilder: (context) => [
-              PopupMenuItem(
+              const PopupMenuItem(
                 value: '7',
                 child: Text('7 jours'),
               ),
-              PopupMenuItem(
+              const PopupMenuItem(
                 value: '30',
                 child: Text('30 jours'),
               ),
-              PopupMenuItem(
+              const PopupMenuItem(
                 value: '90',
                 child: Text('90 jours'),
               ),
-              PopupMenuItem(
+              const PopupMenuItem(
                 value: '365',
                 child: Text('365 jours'),
               ),
@@ -135,9 +180,9 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
         ],
       ),
       body: _isLoading
-          ? Center(child: LoadingIndicator())
+          ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? ErrorMessage(message: _error!)
+              ? Center(child: Text('Erreur: $_error'))
               : TabBarView(
                   controller: _tabController,
                   children: [
@@ -146,12 +191,23 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
                     _buildRecommendationsTab(),
                   ],
                 ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () {
+          setState(() {
+            _showCampaignCreator = true;
+          });
+          _showCampaignDialog();
+        },
+        icon: const Icon(Icons.campaign),
+        label: const Text('Nouvelle campagne'),
+        backgroundColor: Colors.deepPurple,
+      ),
     );
   }
   
   Widget _buildOverviewTab() {
     if (_overview == null) {
-      return Center(child: Text('Aucune donnée disponible'));
+      return const Center(child: Text('Aucune donnée disponible'));
     }
     
     // Récupérer les données d'aperçu
@@ -161,21 +217,25 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
     final reach = _overview!.reach;
     
     return SingleChildScrollView(
-      padding: EdgeInsets.all(16.0),
+      padding: const EdgeInsets.all(16.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // En-tête du producteur
-          _buildProducerHeader(producer),
-          SizedBox(height: 24),
+          // En-tête du producteur avec le profil connecté
+          _buildConnectedProducerHeader(),
+          const SizedBox(height: 24),
           
           // Statistiques principales
           _buildStatCards(engagement, followers, reach),
-          SizedBox(height: 24),
+          const SizedBox(height: 24),
+          
+          // Activité récente
+          _buildRecentActivitySection(),
+          const SizedBox(height: 24),
           
           // Démographie des followers
           _buildDemographicsSection(),
-          SizedBox(height: 24),
+          const SizedBox(height: 24),
           
           // Concurrents
           _buildCompetitorsSection(),
@@ -184,43 +244,197 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
     );
   }
   
-  Widget _buildProducerHeader(Producer producer) {
+  Widget _buildConnectedProducerHeader() {
     final theme = Theme.of(context);
     
     return Card(
       elevation: 4,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
-        padding: EdgeInsets.all(16.0),
-        child: Row(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
           children: [
-            CircleAvatar(
-              radius: 32,
-              backgroundImage: NetworkImage(producer.photo),
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 32,
+                  backgroundImage: _userPhoto.isNotEmpty 
+                      ? NetworkImage(_userPhoto) 
+                      : const AssetImage('assets/images/default_profile.png') as ImageProvider,
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _userName,
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        'Restaurant Le Gourmet',
+                        style: theme.textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        children: [
+                          Chip(
+                            label: const Text('Bistro'),
+                            backgroundColor: Colors.amber.withOpacity(0.2),
+                          ),
+                          Chip(
+                            label: const Text('Français'),
+                            backgroundColor: Colors.blue.withOpacity(0.2),
+                          ),
+                          Chip(
+                            label: const Text('Gastronomique'),
+                            backgroundColor: Colors.green.withOpacity(0.2),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-            SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    producer.name,
-                    style: theme.textTheme.titleLarge,
-                  ),
-                  SizedBox(height: 4),
-                  Wrap(
-                    spacing: 4,
-                    children: producer.category.map((cat) => Chip(
-                      label: Text(cat, style: TextStyle(fontSize: 12)),
-                      backgroundColor: producer.type == 'restaurant' 
-                          ? Colors.orange.shade100 
-                          : Colors.purple.shade100,
-                    )).toList(),
-                  ),
-                ],
-              ),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _buildQuickStat('Visibilité', '83%', Icons.visibility, Colors.blue),
+                _buildQuickStat('Engagement', '25.3', Icons.thumb_up, Colors.green),
+                _buildQuickStat('Conversion', '4.8%', Icons.trending_up, Colors.orange),
+              ],
             ),
           ],
         ),
+      ),
+    );
+  }
+  
+  Widget _buildQuickStat(String label, String value, IconData icon, Color color) {
+    return Column(
+      children: [
+        Icon(icon, color: color, size: 24),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 18,
+            color: color,
+          ),
+        ),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.grey[600],
+          ),
+        ),
+      ],
+    );
+  }
+  
+  Widget _buildRecentActivitySection() {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Activité Récente',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 16),
+            _buildActivityItem(
+              icon: Icons.person_add,
+              title: 'Nouveaux abonnés',
+              value: '+12',
+              change: '+10.7%',
+              isPositive: true,
+            ),
+            const Divider(),
+            _buildActivityItem(
+              icon: Icons.remove_red_eye,
+              title: 'Vues du profil',
+              value: '342',
+              change: '+5.2%',
+              isPositive: true,
+            ),
+            const Divider(),
+            _buildActivityItem(
+              icon: Icons.comment,
+              title: 'Commentaires',
+              value: '87',
+              change: '-2.3%',
+              isPositive: false,
+            ),
+            const Divider(),
+            _buildActivityItem(
+              icon: Icons.share,
+              title: 'Partages',
+              value: '26',
+              change: '+12.4%',
+              isPositive: true,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  Widget _buildActivityItem({
+    required IconData icon,
+    required String title,
+    required String value,
+    required String change,
+    required bool isPositive,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.deepPurple.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, color: Colors.deepPurple),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Text(
+              title,
+              style: const TextStyle(fontSize: 16),
+            ),
+          ),
+          Text(
+            value,
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            change,
+            style: TextStyle(
+              color: isPositive ? Colors.green : Colors.red,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1061,6 +1275,307 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+  
+  void _showCampaignDialog() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return DraggableScrollableSheet(
+              initialChildSize: 0.7,
+              minChildSize: 0.5,
+              maxChildSize: 0.95,
+              builder: (context, scrollController) {
+                return Container(
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                  ),
+                  child: SingleChildScrollView(
+                    controller: scrollController,
+                    child: Padding(
+                      padding: const EdgeInsets.all(24.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text(
+                                'Nouvelle Campagne',
+                                style: TextStyle(
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.close),
+                                onPressed: () => Navigator.pop(context),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 24),
+                          const Text(
+                            'Type de campagne',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          // Liste des types de campagne
+                          ...List.generate(_campaignTypes.length, (index) {
+                            final type = _campaignTypes[index];
+                            final isSelected = _selectedCampaignType == type;
+                            final price = _campaignPrices[type] ?? 0.0;
+                            
+                            return Card(
+                              margin: const EdgeInsets.only(bottom: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                side: BorderSide(
+                                  color: isSelected ? Colors.deepPurple : Colors.transparent,
+                                  width: 2,
+                                ),
+                              ),
+                              child: InkWell(
+                                onTap: () {
+                                  setState(() {
+                                    _selectedCampaignType = type;
+                                  });
+                                },
+                                borderRadius: BorderRadius.circular(12),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(16),
+                                  child: Row(
+                                    children: [
+                                      Radio<String>(
+                                        value: type,
+                                        groupValue: _selectedCampaignType,
+                                        onChanged: (value) {
+                                          setState(() {
+                                            _selectedCampaignType = value!;
+                                          });
+                                        },
+                                        activeColor: Colors.deepPurple,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              type,
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 16,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              _getCampaignDescription(type),
+                                              style: TextStyle(
+                                                fontSize: 14,
+                                                color: Colors.grey[600],
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      Text(
+                                        '${price.toStringAsFixed(2)} €',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 16,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            );
+                          }),
+                          const SizedBox(height: 24),
+                          // Estimation des résultats
+                          Card(
+                            margin: const EdgeInsets.only(bottom: 24),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            color: Colors.blue.withOpacity(0.1),
+                            child: Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Résultats estimés',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  _buildEstimationRow(
+                                    'Portée', 
+                                    _getEstimatedReach(_selectedCampaignType),
+                                    Icons.visibility
+                                  ),
+                                  const SizedBox(height: 8),
+                                  _buildEstimationRow(
+                                    'Interactions', 
+                                    _getEstimatedInteractions(_selectedCampaignType),
+                                    Icons.thumb_up
+                                  ),
+                                  const SizedBox(height: 8),
+                                  _buildEstimationRow(
+                                    'Conversion', 
+                                    _getEstimatedConversion(_selectedCampaignType),
+                                    Icons.shopping_cart
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          // Bouton de lancement
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton(
+                              onPressed: () {
+                                Navigator.pop(context);
+                                _showCampaignSuccess();
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.deepPurple,
+                                padding: const EdgeInsets.symmetric(vertical: 16),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              child: const Text(
+                                'Lancer la campagne',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+  
+  Widget _buildEstimationRow(String label, String value, IconData icon) {
+    return Row(
+      children: [
+        Icon(icon, size: 20, color: Colors.blue),
+        const SizedBox(width: 8),
+        Text(
+          '$label :',
+          style: const TextStyle(
+            fontSize: 14,
+          ),
+        ),
+        const Spacer(),
+        Text(
+          value,
+          style: const TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 14,
+          ),
+        ),
+      ],
+    );
+  }
+  
+  String _getCampaignDescription(String type) {
+    switch (type) {
+      case 'Visibilité locale':
+        return 'Augmentez votre visibilité auprès des utilisateurs à proximité de votre établissement';
+      case 'Boost national':
+        return 'Élargissez votre portée à l\'échelle nationale pour attirer une nouvelle clientèle';
+      case 'Promotion spéciale':
+        return 'Mettez en avant vos offres et promotions exceptionnelles';
+      case 'Événement à venir':
+        return 'Faites la promotion de vos événements à venir pour maximiser la participation';
+      default:
+        return '';
+    }
+  }
+  
+  String _getEstimatedReach(String type) {
+    switch (type) {
+      case 'Visibilité locale':
+        return '2 500 - 3 000 utilisateurs';
+      case 'Boost national':
+        return '8 000 - 10 000 utilisateurs';
+      case 'Promotion spéciale':
+        return '4 000 - 5 000 utilisateurs';
+      case 'Événement à venir':
+        return '5 000 - 6 000 utilisateurs';
+      default:
+        return '0 utilisateurs';
+    }
+  }
+  
+  String _getEstimatedInteractions(String type) {
+    switch (type) {
+      case 'Visibilité locale':
+        return '300 - 450 interactions';
+      case 'Boost national':
+        return '800 - 1 200 interactions';
+      case 'Promotion spéciale':
+        return '500 - 700 interactions';
+      case 'Événement à venir':
+        return '600 - 800 interactions';
+      default:
+        return '0 interactions';
+    }
+  }
+  
+  String _getEstimatedConversion(String type) {
+    switch (type) {
+      case 'Visibilité locale':
+        return '30 - 50 visites';
+      case 'Boost national':
+        return '70 - 100 visites';
+      case 'Promotion spéciale':
+        return '50 - 70 visites';
+      case 'Événement à venir':
+        return '60 - 80 réservations';
+      default:
+        return '0 visites';
+    }
+  }
+  
+  void _showCampaignSuccess() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('Campagne lancée avec succès !'),
+        backgroundColor: Colors.green,
+        duration: const Duration(seconds: 3),
+        action: SnackBarAction(
+          label: 'Voir',
+          textColor: Colors.white,
+          onPressed: () {
+            // Naviguer vers les détails de la campagne
+          },
         ),
       ),
     );

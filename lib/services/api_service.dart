@@ -75,7 +75,7 @@ class ApiService {
           return [];
         }
         
-        print('✅ Données reçues: ${response.data.toString().substring(0, Math.min(100, response.data.toString().length))}...');
+        print('✅ Données reçues: ${response.data.toString().substring(0, math.min(100, response.data.toString().length))}...');
         
         if (response.data['feed'] == null) {
           print('❌ Feed non trouvé dans les données');

@@ -902,6 +902,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildChoiceForm(BuildContext context, String locationId, String locationType, String locationName) {
+    // Utiliser des variables d'état locales statiques pour éviter des problèmes d'état
     double qualiteGenerale = 5.0;
     double interet = 5.0;
     double originalite = 5.0;
@@ -909,9 +910,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
     
     return StatefulBuilder(
       builder: (context, setState) {
-        return SingleChildScrollView(
+        return Container(
           padding: const EdgeInsets.all(20),
+          // Définir une hauteur maximale pour éviter les contraintes unbounded
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.85,
+          ),
           child: Column(
+            mainAxisSize: MainAxisSize.min, // Important pour éviter l'erreur flex unbounded
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // En-tête
@@ -957,190 +963,202 @@ class _ProfileScreenState extends State<ProfileScreen> {
               
               const Divider(height: 30),
               
-              // Qualité générale
-              const Text(
-                'Qualité générale',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
+              // Contenu défilable
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Qualité générale
+                      const Text(
+                        'Qualité générale',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Slider(
+                              value: qualiteGenerale,
+                              min: 0.0,
+                              max: 10.0,
+                              divisions: 10,
+                              activeColor: Colors.indigo,
+                              label: qualiteGenerale.round().toString(),
+                              onChanged: (value) {
+                                setState(() {
+                                  qualiteGenerale = value;
+                                });
+                              },
+                            ),
+                          ),
+                          Container(
+                            width: 40,
+                            alignment: Alignment.center,
+                            child: Text(
+                              qualiteGenerale.round().toString(),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      
+                      const SizedBox(height: 16),
+                      
+                      // Intérêt
+                      const Text(
+                        'Intérêt',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Slider(
+                              value: interet,
+                              min: 0.0,
+                              max: 10.0,
+                              divisions: 10,
+                              activeColor: Colors.indigo,
+                              label: interet.round().toString(),
+                              onChanged: (value) {
+                                setState(() {
+                                  interet = value;
+                                });
+                              },
+                            ),
+                          ),
+                          Container(
+                            width: 40,
+                            alignment: Alignment.center,
+                            child: Text(
+                              interet.round().toString(),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      
+                      const SizedBox(height: 16),
+                      
+                      // Originalité
+                      const Text(
+                        'Originalité',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Slider(
+                              value: originalite,
+                              min: 0.0,
+                              max: 10.0,
+                              divisions: 10,
+                              activeColor: Colors.indigo,
+                              label: originalite.round().toString(),
+                              onChanged: (value) {
+                                setState(() {
+                                  originalite = value;
+                                });
+                              },
+                            ),
+                          ),
+                          Container(
+                            width: 40,
+                            alignment: Alignment.center,
+                            child: Text(
+                              originalite.round().toString(),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      
+                      const SizedBox(height: 20),
+                      
+                      // Appréciation globale
+                      const Text(
+                        'Appréciation globale',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        maxLines: 3,
+                        decoration: InputDecoration(
+                          hintText: 'Partagez votre expérience...',
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(color: Colors.grey.shade300),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(color: Colors.indigo, width: 2),
+                          ),
+                        ),
+                        onChanged: (value) {
+                          appreciationGlobale = value;
+                        },
+                      ),
+                    ],
+                  ),
                 ),
               ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: Slider(
-                      value: qualiteGenerale,
-                      min: 0.0,
-                      max: 10.0,
-                      divisions: 10,
-                      activeColor: Colors.indigo,
-                      label: qualiteGenerale.round().toString(),
-                      onChanged: (value) {
-                        setState(() {
-                          qualiteGenerale = value;
-                        });
-                      },
-                    ),
-                  ),
-                  Container(
-                    width: 40,
-                    alignment: Alignment.center,
-                    child: Text(
-                      qualiteGenerale.round().toString(),
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
+              
+              // Bouton de soumission - à l'extérieur du scrollable pour qu'il reste visible
+              Padding(
+                padding: const EdgeInsets.only(top: 16.0),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      // Soumettre le Choice
+                      _submitChoice(
+                        context,
+                        locationId,
+                        locationType,
+                        qualiteGenerale.round(),
+                        interet.round(),
+                        originalite.round(),
+                        appreciationGlobale,
+                      );
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.indigo,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(30),
                       ),
                     ),
-                  ),
-                ],
-              ),
-              
-              const SizedBox(height: 16),
-              
-              // Intérêt
-              const Text(
-                'Intérêt',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: Slider(
-                      value: interet,
-                      min: 0.0,
-                      max: 10.0,
-                      divisions: 10,
-                      activeColor: Colors.indigo,
-                      label: interet.round().toString(),
-                      onChanged: (value) {
-                        setState(() {
-                          interet = value;
-                        });
-                      },
-                    ),
-                  ),
-                  Container(
-                    width: 40,
-                    alignment: Alignment.center,
-                    child: Text(
-                      interet.round().toString(),
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
+                    child: const Text(
+                      'SOUMETTRE MON CHOICE',
+                      style: TextStyle(
                         fontSize: 16,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              
-              const SizedBox(height: 16),
-              
-              // Originalité
-              const Text(
-                'Originalité',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: Slider(
-                      value: originalite,
-                      min: 0.0,
-                      max: 10.0,
-                      divisions: 10,
-                      activeColor: Colors.indigo,
-                      label: originalite.round().toString(),
-                      onChanged: (value) {
-                        setState(() {
-                          originalite = value;
-                        });
-                      },
-                    ),
-                  ),
-                  Container(
-                    width: 40,
-                    alignment: Alignment.center,
-                    child: Text(
-                      originalite.round().toString(),
-                      style: const TextStyle(
                         fontWeight: FontWeight.bold,
-                        fontSize: 16,
                       ),
-                    ),
-                  ),
-                ],
-              ),
-              
-              const SizedBox(height: 20),
-              
-              // Appréciation globale
-              const Text(
-                'Appréciation globale',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                maxLines: 3,
-                decoration: InputDecoration(
-                  hintText: 'Partagez votre expérience...',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: Colors.grey.shade300),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: Colors.indigo, width: 2),
-                  ),
-                ),
-                onChanged: (value) {
-                  appreciationGlobale = value;
-                },
-              ),
-              
-              const SizedBox(height: 30),
-              
-              // Bouton de soumission
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () {
-                    // Soumettre le Choice
-                    _submitChoice(
-                      context,
-                      locationId,
-                      locationType,
-                      qualiteGenerale.round(),
-                      interet.round(),
-                      originalite.round(),
-                      appreciationGlobale,
-                    );
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.indigo,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                  ),
-                  child: const Text(
-                    'SOUMETTRE MON CHOICE',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
                     ),
                   ),
                 ),

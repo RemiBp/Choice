@@ -3208,7 +3208,35 @@ class _ProducerScreenState extends State<ProducerScreen> with SingleTickerProvid
     final String? phoneNumber = producer['phone_number'];
     final String? website = producer['website'];
     final String? address = producer['address'];
-    final Map<String, dynamic>? openingHours = producer['opening_hours'] as Map<String, dynamic>?;
+    
+    // Gestion sécurisée du champ opening_hours qui peut être un List ou un Map
+    dynamic openingHoursRaw = producer['opening_hours'];
+    Map<String, dynamic>? openingHours;
+    List<dynamic>? openingHoursList;
+    
+    if (openingHoursRaw is Map) {
+      openingHours = openingHoursRaw as Map<String, dynamic>;
+    } else if (openingHoursRaw is List) {
+      openingHoursList = openingHoursRaw;
+      // Convertir la liste en map pour une interface utilisateur uniforme
+      openingHours = {};
+      for (int i = 0; i < openingHoursList.length; i++) {
+        String day = "Jour ${i+1}";
+        if (openingHoursList[i] is String) {
+          String hourText = openingHoursList[i];
+          // Si le format est "Day: Hours", extraire le jour et les heures
+          if (hourText.contains(':')) {
+            final parts = hourText.split(':');
+            if (parts.length >= 2) {
+              day = parts[0].trim();
+              openingHours[day] = hourText.substring(hourText.indexOf(':') + 1).trim();
+              continue;
+            }
+          }
+          openingHours[day] = hourText;
+        }
+      }
+    }
     
     if (phoneNumber == null && website == null && address == null && openingHours == null) {
       return const SizedBox.shrink();
