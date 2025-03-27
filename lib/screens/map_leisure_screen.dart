@@ -58,7 +58,7 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
   double _minJeuActeurs = 0;
   double _minScenario = 0;
   double _minPrice = 0;
-  double _maxPrice = 1000;
+  double _maxPrice = 100;  // Changer 1000 par 100 pour respecter la limite du RangeSlider
   
   // Propriété pour les icônes de marqueurs
   Map<String, BitmapDescriptor> _markerIcons = {};
@@ -121,7 +121,7 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
         _minJeuActeurs == 0 &&
         _minScenario == 0 &&
         _minPrice == 0 &&
-        _maxPrice == 1000) {
+        _maxPrice == 100) {
       return score;
     }
     
@@ -198,7 +198,7 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
       }
       
       // Prix
-      if (_minPrice > 0 || _maxPrice < 1000) {
+      if (_minPrice > 0 || _maxPrice < 100) {
         double price = (entity['prix_reduit'] is num) 
                       ? (entity['prix_reduit'] as num).toDouble() 
                       : (entity['prix'] is num) 
@@ -2860,7 +2860,7 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> {
     if (_selectedEventCategory != null) count++;
     if (_selectedEmotions.isNotEmpty) count++;
     if (_minMiseEnScene > 0 || _minJeuActeurs > 0 || _minScenario > 0) count++;
-    if (_minPrice > 0 || _maxPrice < 1000) count++;
+    if (_minPrice > 0 || _maxPrice < 100) count++;
     return count;
   }
 

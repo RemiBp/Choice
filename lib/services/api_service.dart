@@ -47,16 +47,41 @@ class ApiService {
 
   Future<List<Post>> getFeedPosts(String userId, {int page = 1, int limit = 10}) async {
     try {
+      final baseUrl = getBaseUrl();
+      print('🌐 URL de base: $baseUrl');
+      print('📡 Appel API: GET $baseUrl/api/feed?userId=$userId&page=$page&limit=$limit');
+      
       final response = await _dio.get(
-        '/api/feed',
+        '$baseUrl/api/feed',
         queryParameters: {
           'userId': userId,
           'page': page,
           'limit': limit,
         },
+        options: Options(
+          validateStatus: (status) => true,  // Accept all status codes for debugging
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          },
+        ),
       );
 
+      print('📥 Réponse reçue - Status: ${response.statusCode}');
+      
       if (response.statusCode == 200) {
+        if (response.data == null) {
+          print('❌ Données nulles reçues');
+          return [];
+        }
+        
+        print('✅ Données reçues: ${response.data.toString().substring(0, Math.min(100, response.data.toString().length))}...');
+        
+        if (response.data['feed'] == null) {
+          print('❌ Feed non trouvé dans les données');
+          return [];
+        }
+        
         final List<dynamic> data = response.data['feed'];
         return data.map((json) {
           // Adapter les données du backend au format attendu par Post.fromMap
@@ -80,10 +105,12 @@ class ApiService {
           });
         }).toList();
       } else {
-        throw Exception('Erreur lors du chargement du feed');
+        print('❌ Erreur HTTP: ${response.statusCode}');
+        print('📄 Corps de la réponse: ${response.data}');
+        throw Exception('Erreur lors du chargement du feed: ${response.statusCode} - ${response.data}');
       }
     } catch (e) {
-      print('❌ Erreur lors du chargement du feed: $e');
+      print('❌ Exception lors du chargement du feed: $e');
       rethrow;
     }
   }

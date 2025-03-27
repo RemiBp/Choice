@@ -224,7 +224,6 @@ workflows:
           touch "Pods/Target Support Files/Pods-Runner/Pods-Runner-frameworks-Release-output-files.xcfilelist"
           touch "Pods/Target Support Files/Pods-Runner/Pods-Runner-resources-Release-input-files.xcfilelist"
           touch "Pods/Target Support Files/Pods-Runner/Pods-Runner-resources-Release-output-files.xcfilelist"
-          echo "✅ Fichiers .xcfilelist créés"
           
           # Créer les fichiers de configuration de pods s'ils n'existent pas
           if [ ! -f "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig" ]; then
@@ -402,6 +401,101 @@ end
 EOL
             echo "✅ Podfile recréé avec les bonnes configurations"
           fi
+
+      - name: Create Missing Files and Directories
+        script: |
+          cd ios
+          
+          # Créer le dossier Flutter si nécessaire
+          mkdir -p Flutter
+          
+          # Créer les fichiers xcconfig
+          echo '#include "Generated.xcconfig"' > Flutter/Release.xcconfig
+          echo '#include "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"' >> Flutter/Release.xcconfig
+          echo '#include "Generated.xcconfig"' > Flutter/Debug.xcconfig
+          echo '#include "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"' >> Flutter/Debug.xcconfig
+          
+          # Créer le dossier Target Support Files et ses fichiers
+          mkdir -p "Pods/Target Support Files/Pods-Runner"
+          
+          # Créer les fichiers xcfilelist qui manquent
+          touch "Pods/Target Support Files/Pods-Runner/Pods-Runner-frameworks-Release-input-files.xcfilelist"
+          touch "Pods/Target Support Files/Pods-Runner/Pods-Runner-frameworks-Release-output-files.xcfilelist"
+          touch "Pods/Target Support Files/Pods-Runner/Pods-Runner-resources-Release-input-files.xcfilelist"
+          touch "Pods/Target Support Files/Pods-Runner/Pods-Runner-resources-Release-output-files.xcfilelist"
+          
+          # Créer les fichiers xcconfig pour les pods
+          if [ ! -f "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig" ]; then
+            mkdir -p "Pods/Target Support Files/Pods-Runner"
+            cat > "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig" << EOL
+ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES
+EXCLUDED_ARCHS[sdk=iphonesimulator*] = arm64
+FRAMEWORK_SEARCH_PATHS = \$(inherited)
+GCC_PREPROCESSOR_DEFINITIONS = \$(inherited)
+HEADER_SEARCH_PATHS = \$(inherited)
+LD_RUNPATH_SEARCH_PATHS = \$(inherited) '@executable_path/Frameworks' '@loader_path/Frameworks'
+LIBRARY_SEARCH_PATHS = \$(inherited)
+OTHER_CFLAGS = \$(inherited)
+OTHER_LDFLAGS = \$(inherited)
+OTHER_SWIFT_FLAGS = \$(inherited)
+PODS_BUILD_DIR = \${BUILD_DIR}
+PODS_CONFIGURATION_BUILD_DIR = \${PODS_BUILD_DIR}/\$(CONFIGURATION)\$(EFFECTIVE_PLATFORM_NAME)
+PODS_PODFILE_DIR_PATH = \${SRCROOT}/.
+PODS_ROOT = \${SRCROOT}/Pods
+SWIFT_VERSION = 5.0
+USE_RECURSIVE_SCRIPT_INPUTS_IN_SCRIPT_PHASES = YES
+EOL
+          fi
+          
+          if [ ! -f "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig" ]; then
+            mkdir -p "Pods/Target Support Files/Pods-Runner"
+            cat > "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig" << EOL
+ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES
+EXCLUDED_ARCHS[sdk=iphonesimulator*] = arm64
+FRAMEWORK_SEARCH_PATHS = \$(inherited)
+GCC_PREPROCESSOR_DEFINITIONS = \$(inherited)
+HEADER_SEARCH_PATHS = \$(inherited)
+LD_RUNPATH_SEARCH_PATHS = \$(inherited) '@executable_path/Frameworks' '@loader_path/Frameworks'
+LIBRARY_SEARCH_PATHS = \$(inherited)
+OTHER_CFLAGS = \$(inherited)
+OTHER_LDFLAGS = \$(inherited)
+OTHER_SWIFT_FLAGS = \$(inherited)
+PODS_BUILD_DIR = \${BUILD_DIR}
+PODS_CONFIGURATION_BUILD_DIR = \${PODS_BUILD_DIR}/\$(CONFIGURATION)\$(EFFECTIVE_PLATFORM_NAME)
+PODS_PODFILE_DIR_PATH = \${SRCROOT}/.
+PODS_ROOT = \${SRCROOT}/Pods
+SWIFT_VERSION = 5.0
+USE_RECURSIVE_SCRIPT_INPUTS_IN_SCRIPT_PHASES = YES
+EOL
+          fi
+          
+          # Créer le fichier profile.xcconfig
+          if [ ! -f "Flutter/Profile.xcconfig" ]; then
+            echo '#include "Generated.xcconfig"' > Flutter/Profile.xcconfig
+            echo '#include "Pods/Target Support Files/Pods-Runner/Pods-Runner.profile.xcconfig"' >> Flutter/Profile.xcconfig
+            
+            # Créer aussi le fichier profile pour pods
+            cat > "Pods/Target Support Files/Pods-Runner/Pods-Runner.profile.xcconfig" << EOL
+ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES
+EXCLUDED_ARCHS[sdk=iphonesimulator*] = arm64
+FRAMEWORK_SEARCH_PATHS = \$(inherited)
+GCC_PREPROCESSOR_DEFINITIONS = \$(inherited)
+HEADER_SEARCH_PATHS = \$(inherited)
+LD_RUNPATH_SEARCH_PATHS = \$(inherited) '@executable_path/Frameworks' '@loader_path/Frameworks'
+LIBRARY_SEARCH_PATHS = \$(inherited)
+OTHER_CFLAGS = \$(inherited)
+OTHER_LDFLAGS = \$(inherited)
+OTHER_SWIFT_FLAGS = \$(inherited)
+PODS_BUILD_DIR = \${BUILD_DIR}
+PODS_CONFIGURATION_BUILD_DIR = \${PODS_BUILD_DIR}/\$(CONFIGURATION)\$(EFFECTIVE_PLATFORM_NAME)
+PODS_PODFILE_DIR_PATH = \${SRCROOT}/.
+PODS_ROOT = \${SRCROOT}/Pods
+SWIFT_VERSION = 5.0
+USE_RECURSIVE_SCRIPT_INPUTS_IN_SCRIPT_PHASES = YES
+EOL
+          fi
+          
+          echo "✅ Tous les fichiers et dossiers nécessaires ont été créés"
 
       - name: Update CocoaPods Repository
         script: |

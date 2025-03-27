@@ -825,13 +825,31 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> with SingleTick
             // Only proceed with navigation if the request was successful and widget still mounted
             if (response.statusCode == 200 && mounted) {
               print('✅ Navigation vers ProducerLeisureScreen');
-              final data = json.decode(response.body);
-              Navigator.push(
-                currentContext,
-                MaterialPageRoute(
-                  builder: (context) => ProducerLeisureScreen(producerData: data),
-                ),
-              );
+              final dynamic data = json.decode(response.body);
+              
+              // Vérifier le type des données reçues
+              if (data is List && data.isNotEmpty) {
+                // Si c'est une liste, prendre le premier élément
+                print('⚠️ L\'API a renvoyé une liste. Utilisation du premier élément.');
+                final Map<String, dynamic> producerData = data[0];
+                Navigator.push(
+                  currentContext,
+                  MaterialPageRoute(
+                    builder: (context) => ProducerLeisureScreen(producerData: producerData),
+                  ),
+                );
+              } else if (data is Map<String, dynamic>) {
+                // Si c'est un Map, utiliser directement
+                Navigator.push(
+                  currentContext,
+                  MaterialPageRoute(
+                    builder: (context) => ProducerLeisureScreen(producerData: data),
+                  ),
+                );
+              } else {
+                // Type inconnu, afficher une erreur
+                throw Exception("Format de données inattendu: ${data.runtimeType}");
+              }
             } else if (response.statusCode != 200 && mounted) {
               print('❌ Erreur serveur: ${response.statusCode}');
               throw Exception("Erreur ${response.statusCode}: ${response.body}");
@@ -901,13 +919,31 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> with SingleTick
             // Only proceed with navigation if the request was successful and widget still mounted
             if (response.statusCode == 200 && mounted) {
               print('✅ Navigation vers EventLeisureScreen');
-              final data = json.decode(response.body);
-              Navigator.push(
-                currentContext,
-                MaterialPageRoute(
-                  builder: (context) => EventLeisureScreen(eventData: data),
-                ),
-              );
+              final dynamic data = json.decode(response.body);
+              
+              // Vérifier le type des données reçues
+              if (data is List && data.isNotEmpty) {
+                // Si c'est une liste, prendre le premier élément
+                print('⚠️ L\'API a renvoyé une liste. Utilisation du premier élément.');
+                final Map<String, dynamic> eventData = data[0];
+                Navigator.push(
+                  currentContext,
+                  MaterialPageRoute(
+                    builder: (context) => EventLeisureScreen(eventData: eventData),
+                  ),
+                );
+              } else if (data is Map<String, dynamic>) {
+                // Si c'est un Map, utiliser directement
+                Navigator.push(
+                  currentContext,
+                  MaterialPageRoute(
+                    builder: (context) => EventLeisureScreen(eventData: data),
+                  ),
+                );
+              } else {
+                // Type inconnu, afficher une erreur
+                throw Exception("Format de données inattendu: ${data.runtimeType}");
+              }
             } else if (response.statusCode != 200 && mounted) {
               print('❌ Erreur serveur: ${response.statusCode}');
               throw Exception("Erreur ${response.statusCode}: ${response.body}");
