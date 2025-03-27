@@ -199,12 +199,49 @@ workflows:
         script: |
           cd ios
           
-          # Désactiver la signature automatique dans le projet Xcode
-          sed -i '' 's/ProvisioningStyle = Automatic;/ProvisioningStyle = Manual;/g' Runner.xcodeproj/project.pbxproj
-          sed -i '' 's/DevelopmentTeam = .*;/DevelopmentTeam = "";/g' Runner.xcodeproj/project.pbxproj
-          sed -i '' 's/DEVELOPMENT_TEAM = .*;/DEVELOPMENT_TEAM = "";/g' Runner.xcodeproj/project.pbxproj
+          # S'assurer que les fichiers de configuration Xcode existent
+          mkdir -p Flutter
           
-          echo "✅ Signature automatique désactivée dans le projet Xcode"
+          # Créer Release.xcconfig s'il n'existe pas
+          if [ ! -f "Flutter/Release.xcconfig" ]; then
+            echo "#include \"Generated.xcconfig\"" > Flutter/Release.xcconfig
+            echo "#include \"Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig\"" >> Flutter/Release.xcconfig
+            echo "✅ Fichier Release.xcconfig créé"
+          fi
+          
+          # Créer Debug.xcconfig s'il n'existe pas
+          if [ ! -f "Flutter/Debug.xcconfig" ]; then
+            echo "#include \"Generated.xcconfig\"" > Flutter/Debug.xcconfig
+            echo "#include \"Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig\"" >> Flutter/Debug.xcconfig
+            echo "✅ Fichier Debug.xcconfig créé"
+          fi
+
+          # Créer le dossier cible pour les fichiers des pods
+          mkdir -p "Pods/Target Support Files/Pods-Runner"
+          
+          # Créer les fichiers .xcfilelist s'ils n'existent pas
+          touch "Pods/Target Support Files/Pods-Runner/Pods-Runner-frameworks-Release-input-files.xcfilelist"
+          touch "Pods/Target Support Files/Pods-Runner/Pods-Runner-frameworks-Release-output-files.xcfilelist"
+          touch "Pods/Target Support Files/Pods-Runner/Pods-Runner-resources-Release-input-files.xcfilelist"
+          touch "Pods/Target Support Files/Pods-Runner/Pods-Runner-resources-Release-output-files.xcfilelist"
+          echo "✅ Fichiers .xcfilelist créés"
+          
+          # Créer les fichiers de configuration de pods s'ils n'existent pas
+          if [ ! -f "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig" ]; then
+            echo "// Fichier généré par Codemagic" > "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"
+            echo "PODS_CONFIGURATION_BUILD_DIR = \${PODS_BUILD_DIR}/\$(CONFIGURATION)\$(EFFECTIVE_PLATFORM_NAME)" >> "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"
+            echo "PODS_PODFILE_DIR_PATH = \${SRCROOT}/." >> "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"
+            echo "PODS_ROOT = \${SRCROOT}/Pods" >> "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"
+            echo "✅ Fichier Pods-Runner.release.xcconfig créé"
+          fi
+          
+          if [ ! -f "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig" ]; then
+            echo "// Fichier généré par Codemagic" > "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"
+            echo "PODS_CONFIGURATION_BUILD_DIR = \${PODS_BUILD_DIR}/\$(CONFIGURATION)\$(EFFECTIVE_PLATFORM_NAME)" >> "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"
+            echo "PODS_PODFILE_DIR_PATH = \${SRCROOT}/." >> "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"
+            echo "PODS_ROOT = \${SRCROOT}/Pods" >> "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"
+            echo "✅ Fichier Pods-Runner.debug.xcconfig créé"
+          fi
 
       - name: Build iOS IPA (No Code Signing)
         script: |
