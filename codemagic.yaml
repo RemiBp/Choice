@@ -257,18 +257,19 @@ workflows:
         recipients:
           - "remi.barbier@hec.edu"
 
-  # Version avec signature de code (utilisant votre profil mis à jour)
+  # Version avec signature de code complète
   ios-release:
-    name: iOS Release Build (Signed)
+    name: iOS Release Build
     instance_type: mac_mini_m1
     max_build_duration: 120
     environment:
       flutter: stable
       xcode: latest
       cocoapods: latest
-      ios_signing:
-        distribution_type: ad-hoc  # Vous pouvez changer à 'app-store' pour les builds de production
-        bundle_identifier: fr.choiceapp.app
+      groups:
+        - ios_credentials
+      vars:
+        BUNDLE_ID: "fr.choiceapp.app"
     scripts:
       - name: Clean Flutter project
         script: |
@@ -276,61 +277,128 @@ workflows:
           flutter pub get
           flutter pub cache repair
 
-      - name: Verify Flutter dependencies
+      - name: Verify Flutter Setup
         script: |
-          if ! grep -q "add_2_calendar" pubspec.yaml; then
-            echo "⚠️  La dépendance add_2_calendar semble manquante dans pubspec.yaml."
-            exit 1
-          fi
+          mkdir -p ios/Flutter
+          # Créer les fichiers xcconfig s'ils n'existent pas déjà
+          touch ios/Flutter/Release.xcconfig
+          touch ios/Flutter/Debug.xcconfig
+          
+          # Vérifier et mettre à jour leur contenu correctement
+          echo '#include "Generated.xcconfig"' > ios/Flutter/Release.xcconfig
+          echo '#include "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"' >> ios/Flutter/Release.xcconfig
+          
+          echo '#include "Generated.xcconfig"' > ios/Flutter/Debug.xcconfig
+          echo '#include "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"' >> ios/Flutter/Debug.xcconfig
+          
+          echo "✅ Fichiers Debug.xcconfig et Release.xcconfig créés"
 
-      - name: Ensure iOS deployment target is 14.0+ in Podfile
+      - name: Setup Podfile Correctly
         script: |
           cd ios
           
-          if [ -f "Podfile" ]; then
-            sed -i '' 's/platform :ios, .*/platform :ios, "14.0"/' Podfile
-          else
-            echo "🚨 Podfile non trouvé ! Assure-toi que ton projet Flutter iOS est bien configuré."
-            exit 1
+          # Vérifier si nous avons un Podfile.rb au lieu d'un Podfile
+          if [ -f "Podfile.rb" ] && [ ! -f "Podfile" ]; then
+            mv Podfile.rb Podfile
+            echo "✅ Podfile.rb renommé en Podfile"
+          fi
+          
+          # Vérifier et corriger le contenu du Podfile si nécessaire
+          if ! grep -q "platform :ios, '14.0'" Podfile; then
+            # Sauvegarder l'ancien Podfile
+            cp Podfile Podfile.bak
+            
+            # Créer un nouveau Podfile avec les bonnes configurations
+            cat > Podfile << EOL
+# Uncomment this line to define a global platform for your project
+platform :ios, '14.0'
+
+# CocoaPods analytics sends network stats synchronously affecting flutter build latency.
+ENV['COCOAPODS_DISABLE_STATS'] = 'true'
+
+project 'Runner', {
+  'Debug' => :debug,
+  'Profile' => :release,
+  'Release' => :release,
+}
+
+def flutter_root
+  generated_xcode_build_settings_path = File.expand_path(File.join('..', 'Flutter', 'Generated.xcconfig'), __FILE__)
+  unless File.exist?(generated_xcode_build_settings_path)
+    raise "#{generated_xcode_build_settings_path} must exist. If you're running pod install manually, make sure flutter pub get is executed first"
+  end
+
+  File.foreach(generated_xcode_build_settings_path) do |line|
+    matches = line.match(/FLUTTER_ROOT\=(.*)/)
+    return matches[1].strip if matches
+  end
+  raise "FLUTTER_ROOT not found in #{generated_xcode_build_settings_path}. Try deleting Generated.xcconfig, then run flutter pub get"
+end
+
+require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
+
+flutter_ios_podfile_setup
+
+target 'Runner' do
+  use_frameworks! :linkage => :dynamic
+  use_modular_headers!
+
+  flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+end
+
+post_install do |installer|
+  installer.pods_project.targets.each do |target|
+    flutter_additional_ios_build_settings(target)
+    
+    target.build_configurations.each do |config|
+      # Désactiver Bitcode car Flutter ne l'utilise pas
+      config.build_settings['ENABLE_BITCODE'] = 'NO'
+      
+      # Exclure l'architecture arm64 pour éviter les erreurs de compilation sur simulateur
+      config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'arm64'
+
+      # Assurer que l'application cible bien iOS 14.0+
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
+    end
+  end
+end
+EOL
+            echo "✅ Podfile recréé avec les bonnes configurations"
           fi
 
-      - name: Update CocoaPods
+      - name: Update CocoaPods Repository
         script: |
           sudo gem install cocoapods --pre
           pod repo update
 
-      - name: Remove and reinstall CocoaPods dependencies
+      - name: Install Pod Dependencies
         script: |
           cd ios
           rm -rf Pods Podfile.lock
-          pod deintegrate
           pod install --repo-update --verbose
 
-      - name: Apply iOS 14.0 Deployment Fix in Xcode Info.plist
+      - name: Set up code signing settings
         script: |
-          cd ios
-          plutil -replace MinimumOSVersion -string "14.0" Runner/Info.plist
-          plutil -replace LSRequiresIPhoneOS -bool YES Runner/Info.plist
-
-      - name: Build iOS IPA with Proper Signing
-        script: |
-          # Cette méthode utilise votre profil de provisionnement mis à jour
-          flutter build ipa --release
-          
-          echo "✅ Build iOS avec signature terminé"
-          
-          # Vérifier si l'IPA a été généré
-          if [ -f "build/ios/ipa/app-release.ipa" ]; then
-            echo "🎉 IPA signé généré avec succès"
-          else
-            echo "🔍 Recherche d'autres IPAs générés..."
-            find build -name "*.ipa"
+          # Mettre à jour l'équipe de développement et le provisioning profile
+          APP_STORE_CONNECT_PRIVATE_KEY_BASE64="${APP_STORE_CONNECT_PRIVATE_KEY}"
+          if [ -n "$APP_STORE_CONNECT_PRIVATE_KEY_BASE64" ]; then
+            echo $APP_STORE_CONNECT_PRIVATE_KEY_BASE64 | base64 --decode > /tmp/api_key.p8
+            echo "✅ Clé API App Store Connect décodée"
           fi
+          
+          xcode-project use-profiles
+
+      - name: Build iOS IPA
+        script: |
+          cd $CM_BUILD_DIR
+          flutter build ipa --release --export-options-plist=/Users/builder/export_options.plist
 
     artifacts:
       - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - flutter_drive.log
 
     publishing:
       email:
         recipients:
-          - "remi.barbier@hec.edu"
+          - remi.barbier@hec.edu

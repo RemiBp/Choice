@@ -57,8 +57,28 @@ class ApiService {
       );
 
       if (response.statusCode == 200) {
-        final List<dynamic> data = response.data['posts'];
-        return data.map((json) => Post.fromMap(json)).toList();
+        final List<dynamic> data = response.data['feed'];
+        return data.map((json) {
+          // Adapter les données du backend au format attendu par Post.fromMap
+          return Post.fromJson({
+            '_id': json['_id']?.toString(),
+            'authorId': json['author_id']?.toString(),
+            'authorName': json['author_name'] ?? 'Utilisateur',
+            'authorAvatar': json['author_photo'] ?? '',
+            'content': json['content'] ?? '',
+            'mediaUrls': json['media_urls'] ?? [],
+            'createdAt': json['created_at'] ?? json['time_posted'] ?? DateTime.now().toIso8601String(),
+            'postedAt': json['time_posted'] ?? DateTime.now().toIso8601String(),
+            'likes': json['likes'] ?? [],
+            'interests': json['interests'] ?? [],
+            'choices': json['choices'] ?? [],
+            'comments': json['comments'] ?? [],
+            'isProducerPost': json['isProducerPost'] ?? false,
+            'isLeisureProducer': json['isLeisureProducer'] ?? false,
+            'isAutomated': json['isAutomated'] ?? false,
+            'metadata': json['metadata'],
+          });
+        }).toList();
       } else {
         throw Exception('Erreur lors du chargement du feed');
       }
