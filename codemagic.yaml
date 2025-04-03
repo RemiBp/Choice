@@ -1,0 +1,48 @@
+workflows:
+  ios-workflow:
+    name: iOS Workflow
+    instance_type: mac_mini_m1
+    environment:
+      vars:
+        XCODE_WORKSPACE: "Runner.xcworkspace"
+        XCODE_SCHEME: "Runner"
+      flutter: stable
+      xcode: latest
+    scripts:
+      - name: Set up code signing settings
+        script: | 
+          echo "Setting up code signing"
+          find . -name "Podfile" -execdir pod install \;
+      - name: Ensure iOS configuration files exist
+        script: |
+          mkdir -p ios/Flutter
+          
+          # Create Debug.xcconfig if it doesn't exist
+          if [ ! -f ios/Flutter/Debug.xcconfig ]; then
+            echo '#include "Generated.xcconfig"' > ios/Flutter/Debug.xcconfig
+            echo '#include "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"' >> ios/Flutter/Debug.xcconfig
+          fi
+          
+          # Create Release.xcconfig if it doesn't exist
+          if [ ! -f ios/Flutter/Release.xcconfig ]; then
+            echo '#include "Generated.xcconfig"' > ios/Flutter/Release.xcconfig
+            echo '#include "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"' >> ios/Flutter/Release.xcconfig
+          fi
+          
+          # Create Profile.xcconfig if it doesn't exist
+          if [ ! -f ios/Flutter/Profile.xcconfig ]; then
+            echo '#include "Generated.xcconfig"' > ios/Flutter/Profile.xcconfig
+            echo '#include "Pods/Target Support Files/Pods-Runner/Pods-Runner.profile.xcconfig"' >> ios/Flutter/Profile.xcconfig
+          fi
+      - name: Build and test Flutter
+        script: |
+          flutter packages pub get
+          flutter build ios --release --no-codesign
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - flutter_drive.log
+    publishing:
+      email:
+        recipients:
+          - remi.barbier@hec.edu 

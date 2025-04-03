@@ -1,0 +1,13 @@
+ Le volume dans le lecteur C n'a pas de nom.
+ Le num‚ro de s‚rie du volume est AAE6-BCA6
+
+ R‚pertoire de C:\Users\remib\choice_app\plugin
+
+03/04/2025  22:46    <DIR>          .
+03/04/2025  22:43    <DIR>          ..
+03/04/2025  22:46    <DIR>          android
+03/04/2025  22:46                 0 fichiers.txt
+03/04/2025  22:45    <DIR>          lib
+03/04/2025  22:45               534 pubspec.yaml
+               2 fichier(s)              534 octets
+               4 R‚p(s)  130ÿ041ÿ286ÿ656 octets libres
