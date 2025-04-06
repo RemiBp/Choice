@@ -1,6 +1,6 @@
-name: flutter_app_badger_and_contacts
-description: Plugins Flutter pour les badges d'application et l'accès aux contacts (iOS et Android).
-version: 1.5.0+1
+name: contacts_service
+description: Plugins Flutter pour l'accès aux contacts (iOS et Android).
+version: 1.0.0+1
 homepage: https://github.com/RemiBp/Choice.git
 
 environment:
@@ -15,16 +15,7 @@ flutter:
   plugin:
     platforms:
       android:
-        package: fr.g123k.flutterappbadger
-        pluginClass: FlutterAppBadgerPlugin
-        # Configuration pour contacts_service
-        contacts_service:
-          package: fr.remibp.contactsservice
-          pluginClass: ContactsServicePlugin
-          default_package: contacts_service
+        package: fr.remibp.contactsservice
+        pluginClass: ContactsServicePlugin
       ios:
-        pluginClass: FlutterAppBadgerPlugin
-        # Configuration pour contacts_service
-        contacts_service:
-          pluginClass: ContactsServicePlugin
-          default_package: contacts_service 
+        pluginClass: ContactsServicePlugin 

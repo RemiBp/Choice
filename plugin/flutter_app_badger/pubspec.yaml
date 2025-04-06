@@ -1,0 +1,21 @@
+name: flutter_app_badger
+description: Plugin Flutter pour les badges d'application sur iOS et Android.
+version: 1.5.0+1
+homepage: https://github.com/RemiBp/Choice.git
+
+environment:
+  sdk: ">=2.12.0 <4.0.0"
+  flutter: ">=2.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: fr.g123k.flutterappbadger
+        pluginClass: FlutterAppBadgerPlugin
+      ios:
+        pluginClass: FlutterAppBadgerPlugin 
