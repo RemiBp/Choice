@@ -25,4 +25,13 @@ android {
     lintOptions {
         disable 'InvalidPackage'
     }
+    
+    sourceSets {
+        main {
+            java {
+                // Inclure le code source pour contacts_service
+                srcDirs += 'src/main/java/fr/remibp/contactsservice'
+            }
+        }
+    }
 } 
