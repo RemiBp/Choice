@@ -25,7 +25,7 @@ class FlutterAppBadger {
   }
 
   /// Checks if the device supports app badging.
-  static Future<bool> get isAppBadgeSupported async {
+  static Future<bool> isAppBadgeSupported() async {
     try {
       final bool result = await _channel.invokeMethod('isAppBadgeSupported');
       return result;
