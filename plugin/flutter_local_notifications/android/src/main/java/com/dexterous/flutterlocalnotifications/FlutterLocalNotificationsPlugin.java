@@ -46,13 +46,80 @@ import io.flutter.plugin.common.PluginRegistry.NewIntentListener;
 
 public class FlutterLocalNotificationsPlugin implements MethodCallHandler, FlutterPlugin {
     private static final String METHOD_CHANNEL = "dexterous.com/flutter/local_notifications";
-    // ... (Code existant)
+    private MethodChannel channel;
+    private Context applicationContext;
+
+    @Override
+    public void onAttachedToEngine(@NonNull FlutterPlugin.FlutterPluginBinding binding) {
+        channel = new MethodChannel(binding.getBinaryMessenger(), METHOD_CHANNEL);
+        applicationContext = binding.getApplicationContext();
+        channel.setMethodCallHandler(this);
+    }
+
+    @Override
+    public void onDetachedFromEngine(@NonNull FlutterPlugin.FlutterPluginBinding binding) {
+        channel.setMethodCallHandler(null);
+        channel = null;
+        applicationContext = null;
+    }
+
+    @Override
+    public void onMethodCall(@NonNull MethodCall call, @NonNull Result result) {
+        switch (call.method) {
+            case "initialize":
+                initialize(call, result);
+                break;
+            case "show":
+                show(call, result);
+                break;
+            case "cancel":
+                cancel(call, result);
+                break;
+            case "cancelAll":
+                cancelAll(call, result);
+                break;
+            default:
+                result.notImplemented();
+                break;
+        }
+    }
+
+    private void initialize(MethodCall call, Result result) {
+        // Implémentation de base pour initialize
+        result.success(true);
+    }
+
+    private void show(MethodCall call, Result result) {
+        // Implémentation de base pour show
+        result.success(null);
+    }
+
+    private void cancel(MethodCall call, Result result) {
+        // Implémentation de base pour cancel
+        result.success(null);
+    }
+
+    private void cancelAll(MethodCall call, Result result) {
+        // Implémentation de base pour cancelAll
+        result.success(null);
+    }
 
     private void configureNotificationStyleBigPicture(
             NotificationCompat.Builder builder,
             Map<String, Object> bigPictureStyleInformation) {
-        // ... (Code existant)
+        // Créer le style
+        NotificationCompat.BigPictureStyle bigPictureStyle = new NotificationCompat.BigPictureStyle();
 
+        // Configuration de base
+        if (bigPictureStyleInformation.containsKey("contentTitle")) {
+            bigPictureStyle.setBigContentTitle((String) bigPictureStyleInformation.get("contentTitle"));
+        }
+
+        if (bigPictureStyleInformation.containsKey("summaryText")) {
+            bigPictureStyle.setSummaryText((String) bigPictureStyleInformation.get("summaryText"));
+        }
+
+        // Correction de l'ambiguïté
         if (bigPictureStyleInformation.containsKey("hideExpandedLargeIcon")) {
             Boolean hideExpandedLargeIcon = (Boolean) bigPictureStyleInformation.get("hideExpandedLargeIcon");
             if (hideExpandedLargeIcon) {
@@ -61,8 +128,7 @@ public class FlutterLocalNotificationsPlugin implements MethodCallHandler, Flutt
             }
         }
         
-        // ... (Reste du code)
+        // Appliquer le style à la notification
+        builder.setStyle(bigPictureStyle);
     }
-
-    // ... (Reste de la classe)
 } 
