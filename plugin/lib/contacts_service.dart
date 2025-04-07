@@ -123,11 +123,13 @@ class ContactsService {
       // 2. Extraire uniquement les numéros de téléphone (pour respecter la vie privée)
       final Map<String, String> phoneToContactId = {};
       for (final contact in contacts) {
-        for (final phone in contact.phones) {
-          if (phone.value != null && phone.value!.isNotEmpty) {
-            // Normaliser le numéro (retirer espaces, tirets, etc.)
-            String normalizedPhone = phone.value!.replaceAll(RegExp(r'[^\d+]'), '');
-            phoneToContactId[normalizedPhone] = contact.identifier!;
+        if (contact.phones != null) {
+          for (final phone in contact.phones!) {
+            if (phone.value != null && phone.value!.isNotEmpty) {
+              // Normaliser le numéro (retirer espaces, tirets, etc.)
+              String normalizedPhone = phone.value!.replaceAll(RegExp(r'[^\d+]'), '');
+              phoneToContactId[normalizedPhone] = contact.identifier!;
+            }
           }
         }
       }
@@ -176,11 +178,11 @@ class ContactsService {
     
     try {
       // Vérifier qu'il y a au moins un numéro de téléphone
-      if (contact.phones.isEmpty || contact.phones.first.value == null) {
+      if (contact.phones == null || contact.phones!.isEmpty || contact.phones!.first.value == null) {
         return false;
       }
       
-      final phoneNumber = contact.phones.first.value!;
+      final phoneNumber = contact.phones!.first.value!;
       final Map<String, dynamic> args = {
         'phoneNumber': phoneNumber,
         'message': message ?? 'Rejoins-moi sur notre application!',
@@ -207,9 +209,9 @@ class Contact {
     this.suffix,
     this.company,
     this.jobTitle,
-    this.emails = const [],
-    this.phones = const [],
-    this.postalAddresses = const [],
+    this.emails,
+    this.phones,
+    this.postalAddresses,
     this.avatar,
     this.birthday,
     this.androidAccountTypeRaw,
@@ -225,9 +227,9 @@ class Contact {
   String? suffix;
   String? company;
   String? jobTitle;
-  List<Item> emails;
-  List<Item> phones;
-  List<PostalAddress> postalAddresses;
+  List<Item>? emails;
+  List<Item>? phones;
+  List<PostalAddress>? postalAddresses;
   Uint8List? avatar;
   DateTime? birthday;
   String? androidAccountTypeRaw;
@@ -245,9 +247,11 @@ class Contact {
     suffix = m['suffix'];
     company = m['company'];
     jobTitle = m['jobTitle'];
-    emails = (m['emails'] as List<dynamic>?)?.map((dynamic item) => Item.fromMap(item)).toList() ?? [];
-    phones = (m['phones'] as List<dynamic>?)?.map((dynamic item) => Item.fromMap(item)).toList() ?? [];
-    postalAddresses = (m['postalAddresses'] as List<dynamic>?)?.map((dynamic item) => PostalAddress.fromMap(item)).toList() ?? [];
+    
+    // Initialiser explicitement les listes pour éviter les erreurs de null safety
+    emails = (m['emails'] as List<dynamic>?)?.map((dynamic item) => Item.fromMap(item)).toList();
+    phones = (m['phones'] as List<dynamic>?)?.map((dynamic item) => Item.fromMap(item)).toList();
+    postalAddresses = (m['postalAddresses'] as List<dynamic>?)?.map((dynamic item) => PostalAddress.fromMap(item)).toList();
     
     final avatar = m['avatar'];
     if (avatar != null) {
@@ -275,9 +279,9 @@ class Contact {
     m['company'] = company;
     m['jobTitle'] = jobTitle;
     
-    m['emails'] = emails.map((Item item) => item.toMap()).toList();
-    m['phones'] = phones.map((Item item) => item.toMap()).toList();
-    m['postalAddresses'] = postalAddresses.map((PostalAddress address) => address.toMap()).toList();
+    m['emails'] = emails?.map((Item item) => item.toMap()).toList();
+    m['phones'] = phones?.map((Item item) => item.toMap()).toList();
+    m['postalAddresses'] = postalAddresses?.map((PostalAddress address) => address.toMap()).toList();
     
     if (avatar != null) {
       m['avatar'] = avatar!.toList();

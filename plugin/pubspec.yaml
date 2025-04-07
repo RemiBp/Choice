@@ -1,4 +1,4 @@
-name: contacts_service
+name: contacts_service_choice
 description: Plugins Flutter pour l'accès aux contacts (iOS et Android).
 version: 1.0.0+1
 homepage: https://github.com/RemiBp/Choice.git
