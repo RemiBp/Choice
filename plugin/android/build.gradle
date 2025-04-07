@@ -1,4 +1,4 @@
-group 'fr.g123k.flutterappbadger'
+group 'fr.remibp.contactsservice'
 version '1.0'
 
 buildscript {
@@ -15,7 +15,7 @@ buildscript {
 apply plugin: 'com.android.library'
 
 android {
-    namespace 'fr.g123k.flutterappbadger'
+    namespace 'fr.remibp.contactsservice'
     compileSdkVersion 33
     
     defaultConfig {
