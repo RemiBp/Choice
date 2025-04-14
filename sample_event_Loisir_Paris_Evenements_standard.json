@@ -1,0 +1,67 @@
+{
+  "_id": {
+    "$oid": "676d7734bc725bb6e91c51e3"
+  },
+  "intitulé": "Donnez moi un coupable au hasard",
+  "catégorie": "Théâtre » Comédie » Comédie satirique  à partir de 15 ans",
+  "détail": "Comédie féroce et cash    Avec Gwendal Anglade, Claire Chastel, Pierre Grammont, Rama Grinberg, Gaëlle Lebert, Bruno Paviot",
+  "lieu": "Les 3T - Théâtre du Troisième Type",
+  "lien_lieu": "https://www.billetreduc.com/lieu/saint-denis/les-3t-theatre-du-troisieme-type/",
+  "prochaines_dates": "Dates non disponibles",
+  "prix_reduit": "22€00",
+  "ancien_prix": "2 031€00",
+  "note": "Note non disponible",
+  "image": "https://www.billetreduc.com/zg/n100/365412.jpeg",
+  "site_url": "https://www.billetreduc.com/365412/evt.htm",
+  "purchase_url": "https://www.billetreduc.com/v2/PurchaseTunnel#/ShowSelection?eventId=365412",
+  "commentaires": [],
+  "catégories_prix": [
+    {
+      "Catégorie": "Placement libre",
+      "Prix": [
+        "22,00 €"
+      ]
+    }
+  ],
+  "location": {
+    "type": "Point",
+    "coordinates": [
+      2.361476,
+      48.9081785
+    ]
+  },
+  "date_debut": "25/01/2025",
+  "date_fin": "02/02/2025",
+  "horaires": [
+    {
+      "jour": "Samedi",
+      "heure": "20h30"
+    },
+    {
+      "jour": "dimanche",
+      "heure": "19h30"
+    }
+  ],
+  "posts": [
+    {
+      "$oid": "677d94244fc38a33b77181f9"
+    },
+    {
+      "$oid": "677d95a24fc38a33b77181ff"
+    },
+    {
+      "$oid": "677d9a2e4fc38a33b771820d"
+    },
+    {
+      "$oid": "67818d9064f99a896e3813c9"
+    },
+    {
+      "$oid": "67818df364f99a896e3813e9"
+    }
+  ],
+  "interestedUsers": [
+    {
+      "$oid": "677db5b562dbd1a04ed621c8"
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "name": "Choice Frontend",
+  "include": [
+    "lib/",
+    "android/",
+    "ios/",
+    "windows/",
+    "linux/",
+    "web/",
+    "assets/",
+    "pubspec.yaml"
+  ],
+  "exclude": [
+    "build/",
+    ".dart_tool/"
+  ],
+  "enableCodeActions": true,
+  "autoApply": true,
+  "commands": {
+    "editCode": true,
+    "inlineEdit": true,
+    "inlineChat": true
+  },
+  "personalization": {
+    "enabled": true,
+    "followImports": true
+  }
+}

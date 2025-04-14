@@ -1,0 +1,18 @@
+[core]
+	repositoryformatversion = 0
+	filemode = false
+	bare = false
+	logallrefupdates = true
+	ignorecase = true
+[remote "origin"]
+	url = https://github.com/RemiBp/Choice.git
+	fetch = +refs/heads/*:refs/remotes/origin/*
+[branch "main"]
+	remote = origin
+	merge = refs/heads/main
+[remote "oldproject"]
+	url = C:/Users/remib/Choice/new_project
+	fetch = +refs/heads/*:refs/remotes/oldproject/*
+[branch "import-screens"]
+	remote = oldproject
+	merge = refs/heads/main

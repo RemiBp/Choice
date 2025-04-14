@@ -1,0 +1,9 @@
+0000000000000000000000000000000000000000 63b3cf87b4edf880e55f391fd334493bfa48964b Rémi Barbier <remi.barbier@hec.edu> 1743029116 +0100	commit (initial): Déplacement du projet et mise à jour des fichiers
+63b3cf87b4edf880e55f391fd334493bfa48964b 63b3cf87b4edf880e55f391fd334493bfa48964b Rémi Barbier <remi.barbier@hec.edu> 1743029230 +0100	Branch: renamed refs/heads/master to refs/heads/main
+63b3cf87b4edf880e55f391fd334493bfa48964b eb9000640d2cdf7b8311fb340298a87c5df1ac3c Rémi Barbier <remi.barbier@hec.edu> 1743080555 +0100	commit: MàJ
+eb9000640d2cdf7b8311fb340298a87c5df1ac3c 04642f0caa7fe55fd242ebc1a1ab0cfe6bab94d5 Rémi Barbier <remi.barbier@hec.edu> 1743082419 +0100	commit: MàJ
+04642f0caa7fe55fd242ebc1a1ab0cfe6bab94d5 8a42534bed9f3b3e3f08ddca8ba24f0e7fb15272 Rémi Barbier <remi.barbier@hec.edu> 1743085070 +0100	commit: MàJ
+8a42534bed9f3b3e3f08ddca8ba24f0e7fb15272 66634f484f2a5bb5d1b0e08263df36ea37471af7 Rémi Barbier <remi.barbier@hec.edu> 1743087763 +0100	commit: codemagic.yaml
+66634f484f2a5bb5d1b0e08263df36ea37471af7 8362f90af85a10971455b6ab2bf89309e5bd9244 Rémi Barbier <remi.barbier@hec.edu> 1743093031 +0100	commit: MàJ
+8362f90af85a10971455b6ab2bf89309e5bd9244 8c3e63667084fa9f28d6fb4031755362725ec83b Rémi Barbier <remi.barbier@hec.edu> 1743409778 +0200	commit: WIP: sauvegarde temporaire avant import
+8c3e63667084fa9f28d6fb4031755362725ec83b 0eb3d4d295ce3a1e2040062f1dfb638701cea0df Rémi Barbier <remi.barbier@hec.edu> 1743409834 +0200	commit: Import historique des anciens fichiers de lib/screens

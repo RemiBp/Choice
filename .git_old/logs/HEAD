@@ -1,0 +1,27 @@
+0000000000000000000000000000000000000000 63b3cf87b4edf880e55f391fd334493bfa48964b Rémi Barbier <remi.barbier@hec.edu> 1743029116 +0100	commit (initial): Déplacement du projet et mise à jour des fichiers
+63b3cf87b4edf880e55f391fd334493bfa48964b 0000000000000000000000000000000000000000 Rémi Barbier <remi.barbier@hec.edu> 1743029230 +0100	Branch: renamed refs/heads/master to refs/heads/main
+0000000000000000000000000000000000000000 63b3cf87b4edf880e55f391fd334493bfa48964b Rémi Barbier <remi.barbier@hec.edu> 1743029230 +0100	Branch: renamed refs/heads/master to refs/heads/main
+63b3cf87b4edf880e55f391fd334493bfa48964b 63b3cf87b4edf880e55f391fd334493bfa48964b Rémi Barbier <remi.barbier@hec.edu> 1743029387 +0100	reset: moving to HEAD
+63b3cf87b4edf880e55f391fd334493bfa48964b eb9000640d2cdf7b8311fb340298a87c5df1ac3c Rémi Barbier <remi.barbier@hec.edu> 1743080555 +0100	commit: MàJ
+eb9000640d2cdf7b8311fb340298a87c5df1ac3c 04642f0caa7fe55fd242ebc1a1ab0cfe6bab94d5 Rémi Barbier <remi.barbier@hec.edu> 1743082419 +0100	commit: MàJ
+04642f0caa7fe55fd242ebc1a1ab0cfe6bab94d5 8a42534bed9f3b3e3f08ddca8ba24f0e7fb15272 Rémi Barbier <remi.barbier@hec.edu> 1743085070 +0100	commit: MàJ
+8a42534bed9f3b3e3f08ddca8ba24f0e7fb15272 66634f484f2a5bb5d1b0e08263df36ea37471af7 Rémi Barbier <remi.barbier@hec.edu> 1743087763 +0100	commit: codemagic.yaml
+66634f484f2a5bb5d1b0e08263df36ea37471af7 8362f90af85a10971455b6ab2bf89309e5bd9244 Rémi Barbier <remi.barbier@hec.edu> 1743093031 +0100	commit: MàJ
+8362f90af85a10971455b6ab2bf89309e5bd9244 8c3e63667084fa9f28d6fb4031755362725ec83b Rémi Barbier <remi.barbier@hec.edu> 1743409778 +0200	commit: WIP: sauvegarde temporaire avant import
+8c3e63667084fa9f28d6fb4031755362725ec83b 0bc0b721a891394a5874e0a8ff2835bbedd30e43 Rémi Barbier <remi.barbier@hec.edu> 1743409790 +0200	checkout: moving from main to import-screens
+0bc0b721a891394a5874e0a8ff2835bbedd30e43 8c3e63667084fa9f28d6fb4031755362725ec83b Rémi Barbier <remi.barbier@hec.edu> 1743409817 +0200	checkout: moving from import-screens to main
+8c3e63667084fa9f28d6fb4031755362725ec83b 0eb3d4d295ce3a1e2040062f1dfb638701cea0df Rémi Barbier <remi.barbier@hec.edu> 1743409834 +0200	commit: Import historique des anciens fichiers de lib/screens
+0eb3d4d295ce3a1e2040062f1dfb638701cea0df 8c3e63667084fa9f28d6fb4031755362725ec83b Rémi Barbier <remi.barbier@hec.edu> 1743414848 +0200	checkout: moving from main to restore-screens
+8c3e63667084fa9f28d6fb4031755362725ec83b dd0153e8f83064148f11f683d06d8060860f557b Rémi Barbier <remi.barbier@hec.edu> 1743414849 +0200	commit: Restored lib/screens from backup commit
+dd0153e8f83064148f11f683d06d8060860f557b 9caaffcd017bf658ebc1a686c8434b431f387a85 Rémi Barbier <remi.barbier@hec.edu> 1744020454 +0200	commit: Gross MàJ
+9caaffcd017bf658ebc1a686c8434b431f387a85 693a84fe2bfcf2b804e01448653b8646867a4dd2 Rémi Barbier <remi.barbier@hec.edu> 1744025147 +0200	commit: Fix package duplication by correctly configuring contacts_service plugin
+693a84fe2bfcf2b804e01448653b8646867a4dd2 c6839368c33924a779d37a5d458bb4fca7662ebc Rémi Barbier <remi.barbier@hec.edu> 1744194406 +0200	commit: MàJ
+c6839368c33924a779d37a5d458bb4fca7662ebc 260fcc702ce370ea59e2b727a235b90101b82fe4 Rémi Barbier <remi.barbier@hec.edu> 1744502260 +0200	commit: MàJ
+260fcc702ce370ea59e2b727a235b90101b82fe4 659d07608f982fdebf0458c082ad1b741d6c8b30 Rémi Barbier <remi.barbier@hec.edu> 1744502343 +0200	commit: WIP: sauvegarde avant pull rebase
+659d07608f982fdebf0458c082ad1b741d6c8b30 4824d2b2cca32586ffb201c254ae660bb20b5a6a Rémi Barbier <remi.barbier@hec.edu> 1744502409 +0200	pull origin main --rebase (start): checkout 4824d2b2cca32586ffb201c254ae660bb20b5a6a
+659d07608f982fdebf0458c082ad1b741d6c8b30 659d07608f982fdebf0458c082ad1b741d6c8b30 Rémi Barbier <remi.barbier@hec.edu> 1744502855 +0200	checkout: moving from restore-screens to restore-screens
+659d07608f982fdebf0458c082ad1b741d6c8b30 659d07608f982fdebf0458c082ad1b741d6c8b30 Rémi Barbier <remi.barbier@hec.edu> 1744503067 +0200	checkout: moving from restore-screens to recup_avril_13
+659d07608f982fdebf0458c082ad1b741d6c8b30 659d07608f982fdebf0458c082ad1b741d6c8b30 Rémi Barbier <remi.barbier@hec.edu> 1744503566 +0200	checkout: moving from restore-screens to restore-screens
+659d07608f982fdebf0458c082ad1b741d6c8b30 659d07608f982fdebf0458c082ad1b741d6c8b30 Rémi Barbier <remi.barbier@hec.edu> 1744503824 +0200	checkout: moving from restore-screens to restore-screens
+659d07608f982fdebf0458c082ad1b741d6c8b30 dd56b783cf65767e59dca0212a9782dbc3cd0ee6 Rémi Barbier <remi.barbier@hec.edu> 1744629659 +0200	commit: Clean commit
+dd56b783cf65767e59dca0212a9782dbc3cd0ee6 7dd0ca6dc8caa43e43c3a8f659f0558b9e7cadc8 Rémi Barbier <remi.barbier@hec.edu> 1744630867 +0200	commit: MàJ récente

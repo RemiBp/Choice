@@ -1,0 +1,12 @@
+0000000000000000000000000000000000000000 0bc0b721a891394a5874e0a8ff2835bbedd30e43 Rémi Barbier <remi.barbier@hec.edu> 1743029114 +0100	fetch origin: storing head
+0bc0b721a891394a5874e0a8ff2835bbedd30e43 63b3cf87b4edf880e55f391fd334493bfa48964b Rémi Barbier <remi.barbier@hec.edu> 1743029392 +0100	update by push
+63b3cf87b4edf880e55f391fd334493bfa48964b eb9000640d2cdf7b8311fb340298a87c5df1ac3c Rémi Barbier <remi.barbier@hec.edu> 1743080563 +0100	update by push
+eb9000640d2cdf7b8311fb340298a87c5df1ac3c 04642f0caa7fe55fd242ebc1a1ab0cfe6bab94d5 Rémi Barbier <remi.barbier@hec.edu> 1743082425 +0100	update by push
+04642f0caa7fe55fd242ebc1a1ab0cfe6bab94d5 8a42534bed9f3b3e3f08ddca8ba24f0e7fb15272 Rémi Barbier <remi.barbier@hec.edu> 1743085076 +0100	update by push
+8a42534bed9f3b3e3f08ddca8ba24f0e7fb15272 66634f484f2a5bb5d1b0e08263df36ea37471af7 Rémi Barbier <remi.barbier@hec.edu> 1743087773 +0100	update by push
+66634f484f2a5bb5d1b0e08263df36ea37471af7 8362f90af85a10971455b6ab2bf89309e5bd9244 Rémi Barbier <remi.barbier@hec.edu> 1743093038 +0100	update by push
+8362f90af85a10971455b6ab2bf89309e5bd9244 0eb3d4d295ce3a1e2040062f1dfb638701cea0df Rémi Barbier <remi.barbier@hec.edu> 1743409953 +0200	update by push
+0eb3d4d295ce3a1e2040062f1dfb638701cea0df 1f326afaa98b6e7ecd687a26ddc037fc21e96763 Rémi Barbier <remi.barbier@hec.edu> 1744020577 +0200	pull origin main: forced-update
+1f326afaa98b6e7ecd687a26ddc037fc21e96763 0eb3d4d295ce3a1e2040062f1dfb638701cea0df Rémi Barbier <remi.barbier@hec.edu> 1744020662 +0200	update by push
+0eb3d4d295ce3a1e2040062f1dfb638701cea0df 4824d2b2cca32586ffb201c254ae660bb20b5a6a Rémi Barbier <remi.barbier@hec.edu> 1744502349 +0200	pull origin main --rebase: forced-update
+4824d2b2cca32586ffb201c254ae660bb20b5a6a 0eb3d4d295ce3a1e2040062f1dfb638701cea0df Rémi Barbier <remi.barbier@hec.edu> 1744502459 +0200	update by push
