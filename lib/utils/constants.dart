@@ -10,7 +10,7 @@ const bool useNgrok = false; // Désactivé
 const String ngrokUrl = "https://cfae-195-220-106-83.ngrok-free.app"; // Non utilisé
 const String localUrl = "http://10.0.2.2:5000"; // Pour émulateur Android
 const String directUrl = "http://localhost:5000"; // Pour Windows/Web
-const String localNetworkUrl = "http://192.168.1.23:5000"; // Pour téléphone connecté en filaire
+const String localNetworkUrl = "http://192.168.1.20:5000"; // IP de votre machine actuelle
 const String cloudUrl = "https://api.choiceapp.fr"; // Pour les appareils physiques
 
 // Déterminer si l'application est en mode production
@@ -27,17 +27,74 @@ bool isProductionMode() {
 /// Retourne l'URL de base pour les requêtes API
 /// Cette fonction est cruciale car elle détermine vers quel serveur les requêtes sont envoyées
 String getBaseUrl() {
+  // 1. Pour le web, toujours utiliser l'URL de production
   if (kIsWeb) {
-    return 'https://api.choiceapp.fr';
-  } else if (kDebugMode) {
-    if (Platform.isAndroid) {
-      // Pour appareil physique Android connecté en USB, utiliser l'adresse IP locale
-      return 'http://192.168.1.23:5000'; // Remplacez par l'adresse IP de votre ordinateur
-    } else if (Platform.isIOS) {
-      return 'http://localhost:5000';
-    }
+    print('🌐 Mode Web, utilisation de l\'API de production');
+    return cloudUrl;
   }
-  return 'https://api.choiceapp.fr';
+  
+  // 2. En mode debug, on distingue les différentes configurations
+  if (kDebugMode) {
+    print('🔧 Mode DÉVELOPPEMENT');
+    
+    if (Platform.isAndroid) {
+      // Détection d'émulateur Android (moins fiable)
+      bool isEmulator = false;
+      try {
+        isEmulator = Platform.environment.containsKey('ANDROID_EMULATOR') || 
+                      Platform.environment.containsKey('ANDROID_SDK_ROOT');
+      } catch (e) {
+        // En cas d'erreur avec Platform.environment
+        print('⚠️ Erreur lors de la détection d\'émulateur: $e');
+      }
+      
+      if (isEmulator) {
+        print('📱 Émulateur Android détecté - URL: $localUrl');
+        return localUrl; // 10.0.2.2:5000
+      } else {
+        // Pour les tests sur appareil physique en USB debugging
+        bool isDevServerAccessible = true; // À vérifier si besoin
+        if (isDevServerAccessible) {
+          print('📱 Appareil Android physique en débogage - URL: $localNetworkUrl');
+          return localNetworkUrl; // IP locale
+        } else {
+          print('📱 Appareil Android physique sans accès au serveur local - URL: $cloudUrl');
+          return cloudUrl; // Production
+        }
+      }
+    } else if (Platform.isIOS) {
+      // Détection de simulateur iOS (moins fiable)
+      bool isSimulator = false;
+      try {
+        isSimulator = Platform.environment.containsKey('SIMULATOR_DEVICE_NAME') || 
+                      Platform.environment.containsKey('SIMULATOR_HOST_HOME');
+      } catch (e) {
+        print('⚠️ Erreur lors de la détection de simulateur: $e');
+      }
+      
+      if (isSimulator) {
+        print('📱 Simulateur iOS détecté - URL: $directUrl');
+        return directUrl; // localhost:5000
+      } else {
+        // Pour les tests sur appareil physique en débogage
+        bool isDevServerAccessible = true; // À vérifier si besoin
+        if (isDevServerAccessible) {
+          print('📱 Appareil iOS physique en débogage - URL: $localNetworkUrl');
+          return localNetworkUrl; // IP locale
+        } else {
+          print('📱 Appareil iOS physique sans accès au serveur local - URL: $cloudUrl');
+          return cloudUrl; // Production
+        }
+      }
+    }
+    
+    // Fallback pour les autres plateformes en développement
+    return localNetworkUrl;
+  }
+  
+  // 3. En production (non-debug), toujours utiliser l'URL de production
+  print('🚀 Mode PRODUCTION, utilisation de l\'API de production');
+  return cloudUrl;
 }
 
 // Alias pour maintenir la compatibilité

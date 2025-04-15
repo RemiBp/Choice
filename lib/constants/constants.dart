@@ -9,7 +9,7 @@ const bool useNgrok = false; // Désactivé
 const String ngrokUrl = "https://cfae-195-220-106-83.ngrok-free.app"; // Non utilisé
 const String localUrl = "http://10.0.2.2:5000"; // Pour émulateur Android
 const String directUrl = "http://localhost:5000"; // Pour Windows/Web
-const String localNetworkUrl = "http://192.168.1.23:5000"; // Pour téléphone connecté en filaire
+const String localNetworkUrl = "http://192.168.1.20:5000"; // IP de votre machine actuelle
 const String cloudUrl = "https://api.choiceapp.fr"; // Pour les appareils physiques
 
 // Déterminer si l'application est en mode production
@@ -25,24 +25,105 @@ bool isProductionMode() {
 
 /// Retourne l'URL de base pour les requêtes API
 /// Cette fonction est cruciale car elle détermine vers quel serveur les requêtes sont envoyées
-Future<String> getBaseUrl() async {
-  if (isProductionMode()) {
-    print('🚀 Mode PRODUCTION, utilisation de l\'API de production');
+String getBaseUrl() {
+  // 1. Web: toujours utiliser l'URL de production
+  if (kIsWeb) {
+    print('🌐 Mode Web, utilisation de l\'API de production');
     return cloudUrl;
-  } else {
-    print('🔧 Mode DÉVELOPPEMENT, utilisation de l\'API locale');
-    return localNetworkUrl;
   }
+  
+  // 2. Mode debug
+  if (kDebugMode) {
+    print('🔧 Mode DÉVELOPPEMENT');
+    
+    // 2.1 Android
+    if (Platform.isAndroid) {
+      // Détection d'émulateur
+      bool isEmulator = false;
+      try {
+        isEmulator = Platform.environment.containsKey('ANDROID_EMULATOR') || 
+                     Platform.environment.containsKey('ANDROID_SDK_ROOT');
+      } catch (e) {
+        print('⚠️ Erreur lors de la détection d\'émulateur: $e');
+      }
+      
+      if (isEmulator) {
+        print('📱 Émulateur Android - URL: $localUrl');
+        return localUrl; // 10.0.2.2:5000
+      } else {
+        // Si connecté en USB debugging
+        print('📱 Appareil Android physique - URL: $localNetworkUrl');
+        // Tentative de connexion au serveur local
+        return localNetworkUrl; // IP locale
+        
+        // Note: Si l'appareil ne peut pas atteindre localNetworkUrl,
+        // il devrait automatiquement utiliser l'URL de secours dans testApiConnection()
+      }
+    }
+    
+    // 2.2 iOS
+    if (Platform.isIOS) {
+      // Détection de simulateur (si possible)
+      bool isSimulator = false;
+      try {
+        isSimulator = Platform.environment.containsKey('SIMULATOR_DEVICE_NAME') || 
+                      Platform.environment.containsKey('SIMULATOR_HOST_HOME');
+      } catch (e) {
+        print('⚠️ Erreur lors de la détection de simulateur: $e');
+      }
+      
+      if (isSimulator) {
+        print('📱 Simulateur iOS - URL: $directUrl');
+        return directUrl; // localhost:5000
+      } else {
+        print('📱 Appareil iOS physique - URL: $localNetworkUrl');
+        // Tentative de connexion au serveur local
+        return localNetworkUrl; // IP locale
+      }
+    }
+    
+    return localNetworkUrl; // Fallback en dev
+  }
+  
+  // 3. Production (non-debug): toujours utiliser l'URL de production
+  print('🚀 Mode PRODUCTION, utilisation de l\'API de production');
+  return cloudUrl;
 }
 
 /// Fonction synchrone qui retourne l'URL de base pour certains cas où l'async n'est pas possible
-/// À utiliser avec précaution et uniquement lorsque la fonction asynchrone ne peut pas être utilisée
 String getBaseUrlSync() {
-  if (isProductionMode()) {
+  return getBaseUrl();
+}
+
+// ADDED: Function to test API Connection and fallback to production if local fails
+Future<String> getReliableBaseUrl() async {
+  // Obtenir l'URL par défaut selon la configuration
+  final baseUrl = getBaseUrl();
+  
+  // Si c'est déjà l'URL de production, pas besoin de tester
+  if (baseUrl == cloudUrl) {
     return cloudUrl;
-  } else {
-    return localNetworkUrl;
   }
+  
+  // Tester si l'URL locale est accessible
+  try {
+    print('🔄 Test de connexion à: $baseUrl');
+    final response = await http.get(
+      Uri.parse('$baseUrl/api/ping'),
+      headers: {'Connection': 'keep-alive'}
+    ).timeout(Duration(seconds: 3));
+    
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      print('✅ Serveur local accessible ($baseUrl)');
+      return baseUrl;
+    }
+  } catch (e) {
+    print('❌ Serveur local non accessible: $e');
+  }
+  
+  // Fallback vers l'URL de production
+  print('🔄 Utilisation de l\'URL de production (fallback): $cloudUrl');
+  return cloudUrl;
 }
 
 bool isMobile() {

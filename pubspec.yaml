@@ -174,7 +174,7 @@ dependency_overrides:
   contacts_service:
     git:
       url: https://github.com/RemiBp/Choice.git
-      path: plugin
+      path: plugin/contacts_service
       ref: 4824d2b
   webrtc_interface: "1.1.1"  # Spécification explicite de la version pour éviter les conflits
   # google_maps_flutter_platform_interface: 2.4.1  # REMOVING this override
