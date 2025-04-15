@@ -30,12 +30,12 @@ if (flutterRoot == null) {
 
 android {
     namespace "fr.choiceapp.app"
-    compileSdkVersion 35
+    compileSdkVersion 34
 
     defaultConfig {
         applicationId "fr.choiceapp.app"
         minSdkVersion 21
-        targetSdkVersion 35
+        targetSdkVersion 34
         versionCode 1
         versionName "1.0"
 
@@ -82,9 +82,10 @@ dependencies {
     implementation 'com.google.android.gms:play-services-auth:20.7.0'
     implementation 'com.google.android.gms:play-services-base:18.3.0'
     
-    // Firebase
+    // Firebase - use the BOM to ensure compatible versions
     implementation platform('com.google.firebase:firebase-bom:32.8.0')
-    implementation 'com.google.firebase:firebase-analytics'
-    implementation 'com.google.firebase:firebase-messaging'
-    implementation 'com.google.firebase:firebase-auth'
+    implementation 'com.google.firebase:firebase-analytics-ktx'
+    implementation 'com.google.firebase:firebase-messaging-ktx'
+    implementation 'com.google.firebase:firebase-auth-ktx'
+    implementation 'com.google.firebase:firebase-firestore-ktx'
 }

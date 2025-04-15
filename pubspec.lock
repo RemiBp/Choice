@@ -180,9 +180,11 @@ packages:
   contacts_service:
     dependency: "direct main"
     description:
-      path: "../plugin/contacts_service"
-      relative: true
-    source: path
+      path: contacts_service
+      ref: main
+      resolved-ref: "3f8fb0d2ff673255291719059d0f09313f818022"
+      url: "https://github.com/RemiBp/flutter_app_badger_fork.git"
+    source: git
     version: "1.0.0+1"
   cross_file:
     dependency: transitive
@@ -480,9 +482,11 @@ packages:
   flutter_app_badger:
     dependency: "direct main"
     description:
-      path: "../plugin/flutter_app_badger"
-      relative: true
-    source: path
+      path: flutter_app_badger
+      ref: main
+      resolved-ref: "3f8fb0d2ff673255291719059d0f09313f818022"
+      url: "https://github.com/RemiBp/flutter_app_badger_fork.git"
+    source: git
     version: "1.5.0+1"
   flutter_cache_manager:
     dependency: transitive
@@ -559,9 +563,11 @@ packages:
   flutter_local_notifications:
     dependency: "direct main"
     description:
-      path: "../plugin/flutter_local_notifications"
-      relative: true
-    source: path
+      path: flutter_local_notifications
+      ref: main
+      resolved-ref: "3f8fb0d2ff673255291719059d0f09313f818022"
+      url: "https://github.com/RemiBp/flutter_app_badger_fork.git"
+    source: git
     version: "14.1.4+2"
   flutter_local_notifications_linux:
     dependency: transitive
@@ -869,9 +875,11 @@ packages:
   google_maps_cluster_manager:
     dependency: "direct main"
     description:
-      path: "../plugin/google_maps_cluster_manager"
-      relative: true
-    source: path
+      path: google_maps_cluster_manager
+      ref: main
+      resolved-ref: "3f8fb0d2ff673255291719059d0f09313f818022"
+      url: "https://github.com/RemiBp/flutter_app_badger_fork.git"
+    source: git
     version: "3.1.0"
   google_maps_flutter:
     dependency: "direct main"

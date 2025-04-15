@@ -16,7 +16,10 @@ dependencies:
   google_maps_flutter: ^2.5.3
   # Force version 3.0.0 to avoid conflicts with google_maps_flutter_platform_interface
   google_maps_cluster_manager:
-    path: ../plugin/google_maps_cluster_manager
+    git:
+      url: https://github.com/RemiBp/flutter_app_badger_fork.git
+      path: google_maps_cluster_manager
+      ref: main
   flutter_plugin_android_lifecycle: ^2.0.17
   flutter_secure_storage: ^9.0.0
   geocoding: ^2.1.1
@@ -68,7 +71,10 @@ dependencies:
   permission_handler: ^11.2.0
   # Plugin contacts_service personnalisé depuis GitHub
   contacts_service:
-    path: ../plugin/contacts_service
+    git:
+      url: https://github.com/RemiBp/flutter_app_badger_fork.git
+      path: contacts_service
+      ref: main
 
   # Paiement et WebView
   flutter_stripe: ^11.4.0
@@ -95,18 +101,24 @@ dependencies:
 
   # Notifications et Firebase Cloud Messaging
   firebase_core: ^2.24.2
-  firebase_messaging: ^14.6.4
+  firebase_messaging: ^14.7.10
   firebase_analytics: ^10.8.0
-  cloud_firestore: ^4.13.6  # Ajouté pour résoudre l'erreur
+  cloud_firestore: ^4.13.6
   flutter_local_notifications:
-    path: ../plugin/flutter_local_notifications
+    git:
+      url: https://github.com/RemiBp/flutter_app_badger_fork.git
+      path: flutter_local_notifications
+      ref: main
   # Animation pour les messages envoyés et reçus
   flutter_chat_bubble: ^2.0.2
   # Pour des visuels plus attrayants
   flutter_staggered_animations: ^1.1.1
   # Pour les badges de notifications - version personnalisée depuis GitHub
   flutter_app_badger:
-    path: ../plugin/flutter_app_badger
+    git:
+      url: https://github.com/RemiBp/flutter_app_badger_fork.git
+      path: flutter_app_badger
+      ref: main
   badges: ^3.1.2  # Pour les badges dans l'interface utilisateur
   # Pour les actions sur les notifications
   rxdart: ^0.27.7
@@ -161,11 +173,20 @@ flutter_badges: ^3.1.2
 # Forcer l'utilisation des versions personnalisées
 dependency_overrides:
   flutter_local_notifications:
-    path: ../plugin/flutter_local_notifications
+    git:
+      url: https://github.com/RemiBp/flutter_app_badger_fork.git
+      path: flutter_local_notifications
+      ref: main
   flutter_app_badger:
-    path: ../plugin/flutter_app_badger
+    git:
+      url: https://github.com/RemiBp/flutter_app_badger_fork.git
+      path: flutter_app_badger
+      ref: main
   contacts_service:
-    path: ../plugin/contacts_service
+    git:
+      url: https://github.com/RemiBp/flutter_app_badger_fork.git
+      path: contacts_service
+      ref: main
   webrtc_interface: "1.1.1"  # Keep version override
   # google_maps_flutter_platform_interface: 2.4.1  # Keep commented out
  
