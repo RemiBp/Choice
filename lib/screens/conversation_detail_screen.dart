@@ -17,6 +17,12 @@ import '../services/user_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/conversation.dart';
 import '../services/call_service.dart';
+import 'package:choice_app/screens/profile_screen.dart';
+import 'package:choice_app/screens/producer_screen.dart';
+import 'package:choice_app/screens/producerLeisure_screen.dart';
+import 'package:choice_app/screens/wellness_producer_profile_screen.dart';
+import 'package:http/http.dart' as http;
+import '../utils/api_config.dart';
 
 class ConversationDetailScreen extends StatefulWidget {
   final String conversationId;
@@ -543,13 +549,20 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> wit
 
   @override
   Widget build(BuildContext context) {
+    // Get participant ID and Type for potential navigation
+    final String? otherUserId = _otherParticipantId;
+    final String otherUserType = _otherParticipantType;
+
     return Scaffold(
       appBar: AppBar(
         backgroundColor: _primaryColor,
         title: Row(
           children: [
             GestureDetector(
-              onTap: widget.isGroup ? () => _viewGroupDetails() : null,
+              // Navigate on avatar tap ONLY for non-group chats
+              onTap: (!widget.isGroup && otherUserId != null) 
+                  ? () => _navigateToProfile(otherUserId, otherUserType) 
+                  : null,
               child: CircleAvatar(
                 radius: 20,
                 backgroundImage: CachedNetworkImageProvider(widget.recipientAvatar),
@@ -1067,5 +1080,137 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> wit
         SnackBar(content: Text('Erreur: $e')),
       );
     }
+  }
+
+  // ---- Navigation Logic (Copied/Adapted from MessagingScreen) ----
+  Future<void> _navigateToProfile(String participantId, String participantType) async {
+    if (participantId.isEmpty) return;
+
+    // Determine the type based on isProducer or isGroup flags if participantType is not provided
+    // This is a fallback, ideally the type comes from the conversation list item
+    String resolvedType = participantType;
+    if (resolvedType == 'user' && widget.isProducer) {
+        // TODO: Determine the actual producer type (restaurant, leisure, etc.)
+        print("⚠️ Cannot determine producer type for profile navigation in detail screen.");
+        resolvedType = 'restaurant'; 
+    } else if (resolvedType == 'user' && widget.isGroup) {
+        _viewGroupDetails();
+        return; 
+    }
+
+    // Show loading indicator
+    showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return Dialog(
+            child: Padding(
+              padding: const EdgeInsets.all(20.0),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(width: 20),
+                  Text("Chargement du profil..."),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+
+    try {
+      if (resolvedType == 'user') {
+         Navigator.pop(context); // Close loading dialog
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ProfileScreen(
+              userId: participantId,
+              viewMode: 'public',
+            ),
+          ),
+        );
+      } else if (resolvedType == 'restaurant') {
+         Navigator.pop(context); // Close loading dialog
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ProducerScreen(
+              producerId: participantId,
+              userId: widget.userId, 
+            ),
+          ),
+        );
+      } else if (resolvedType == 'leisure') {
+        // Fetch data first for Leisure producer
+        final url = Uri.parse('${ApiConfig.baseUrl}/api/producers/leisure/$participantId'); // Adjust API endpoint if needed
+        final response = await http.get(url);
+        Navigator.pop(context); // Close loading dialog
+        if (response.statusCode == 200) {
+          final data = json.decode(response.body);
+          Navigator.push(
+           context,
+           MaterialPageRoute(
+             // Assuming ProducerLeisureScreen accepts producerData map
+             builder: (context) => ProducerLeisureScreen(producerData: data),
+           ),
+         );
+        } else {
+           throw Exception("Failed to load leisure producer data (${response.statusCode})");
+        }
+      } else if (resolvedType == 'wellness' || resolvedType == 'beauty') {
+        // Fetch data first for Wellness/Beauty producer
+        final url = Uri.parse('${ApiConfig.baseUrl}/api/unified/$participantId'); 
+        final response = await http.get(url);
+        Navigator.pop(context); // Close loading dialog
+        if (response.statusCode == 200) {
+            final data = json.decode(response.body);
+            // Pass the full data map to WellnessProducerProfileScreen
+            Navigator.push(
+                context,
+                MaterialPageRoute(
+                builder: (context) => WellnessProducerProfileScreen(producerData: data), // <-- Pass producerData
+                ),
+            );
+        } else {
+            throw Exception("Failed to load wellness/beauty producer data (${response.statusCode})");
+        }
+      } else {
+        Navigator.pop(context); // Close loading dialog
+        print("⚠️ Unknown participant type for profile navigation: $resolvedType");
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Type de profil inconnu: $resolvedType"))
+        );
+      }
+    } catch (e) {
+        Navigator.pop(context); // Close loading dialog on error
+        print("❌ Error navigating to profile: $e");
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Erreur lors du chargement du profil: $e"))
+        );
+    }
+  }
+
+  // Method to get the ID of the other participant (for 1-on-1 chats)
+  String? get _otherParticipantId {
+      if (widget.isGroup || widget.participants == null || widget.participants!.length < 2) {
+          return null; // Not applicable for groups or invalid participant list
+      }
+      // Find the participant who is NOT the current user
+      return widget.participants!.firstWhere(
+          (p) => p is Map && p['_id'] != widget.userId, 
+          orElse: () => null
+      )?['_id'] as String?;
+  }
+
+  // Method to get the type of the other participant (for 1-on-1 chats)
+  String get _otherParticipantType {
+      if (widget.isGroup) return 'group'; // Not applicable for groups
+      if (widget.isProducer) {
+          // TODO: Determine actual producer type based on passed data or API call
+          return 'restaurant'; // Defaulting, needs refinement
+      }
+      return 'user';
   }
 } 

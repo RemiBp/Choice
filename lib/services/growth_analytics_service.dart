@@ -1,305 +1,161 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../utils/constants.dart' as constants;
+// Import the refined models
+import '../models/growth_analytics_models.dart';
 
 class GrowthAnalyticsService {
   static final GrowthAnalyticsService _instance = GrowthAnalyticsService._internal();
   factory GrowthAnalyticsService() => _instance;
   GrowthAnalyticsService._internal();
 
-  String getBaseUrl() {
-    return constants.getBaseUrlSync();
-  }
+  // Use the new base URL structure
+  final String _apiBaseUrl = '${constants.getBaseUrlSync()}/api/analytics';
 
   /// Récupère un aperçu global des statistiques de croissance
-  Future<Map<String, dynamic>> getOverview(String producerId, {String period = '30'}) async {
+  /// Returns GrowthOverview on success, null on failure.
+  Future<GrowthOverview?> getOverview(String producerId, {String period = '30d'}) async {
     try {
-      final url = Uri.parse('${getBaseUrl()}/api/growth-analytics/$producerId/overview?period=$period');
-      final response = await http.get(url);
+      final url = Uri.parse('$_apiBaseUrl/$producerId/overview?period=$period');
+      final response = await http.get(url, headers: {'Accept': 'application/json'});
 
       if (response.statusCode == 200) {
-        return json.decode(response.body);
+        // Use the refined GrowthOverview model
+        return GrowthOverview.fromJson(json.decode(response.body));
       } else {
-        print('❌ Erreur API: ${response.statusCode}');
-        throw Exception('Erreur lors de la récupération des statistiques (${response.statusCode})');
+        print('❌ Erreur API [getOverview]: ${response.statusCode} - ${response.body}');
+        // Return null instead of mock data
+        return null;
       }
     } catch (e) {
-      print('❌ Exception: $e');
-      // En cas d'erreur, renvoyer des données mockées pour démonstration
-      return _getMockOverview(producerId, period);
+      print('❌ Exception [getOverview]: $e');
+      // Return null on exception
+      return null;
     }
   }
 
   /// Récupère les tendances temporelles des performances
-  Future<Map<String, dynamic>> getTrends(String producerId, {String period = '90'}) async {
+  /// Returns GrowthTrends on success, null on failure.
+  Future<GrowthTrends?> getTrends(String producerId, {List<String> metrics = const ['followers', 'profileViews'], String period = '30d'}) async {
     try {
-      final url = Uri.parse('${getBaseUrl()}/api/growth-analytics/$producerId/trends?period=$period');
-      final response = await http.get(url);
+      // Construct the metrics query parameter
+      final metricsParam = metrics.join(',');
+      final url = Uri.parse('$_apiBaseUrl/$producerId/trends?period=$period&metrics=$metricsParam');
+      final response = await http.get(url, headers: {'Accept': 'application/json'});
 
       if (response.statusCode == 200) {
-        return json.decode(response.body);
+        // Use the refined GrowthTrends model
+        return GrowthTrends.fromJson(json.decode(response.body));
       } else {
-        print('❌ Erreur API: ${response.statusCode}');
-        throw Exception('Erreur lors de la récupération des tendances (${response.statusCode})');
+        print('❌ Erreur API [getTrends]: ${response.statusCode} - ${response.body}');
+        return null;
       }
     } catch (e) {
-      print('❌ Exception: $e');
-      // En cas d'erreur, renvoyer des données mockées pour démonstration
-      return _getMockTrends(period);
+      print('❌ Exception [getTrends]: $e');
+      return null;
     }
   }
 
   /// Récupère les recommandations stratégiques
-  Future<Map<String, dynamic>> getRecommendations(String producerId) async {
+  /// Returns GrowthRecommendations on success, null on failure.
+  Future<GrowthRecommendations?> getRecommendations(String producerId) async {
     try {
-      final url = Uri.parse('${getBaseUrl()}/api/growth-analytics/$producerId/recommendations');
-      final response = await http.get(url);
+      final url = Uri.parse('$_apiBaseUrl/$producerId/recommendations');
+      final response = await http.get(url, headers: {'Accept': 'application/json'});
 
       if (response.statusCode == 200) {
-        return json.decode(response.body);
+        // Use the refined GrowthRecommendations model
+        return GrowthRecommendations.fromJson(json.decode(response.body));
       } else {
-        print('❌ Erreur API: ${response.statusCode}');
-        throw Exception('Erreur lors de la récupération des recommandations (${response.statusCode})');
+        print('❌ Erreur API [getRecommendations]: ${response.statusCode} - ${response.body}');
+        return null;
       }
     } catch (e) {
-      print('❌ Exception: $e');
-      // En cas d'erreur, renvoyer des données mockées pour démonstration
-      return _getMockRecommendations();
+      print('❌ Exception [getRecommendations]: $e');
+      return null;
     }
   }
 
-  /// Données mockées pour l'aperçu global
-  Map<String, dynamic> _getMockOverview(String producerId, String period) {
-    bool isRestaurant = !producerId.contains('leisure');
-    
-    return {
-      "producer": {
-        "id": producerId,
-        "name": isRestaurant ? "Restaurant Le Gourmet" : "Galerie d'Art Moderne",
-        "type": isRestaurant ? "restaurant" : "leisure",
-        "category": isRestaurant ? ["Bistro", "Français", "Gastronomique"] : ["Art", "Galerie", "Exposition"],
-        "photo": "https://picsum.photos/id/445/200/200"
-      },
-      "period": int.parse(period),
-      "engagement": {
-        "posts": 18,
-        "likes": 342,
-        "comments": 87,
-        "shares": 26,
-        "average_per_post": 25.3
-      },
-      "followers": {
-        "total": 125,
-        "new": 12,
-        "growth_rate": 10.7
-      },
-      "reach": {
-        "mentions": 8,
-        "interested_users": 64,
-        "choice_users": 37,
-        "conversion_rate": 29.6
-      },
-      "demographics": {
-        "age": {
-          "18-24": 15.2,
-          "25-34": 42.7,
-          "35-44": 25.1,
-          "45-54": 12.3,
-          "55+": 4.7
-        },
-        "gender": {
-          "Homme": 48.3,
-          "Femme": 51.7
-        },
-        "location": {
-          "Paris": 45.2,
-          "Boulogne-Billancourt": 12.5,
-          "Neuilly-sur-Seine": 8.9,
-          "Versailles": 6.4,
-          "Saint-Denis": 4.2
-        }
-      },
-      "competitors": [
-        {
-          "id": "comp_1",
-          "name": isRestaurant ? "Bistro Parisien" : "Musée du Louvre",
-          "photo": "https://picsum.photos/id/429/200/200",
-          "rating": 4.5,
-          "followers": 248,
-          "recent_posts": 22
-        },
-        {
-          "id": "comp_2",
-          "name": isRestaurant ? "La Bonne Table" : "Théâtre du Châtelet",
-          "photo": "https://picsum.photos/id/431/200/200",
-          "rating": 4.2,
-          "followers": 186,
-          "recent_posts": 14
-        }
-      ]
-    };
-  }
+  // --- Methods for Premium Features ---
 
-  /// Données mockées pour les tendances
-  Map<String, dynamic> _getMockTrends(String period) {
-    final now = DateTime.now();
-    final intervalType = int.parse(period) <= 30 ? 'day' : (int.parse(period) <= 90 ? 'week' : 'month');
-    
-    final List<Map<String, dynamic>> timeSeries = [];
-    
-    // Générer des données de série temporelle
-    for (int i = int.parse(period); i >= 0; i--) {
-      final date = DateTime(now.year, now.month, now.day - i);
-      
-      String dateStr;
-      if (intervalType == 'day') {
-        dateStr = "${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}";
-      } else if (intervalType == 'week') {
-        // Calculer le lundi de la semaine
-        final dayOfWeek = date.weekday;
-        final daysToSubtract = dayOfWeek - 1;
-        final monday = DateTime(date.year, date.month, date.day - daysToSubtract);
-        dateStr = "${monday.year}-${monday.month.toString().padLeft(2, '0')}-${monday.day.toString().padLeft(2, '0')}";
+  /// Fetches demographic data (Premium)
+  /// Returns DemographicsData on success, null on failure.
+  Future<DemographicsData?> getDemographics(String producerId, {String period = '30d'}) async {
+    try {
+      final url = Uri.parse('$_apiBaseUrl/$producerId/demographics?period=$period');
+      final response = await http.get(url, headers: {'Accept': 'application/json'});
+
+      if (response.statusCode == 200) {
+        return DemographicsData.fromJson(json.decode(response.body));
+      } else if (response.statusCode == 403) {
+        print('🔒 Access Denied [getDemographics]: Premium feature required.');
+        return null; // Indicate access denied
       } else {
-        dateStr = "${date.year}-${date.month.toString().padLeft(2, '0')}";
+        print('❌ Erreur API [getDemographics]: ${response.statusCode} - ${response.body}');
+        return null;
       }
-      
-      // Ajouter seulement la date si elle n'existe pas déjà
-      if (!timeSeries.any((item) => item['date'] == dateStr)) {
-        timeSeries.add({
-          "date": dateStr,
-          "posts": (i % 7 == 0) ? 2 : (i % 3 == 0 ? 1 : 0),
-          "likes": 10 + (i % 5) * 8,
-          "comments": 3 + (i % 4) * 2,
-          "shares": 1 + (i % 6)
-        });
-      }
+    } catch (e) {
+      print('❌ Exception [getDemographics]: $e');
+      return null;
     }
-    
-    return {
-      "engagement": timeSeries,
-      "top_posts": [
-        {
-          "id": "post_1",
-          "content": "Nouvelle spécialité du chef à découvrir ce weekend !",
-          "posted_at": DateTime.now().subtract(Duration(days: 3)).toIso8601String(),
-          "media": "https://picsum.photos/id/488/600/400",
-          "engagement": {
-            "likes": 56,
-            "comments": 12,
-            "shares": 7
-          },
-          "score": 94
-        },
-        {
-          "id": "post_2",
-          "content": "Merci à tous nos clients pour cette soirée exceptionnelle !",
-          "posted_at": DateTime.now().subtract(Duration(days: 10)).toIso8601String(),
-          "media": "https://picsum.photos/id/493/600/400",
-          "engagement": {
-            "likes": 48,
-            "comments": 8,
-            "shares": 5
-          },
-          "score": 74
-        }
-      ],
-      "peak_times": [
-        {
-          "hour": 18,
-          "posts": 5,
-          "average_engagement": 32.6
-        },
-        {
-          "hour": 12,
-          "posts": 4,
-          "average_engagement": 28.2
-        },
-        {
-          "hour": 20,
-          "posts": 3,
-          "average_engagement": 26.8
-        }
-      ],
-      "weekly_distribution": [
-        {
-          "day": "Lundi",
-          "posts": 2,
-          "average_engagement": 24.5
-        },
-        {
-          "day": "Mardi",
-          "posts": 1,
-          "average_engagement": 18.0
-        },
-        {
-          "day": "Mercredi",
-          "posts": 3,
-          "average_engagement": 26.3
-        },
-        {
-          "day": "Jeudi",
-          "posts": 2,
-          "average_engagement": 22.0
-        },
-        {
-          "day": "Vendredi",
-          "posts": 4,
-          "average_engagement": 32.5
-        },
-        {
-          "day": "Samedi",
-          "posts": 5,
-          "average_engagement": 36.8
-        },
-        {
-          "day": "Dimanche",
-          "posts": 1,
-          "average_engagement": 28.0
-        }
-      ]
-    };
   }
 
-  /// Données mockées pour les recommandations
-  Map<String, dynamic> _getMockRecommendations() {
-    return {
-      "content_strategy": [
-        {
-          "title": "Augmentez votre fréquence de publication",
-          "description": "Publiez au moins une fois par semaine pour maintenir l'engagement de votre audience.",
-          "action": "Planifiez 4 publications par mois minimum"
-        },
-        {
-          "title": "Diversifiez vos formats de contenu",
-          "description": "Les vidéos génèrent en moyenne 38% plus d'engagement que les images.",
-          "action": "Ajoutez des vidéos courtes à votre stratégie de contenu"
-        }
-      ],
-      "engagement_tactics": [
-        {
-          "title": "Mettez en valeur vos plats signature",
-          "description": "Les publications présentant des plats signature reçoivent 67% plus de likes.",
-          "action": "Partagez des photos et histoires de vos plats les plus populaires"
-        },
-        {
-          "title": "Interagissez avec vos commentaires",
-          "description": "Répondre aux commentaires augmente le taux d'engagement de 17%.",
-          "action": "Répondez aux commentaires dans les 24 heures"
-        }
-      ],
-      "growth_opportunities": [
-        {
-          "title": "Interactions avec la communauté locale",
-          "description": "Engagez-vous avec les posts mentionnant votre quartier pour augmenter votre visibilité.",
-          "action": "Commentez et aimez 5 publications locales par semaine"
-        },
-        {
-          "title": "Programme d'ambassadeurs",
-          "description": "Les clients fidèles peuvent vous aider à atteindre un nouveau public.",
-          "action": "Identifiez vos 10 followers les plus engagés et proposez-leur des avantages exclusifs"
-        }
-      ]
-    };
+  /// Fetches growth predictions (Premium)
+  /// Returns GrowthPredictions on success, null on failure.
+  Future<GrowthPredictions?> getPredictions(String producerId, {String horizon = '30d'}) async {
+    try {
+      final url = Uri.parse('$_apiBaseUrl/$producerId/predictions?horizon=$horizon');
+      final response = await http.get(url, headers: {'Accept': 'application/json'});
+
+      if (response.statusCode == 200) {
+        return GrowthPredictions.fromJson(json.decode(response.body));
+      } else if (response.statusCode == 403) {
+        print('🔒 Access Denied [getPredictions]: Premium feature required.');
+        return null;
+      } else {
+        print('❌ Erreur API [getPredictions]: ${response.statusCode} - ${response.body}');
+        return null;
+      }
+    } catch (e) {
+      print('❌ Exception [getPredictions]: $e');
+      return null;
+    }
   }
+
+  /// Fetches competitor analysis data (Premium)
+  /// Returns CompetitorAnalysis on success, null on failure.
+  Future<CompetitorAnalysis?> getCompetitorAnalysis(String producerId, {String period = '30d'}) async {
+    try {
+      final url = Uri.parse('$_apiBaseUrl/$producerId/competitor-analysis?period=$period');
+      final response = await http.get(url, headers: {'Accept': 'application/json'});
+
+      if (response.statusCode == 200) {
+        return CompetitorAnalysis.fromJson(json.decode(response.body));
+      } else if (response.statusCode == 403) {
+        print('🔒 Access Denied [getCompetitorAnalysis]: Premium feature required.');
+        return null;
+      } else {
+        print('❌ Erreur API [getCompetitorAnalysis]: ${response.statusCode} - ${response.body}');
+        return null;
+      }
+    } catch (e) {
+      print('❌ Exception [getCompetitorAnalysis]: $e');
+      return null;
+    }
+  }
+
+  // --- REMOVE MOCK DATA GENERATION --- 
+  /*
+  Map<String, dynamic> _getMockOverview(String producerId, String period) {
+    // ... removed ...
+  }
+
+  Map<String, dynamic> _getMockTrends(String period) {
+    // ... removed ...
+  }
+
+  Map<String, dynamic> _getMockRecommendations() {
+    // ... removed ...
+  }
+  */
 } 

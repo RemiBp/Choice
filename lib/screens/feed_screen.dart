@@ -73,8 +73,8 @@ class _FeedScreenState extends State<FeedScreen> with SingleTickerProviderStateM
   bool _isLoading = false;
   String _loadingMessage = "Loading...";
   final _apiService = ApiService();
-  final String _baseUrl = 'https://api.choiceapp.io';
-
+  String get _baseUrl => constants.getBaseUrl();
+  
   @override
   void initState() {
     super.initState();
@@ -3134,10 +3134,15 @@ class _FeedScreenState extends State<FeedScreen> with SingleTickerProviderStateM
     if (userId.isEmpty) return;
     
     try {
-      Navigator.pushNamed(
-        context, 
-        '/profile',
-        arguments: {'userId': userId, 'viewerId': widget.userId}
+      // Utiliser MaterialPageRoute direct au lieu de pushNamed
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ProfileScreen(
+            userId: userId,
+            viewMode: 'public',
+          ),
+        ),
       );
     } catch (e) {
       print('❌ Error navigating to user profile: $e');
@@ -3325,7 +3330,7 @@ class _FeedScreenState extends State<FeedScreen> with SingleTickerProviderStateM
             _handleSavePost(post);
             break;
           case 'share':
-            _handleSharePost(post);
+            _handleSharePost(post, 'external');
             break;
           case 'report':
             _handleReportPost(post);
@@ -3442,21 +3447,8 @@ class _FeedScreenState extends State<FeedScreen> with SingleTickerProviderStateM
     // TODO: Implémenter la logique de sauvegarde
   }
 
-  Future<void> _handleSharePost(Post post, {String? shareType}) async {
+  Future<void> _handleSharePost(Post post, String shareType) async {
     try {
-      if (shareType == null) {
-        // Afficher le menu de partage
-        final result = await showModalBottomSheet<String>(
-          context: context,
-          builder: (context) => ShareOptionsBottomSheet(post: post),
-        );
-        
-        if (result != null) {
-          await _handleSharePost(post, shareType: result);
-        }
-        return;
-      }
-      
       // Enregistrer l'interaction pour l'algorithme d'apprentissage
       _controller.logShare(post);
       
@@ -3464,7 +3456,7 @@ class _FeedScreenState extends State<FeedScreen> with SingleTickerProviderStateM
         case 'external':
           // Partage externe (via les apps du système)
           String shareText = post.content ?? 'Découvrez ce post sur Choice App!';
-          String shareUrl = post.url ?? 'https://choiceapp.io/post/${post.id}';
+          String shareUrl = post.url ?? 'https://choiceapp.fr/post/${post.id}';
           
           try {
             await Share.share('$shareText\n\n$shareUrl');
@@ -3480,7 +3472,7 @@ class _FeedScreenState extends State<FeedScreen> with SingleTickerProviderStateM
         default:
           // Partage par défaut
           String shareText = post.content ?? 'Découvrez ce post sur Choice App!';
-          String shareUrl = post.url ?? 'https://choiceapp.io/post/${post.id}';
+          String shareUrl = post.url ?? 'https://choiceapp.fr/post/${post.id}';
           
           try {
             await Share.share('$shareText\n\n$shareUrl');
@@ -3500,7 +3492,7 @@ class _FeedScreenState extends State<FeedScreen> with SingleTickerProviderStateM
         final file = await DefaultCacheManager().getSingleFile(imageUrl);
         await Share.shareXFiles([XFile(file.path)], text: 'Check out this post on Choice App!');
       } else {
-        await _handleSharePost(post);
+        await _handleSharePost(post, 'external');
       }
     } catch (e) {
       if (kDebugMode) {
@@ -3516,7 +3508,7 @@ class _FeedScreenState extends State<FeedScreen> with SingleTickerProviderStateM
         final file = await DefaultCacheManager().getSingleFile(videoUrl);
         await Share.shareXFiles([XFile(file.path)], text: 'Check out this post on Choice App!');
       } else {
-        await _handleSharePost(post);
+        await _handleSharePost(post, 'external');
       }
     } catch (e) {
       if (kDebugMode) {
@@ -4022,30 +4014,6 @@ class _FeedScreenState extends State<FeedScreen> with SingleTickerProviderStateM
     }
   }
   
-  // Méthode pour gérer le partage d'un post
-  void _handleSharePost(Post post, String shareType) async {
-    // Enregistrer l'interaction pour l'algorithme d'apprentissage
-    _controller.logShare(post);
-    
-    switch (shareType) {
-      case 'external':
-        // Partage externe (via les apps du système)
-        String shareText = post.content ?? 'Découvrez ce post sur Choice App!';
-        String shareUrl = post.url ?? 'https://choiceapp.io/post/${post.id}';
-        
-        try {
-          await Share.share('$shareText\n\n$shareUrl');
-        } catch (e) {
-          print('Erreur lors du partage: $e');
-        }
-        break;
-        
-      case 'internal':
-        // Partage interne (repost dans l'app)
-        // TODO: Implémenter le repost interne
-        break;
-    }
-  }
   
   // Méthode pour marquer un post comme vu après visibilité suffisante
   void _onPostViewed(Post post, double visibleFraction) {
@@ -4065,7 +4033,8 @@ class _FeedScreenState extends State<FeedScreen> with SingleTickerProviderStateM
   // Méthode API pour liker un post
   Future<bool> _likePost(String postId, bool isLiked) async {
     try {
-      final String baseUrl = await getBaseUrl();
+      // Utiliser la fonction synchrone de constants
+      final String baseUrl = constants.getBaseUrl();
       final url = Uri.parse('$baseUrl/api/posts/$postId/like');
       final token = await getToken();
       
@@ -4092,7 +4061,8 @@ class _FeedScreenState extends State<FeedScreen> with SingleTickerProviderStateM
   // Méthode API pour marquer un intérêt
   Future<bool> _markInterest(String postId, bool isInterested) async {
     try {
-      final String baseUrl = await getBaseUrl();
+      // Utiliser la fonction synchrone de constants
+      final String baseUrl = constants.getBaseUrl();
       final url = Uri.parse('$baseUrl/api/posts/$postId/interest');
       final token = await getToken();
       
@@ -4119,7 +4089,8 @@ class _FeedScreenState extends State<FeedScreen> with SingleTickerProviderStateM
   // Méthode API pour poster un commentaire
   Future<bool> _postComment(String postId, String commentText) async {
     try {
-      final String baseUrl = await getBaseUrl();
+      // Utiliser la fonction synchrone de constants
+      final String baseUrl = constants.getBaseUrl();
       final url = Uri.parse('$baseUrl/api/posts/$postId/comment');
       final token = await getToken();
       
@@ -4175,7 +4146,7 @@ class _FeedScreenState extends State<FeedScreen> with SingleTickerProviderStateM
   
   // Helper pour afficher un SnackBar d'erreur
   void _showErrorSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
         backgroundColor: Colors.red,
@@ -4184,11 +4155,6 @@ class _FeedScreenState extends State<FeedScreen> with SingleTickerProviderStateM
     );
   }
   
-  // Correction de getBaseUrl pour retourner une String directement
-  String getBaseUrl() {
-    // Utilise la valeur constante directement plutôt qu'une Future
-    return 'https://api.choiceapp.io'; // Remplacer par la constante appropriée
-  }
 
   // Méthode pour mettre à jour l'état d'intérêt d'un post
   void _updatePostInterest(String postId, bool interested) {
@@ -4212,7 +4178,8 @@ class _FeedScreenState extends State<FeedScreen> with SingleTickerProviderStateM
 
   Future<void> _someMethod() async {
     try {
-      final String baseUrl = await getBaseUrl();
+      // Utiliser la fonction synchrone de constants
+      final String baseUrl = constants.getBaseUrl();
       // Utiliser baseUrl...
     } catch (e) {
       if (kDebugMode) {
@@ -4273,10 +4240,11 @@ class _CommentsScreenState extends State<CommentsScreen> {
         _isLoading = true;
       });
 
-      final String baseUrl = await constants.getBaseUrl();
+      // Utiliser la fonction synchrone de constants
+      final String baseUrl = constants.getBaseUrl();
       final String url = '$baseUrl/api/posts/${widget.post.id}/comments';
       
-      final token = await getToken();
+      final token = await getToken(); // Garder await pour getToken()
       
       final response = await http.get(
         Uri.parse(url),
@@ -4315,7 +4283,8 @@ class _CommentsScreenState extends State<CommentsScreen> {
     });
 
     try {
-      final String baseUrl = getBaseUrl();
+      // Utiliser la fonction synchrone de constants
+      final String baseUrl = constants.getBaseUrl();
       final String url = '$baseUrl/api/posts/${widget.post.id}/comments';
       
       final token = await getToken();
@@ -4470,7 +4439,9 @@ class _CommentsScreenState extends State<CommentsScreen> {
         );
       });
       
-      final String baseUrl = getBaseUrl();
+      
+      // Utiliser la fonction getBaseUrl de la classe parente
+      final String baseUrl = await getBaseUrl();
       final String url = '$baseUrl/api/comments/$commentId/like';
       
       final token = await getToken();
@@ -4556,7 +4527,13 @@ class _CommentsScreenState extends State<CommentsScreen> {
       );
     }
   }
+
+  // Ne garder qu'une seule définition de getBaseUrl ici
+  Future<String> getBaseUrl() async {
+    return await constants.getBaseUrl();
+  }
 }
+
 class CommentTile extends StatelessWidget {
   final String authorName;
   final String text;

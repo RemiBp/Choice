@@ -6,6 +6,8 @@ import 'package:http/http.dart' as http;
 import '../utils/constants.dart' as constants;
 import 'dart:async'; // Ajout de l'import pour TimeoutException
 import '../utils/utils.dart';
+import './secure_storage_service.dart'; // Import secure storage
+import './user_app_fcm_service.dart'; // Import FCM Service
 
 class AuthService extends ChangeNotifier {
   String? _userId;
@@ -413,6 +415,11 @@ class AuthService extends ChangeNotifier {
         notifyListeners();
         print('✅ notifyListeners() called - UI should update now');
         
+        // AFTER successful login and token storage, register FCM token
+        if (_userId != null) {
+            UserAppFcmService.registerDeviceAndSaveToken(_userId!); 
+        }
+
         return {
           'success': true,
           'userId': _userId,
@@ -527,6 +534,11 @@ class AuthService extends ChangeNotifier {
         // New users always need onboarding
         notifyListeners();
         
+        // AFTER successful registration and token storage, register FCM token
+        if (_userId != null) {
+            UserAppFcmService.registerDeviceAndSaveToken(_userId!); 
+        }
+
         return {
           'success': true,
           'userId': _userId,
@@ -586,7 +598,7 @@ class AuthService extends ChangeNotifier {
     try {
       // Obtenir l'URL de base
       final baseUrl = await constants.getBaseUrl();
-      String token = await getToken();
+      String? token = await getToken();
       
       if (token == null || token.isEmpty) {
         print('❌ Token inexistant, session invalide');
@@ -643,55 +655,37 @@ class AuthService extends ChangeNotifier {
   // Méthode pour se connecter avec un ID de producteur (restaurant, leisure ou wellness)
   Future<Map<String, dynamic>> loginWithId(String producerId) async {
     try {
-      // Clear any existing guest session first
-      final wasGuest = _accountType == 'guest';
-      if (wasGuest) {
-        await _clearSession();
-      }
+      print('🔐 Tentative de connexion avec ID: $producerId');
       
-      final String baseUrl = await constants.getBaseUrl();
       final response = await http.post(
-        Uri.parse('${baseUrl}/api/producer/login-by-id'),
+        Uri.parse('${constants.getBaseUrl()}/api/auth/login-with-id'),
         headers: {'Content-Type': 'application/json'},
-        body: json.encode({
-          'producerId': producerId,
-        }),
+        body: json.encode({'producerId': producerId}),
       );
+
+      print('Response status: ${response.statusCode}');
+      print('Response body: ${response.body}');
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        
-        // Pour le debugging
-        print('📦 LoginWithId response: ${response.body}');
-        
-        // Extraction de l'ID producteur
-        final String? newUserId = producerId;
-        
-        if (newUserId == null || newUserId.isEmpty) {
-          print('❌ Login response missing producer ID');
-          return {'success': false, 'message': 'Producer ID not found'};
-        }
-        
-        // Extraction du token s'il existe
-        final String? token = data['token'];
-        
-        // Stockage des données producteur
-        _userId = newUserId;
-        _accountType = data['accountType'] ?? 'RestaurantProducer'; // Par défaut RestaurantProducer
+        _userId = data['user']?['_id'] ?? data['userId'] ?? producerId;
+        _accountType = data['user']?['accountType'] ?? data['accountType'] ?? _determineAccountType(data); // Determine account type
+        _token = data['token'];
         _isAuthenticated = true;
-        
-        print('🔐 Login successful with ID - Producer ID: $_userId, Account type: $_accountType');
 
-        // Sauvegarde dans le stockage persistant
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('userId', _userId!);
         await prefs.setString('accountType', _accountType!);
+        if (_token != null) {
+           await SecureStorageService.saveToken(_token!); // Save securely
+        }
         
-        // Sauvegarde du token s'il est disponible
-        await _saveToken(token);
-        
-        // Mise à jour de l'UI
         notifyListeners();
+        
+        // AFTER successful login and token storage, register FCM token
+        if (_userId != null) {
+            UserAppFcmService.registerDeviceAndSaveToken(_userId!); 
+        }
         
         return {
           'success': true,
@@ -705,6 +699,29 @@ class AuthService extends ChangeNotifier {
       print('Login with ID error: $e');
       return {'success': false, 'message': 'Login with ID error: $e'};
     }
+  }
+
+  // Helper method to determine account type from data
+  String _determineAccountType(Map<String, dynamic> data) {
+    // Check nested user data first if available
+    final userData = data['user'];
+    if (userData is Map<String, dynamic>) {
+      if (userData.containsKey('restaurantData')) return 'producer'; // Assuming 'producer' means restaurant
+      if (userData.containsKey('leisureData')) return 'leisure';
+      if (userData.containsKey('wellnessData')) return 'wellness';
+      if (userData.containsKey('beautyData')) return 'beauty';
+      // Add more checks for other producer types if needed
+    }
+
+    // Check top-level data as a fallback
+    if (data.containsKey('restaurantData')) return 'producer';
+    if (data.containsKey('leisureData')) return 'leisure';
+    if (data.containsKey('wellnessData')) return 'wellness';
+    if (data.containsKey('beautyData')) return 'beauty';
+    // Add more checks here
+
+    // Default to 'user' if no specific producer data is found
+    return 'user';
   }
 
   // Initialize auth state from storage and validate the session

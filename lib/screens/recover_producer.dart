@@ -183,7 +183,9 @@ class _RecoverProducerPageState extends State<RecoverProducerPage> with SingleTi
       setState(() => _isSearching = true);
 
       try {
-        final apiUrl = '${getBaseUrl()}/api/unified/search?query=$query&type=$_currentApiType';
+        // Await getBaseUrl() before using it
+        final baseUrl = await getBaseUrl(); 
+        final apiUrl = '$baseUrl/api/unified/search?query=$query&type=$_currentApiType';
         print('🔍 Recherche: $apiUrl');
         
         final response = await http.get(Uri.parse(apiUrl));
@@ -282,6 +284,9 @@ class _RecoverProducerPageState extends State<RecoverProducerPage> with SingleTi
       final accountType = _determineAccountType(_producerIdController.text);
       print('🔍 Récupération de compte type: $accountType');
       
+      // Await getBaseUrl() before using it
+      final baseUrl = await getBaseUrl();
+      
       // URL différente selon le type de producteur
       String url;
       Map<String, dynamic> requestBody;
@@ -292,13 +297,14 @@ class _RecoverProducerPageState extends State<RecoverProducerPage> with SingleTi
         print('🔍 ID producteur wellness: $producerId');
         
         // Utiliser l'ID MongoDB directement plutôt que le place_id
-        url = '${getBaseUrl()}/api/wellness/auth/claim-account-by-id/$producerId';
+        url = '$baseUrl/api/wellness/auth/claim-account-by-id/$producerId';
         
         print('🔍 URL de vérification: ${url.replaceAll("claim-account-by-id", "check-account-by-id")}');
         
         // Vérifier d'abord si le compte peut être récupéré
+        final checkUrl = url.replaceAll("claim-account-by-id", "check-account-by-id");
         final checkResponse = await http.get(
-          Uri.parse(url.replaceAll("claim-account-by-id", "check-account-by-id")),
+          Uri.parse(checkUrl),
         );
         
         print('🔍 Réponse de vérification: ${checkResponse.statusCode} - ${checkResponse.body}');
@@ -323,7 +329,7 @@ class _RecoverProducerPageState extends State<RecoverProducerPage> with SingleTi
         print('🔍 Corps de la requête: $requestBody');
       } else {
         // Pour les autres producteurs, utiliser l'endpoint existant
-        url = '${getBaseUrl()}/api/newuser/register-or-recover';
+        url = '$baseUrl/api/newuser/register-or-recover';
         
         // Create request body
         requestBody = {

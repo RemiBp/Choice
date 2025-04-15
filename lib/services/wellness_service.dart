@@ -6,7 +6,7 @@ import '../utils/constants.dart' as constants;
 
 class WellnessService {
   String getBaseUrl() {
-    return constants.getBaseUrlSync();
+    return constants.getBaseUrl();
   }
   final String apiPath = "/api/wellness";
 

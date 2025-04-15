@@ -779,24 +779,23 @@ class MapRestaurantScreenState extends State<MapRestaurantScreen> with Automatic
                               ),
                               SizedBox(height: 8),
                               Row(
+                                mainAxisAlignment: MainAxisAlignment.start, // Align icons to the start
                                 children: [
                                   if (_selectedRestaurant?['rating'] != null)
                                     Row(
+                                      mainAxisSize: MainAxisSize.min, // Prevent row from expanding
                                       children: [
-                                        Icon(Icons.star, color: Colors.amber, size: 16),
+                                        Icon(Icons.star, color: Colors.amber, size: 18), // Slightly larger icon
                                         SizedBox(width: 4),
-                                        Text('${_selectedRestaurant!['rating']}'),
-                                        SizedBox(width: 8),
+                                        Text(
+                                          '${_selectedRestaurant!['rating']}',
+                                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold), // Bolder text
+                                        ),
+                                        SizedBox(width: 12), // Increased spacing
                                       ],
                                     ),
-                                  if (_selectedRestaurant?['abonnés'] != null || _selectedRestaurant?['followers'] is List)
-                                    Row(
-                                      children: [
-                                        Icon(Icons.favorite, color: Colors.redAccent, size: 16),
-                                        SizedBox(width: 4),
-                                        Text('${_selectedRestaurant!['abonnés'] ?? (_selectedRestaurant!['followers'] as List?)?.length ?? 0}'),
-                                      ],
-                                    ),
+                                  // Display follower count (using 'abonnés' or 'followers')
+                                  _buildFollowerCountWidget(_selectedRestaurant),
                                 ],
                               ),
                             ],
@@ -1030,6 +1029,9 @@ class MapRestaurantScreenState extends State<MapRestaurantScreen> with Automatic
       
       // Charger les restaurants à proximité
       _fetchRestaurants();
+
+      // Ajouter le marqueur de la position utilisateur
+      _addUserLocationMarker();
     } catch (e) {
       if (!mounted) return; // Vérifier si toujours monté avant setState final
       
@@ -1405,7 +1407,14 @@ class MapRestaurantScreenState extends State<MapRestaurantScreen> with Automatic
     // Score max ~= 100, min ~= 0
     gmaps.BitmapDescriptor markerIcon;
     
-    if (score >= 80) {
+    // Prioriser l'icône de catégorie si elle existe
+    String categoryKey = (restaurant['category'] as List<dynamic>?)?.isNotEmpty == true
+        ? (restaurant['category'] as List<dynamic>).first.toString().toLowerCase()
+        : (restaurant['cuisine_type'] as String?)?.toLowerCase() ?? 'default'; // Fallback category
+
+    if (_categoryIcons.containsKey(categoryKey)) {
+      markerIcon = _categoryIcons[categoryKey]!;
+    } else if (score >= 80) {
       markerIcon = gmaps.BitmapDescriptor.defaultMarkerWithHue(gmaps.BitmapDescriptor.hueGreen); // Vert (excellent)
     } else if (score >= 60) {
       markerIcon = gmaps.BitmapDescriptor.defaultMarkerWithHue(90.0); // Vert clair (très pertinent)
@@ -1939,5 +1948,55 @@ class MapRestaurantScreenState extends State<MapRestaurantScreen> with Automatic
             : '${_minItemRating!.toStringAsFixed(1)}/10 minimum'),
       ],
     );
+  }
+
+  /// Ajoute ou met à jour le marqueur de la position de l'utilisateur
+  void _addUserLocationMarker() {
+    if (_currentLocation != null && mounted) {
+      setState(() {
+        // Supprimer l'ancien marqueur utilisateur s'il existe
+        _markers.removeWhere((m) => m.markerId.value == 'user_location');
+
+        // Créer le nouveau marqueur utilisateur
+        final userMarker = gmaps.Marker(
+          markerId: const gmaps.MarkerId('user_location'),
+          position: _currentLocation!,
+          icon: _userLocationIcon ?? gmaps.BitmapDescriptor.defaultMarkerWithHue(gmaps.BitmapDescriptor.hueBlue), // Use blue if custom icon not loaded
+          infoWindow: const gmaps.InfoWindow(title: 'Votre Position'),
+          zIndex: 1, // Assurer qu'il est au-dessus des autres marqueurs si nécessaire
+        );
+        _markers.add(userMarker);
+      });
+    }
+  }
+
+  // Widget pour afficher le nombre d'abonnés
+  Widget _buildFollowerCountWidget(Map<String, dynamic>? restaurant) {
+    if (restaurant == null) return SizedBox.shrink();
+
+    int followerCount = 0;
+    if (restaurant['abonnés'] is int) {
+      followerCount = restaurant['abonnés'];
+    } else if (restaurant['followers'] is List) {
+      followerCount = (restaurant['followers'] as List).length;
+    } else if (restaurant['abonnés'] is String) {
+      followerCount = int.tryParse(restaurant['abonnés']) ?? 0;
+    }
+
+    if (followerCount > 0) {
+      return Row(
+        mainAxisSize: MainAxisSize.min, // Prevent row from expanding
+        children: [
+          Icon(Icons.favorite, color: Colors.redAccent, size: 18), // Slightly larger icon
+          SizedBox(width: 4),
+          Text(
+            '$followerCount',
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold), // Bolder text
+          ),
+        ],
+      );
+    } else {
+      return SizedBox.shrink(); // Ne rien afficher si pas d'abonnés
+    }
   }
 } 

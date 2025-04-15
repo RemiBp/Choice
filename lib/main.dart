@@ -72,6 +72,8 @@ import 'services/voice_recognition_service.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 
+import 'services/location_tracking_service.dart'; // Import the new service
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
@@ -826,15 +828,17 @@ class _LandingPageState extends State<LandingPage> with SingleTickerProviderStat
                               child: const Icon(Icons.person, color: Colors.blue, size: 24),
                             ),
                             const SizedBox(width: 12),
-                            const Text(
-                              'Connexion en tant qu\'utilisateur',
-                                      style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                                      ),
-                                  ),
-                                ],
+                            const Expanded(
+                              child: Text(
+                                'Connexion en tant qu\'utilisateur',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
+                            ),
+                          ],
+                        ),
                         const SizedBox(height: 16),
                             ElevatedButton.icon(
                           icon: const Icon(Icons.login),

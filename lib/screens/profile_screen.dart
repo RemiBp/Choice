@@ -10,6 +10,10 @@ import 'messaging_screen.dart';
 import 'utils.dart';
 import '../models/post.dart'; // Import PostLocation class
 import 'conversation_detail_screen.dart'; // Import for conversation detail screen
+import '../utils/constants.dart' as constants;
+import '../services/app_data_sender_service.dart'; // Import the sender service
+import '../utils/location_utils.dart'; // Import location utils
+import 'package:google_maps_flutter/google_maps_flutter.dart'; // For LatLng
 /// Classe delegate pour TabBar persistant
 class _SliverAppBarDelegate extends SliverPersistentHeaderDelegate {
   final TabBar _tabBar;
@@ -78,8 +82,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _userFuture.then((user) {
       _postsFuture = _fetchUserPosts(user['posts'] ?? []);
       if (_currentUserId.isNotEmpty) {
-        _checkFollowStatus();
+      _checkFollowStatus();
       }
+      // Log profile view after fetching user data
+      _logProfileViewActivity(widget.userId, 'user'); 
     });
   }
 
@@ -88,70 +94,74 @@ class _ProfileScreenState extends State<ProfileScreen> {
     try {
       final prefs = await SharedPreferences.getInstance();
       final userId = prefs.getString('user_id') ?? '';
-      final token = prefs.getString('auth_token') ?? '';
       
       setState(() {
         _currentUserId = userId;
         _isCurrentUser = (userId == widget.userId);
       });
 
-      if (userId.isNotEmpty && token.isNotEmpty) {
+      if (userId.isNotEmpty) {
         print('✅ Utilisateur connecté, ID: $userId');
       } else {
-        print('⚠️ Utilisateur non connecté ou données manquantes');
+        print('ℹ️ Aucun utilisateur connecté - visualisation de profil en mode public uniquement');
       }
     } catch (e) {
-      print('❌ Erreur lors du chargement des données utilisateur: $e');
+      // En cas d'erreur, simplement définir les valeurs par défaut
+      setState(() {
+        _currentUserId = '';
+        _isCurrentUser = false;
+      });
+      print('ℹ️ Impossible d\'accéder aux préférences - visualisation de profil en mode public uniquement');
     }
   }
 
   /// Récupère le profil de l'utilisateur à afficher
   Future<Map<String, dynamic>> _fetchUserProfile(String userId) async {
-    final url = Uri.parse('${getBaseUrl()}/api/users/$userId/profile');
+    // Utiliser la route simple /api/users/:id au lieu de /api/users/:id/profile
+    final url = Uri.parse('${constants.getBaseUrl()}/api/users/${userId}');
     
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-      
+      // Aucun besoin de vérifier ou d'envoyer le token
       final Map<String, String> headers = {
         'Content-Type': 'application/json',
       };
-      
-      if (token.isNotEmpty) {
-        headers['Authorization'] = 'Bearer $token';
-      }
       
       final response = await http.get(url, headers: headers);
 
       if (response.statusCode == 200) {
         return json.decode(response.body);
       } else {
-        print('❌ Erreur HTTP: ${response.statusCode} - ${response.body}');
+          print('❌ Erreur HTTP: ${response.statusCode} - ${response.body}');
         throw Exception('Erreur lors du chargement du profil utilisateur.');
+        }
+      } catch (e) {
+        print('❌ Erreur réseau: $e');
+        throw Exception('Erreur réseau lors du chargement du profil.');
       }
-    } catch (e) {
-      print('❌ Erreur réseau: $e');
-      throw Exception('Erreur réseau lors du chargement du profil.');
     }
-  }
 
   /// Récupère les posts de l'utilisateur
   Future<List<dynamic>> _fetchUserPosts(List<dynamic> postIds) async {
     if (postIds.isEmpty) return [];
 
-    try {
+      try {
       // Utiliser la route API qui récupère tous les posts en une seule requête
-      final url = Uri.parse('${getBaseUrl()}/api/users/${widget.userId}/posts');
-      final response = await http.get(url);
+      final url = Uri.parse('${constants.getBaseUrl()}/api/users/${widget.userId}/posts');
+        final response = await http.get(
+          url,
+          headers: {
+            'Content-Type': 'application/json',
+          }
+        );
       
-      if (response.statusCode == 200) {
+        if (response.statusCode == 200) {
         final data = json.decode(response.body);
         return data['posts'] ?? [];
-      } else {
+        } else {
         print('❌ Erreur HTTP lors de la récupération des posts: ${response.statusCode}');
         return [];
-      }
-    } catch (e) {
+        }
+      } catch (e) {
       print('❌ Erreur réseau pour les posts: $e');
       return [];
     }
@@ -167,21 +177,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
 
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-      
-      if (token.isEmpty) {
-        print('⚠️ Token manquant pour vérifier le statut de suivi');
-        return;
-      }
-      
-      final url = Uri.parse('${getBaseUrl()}/api/users/check-following/${widget.userId}');
+      // Utiliser une route plus simple
+      final url = Uri.parse('${constants.getBaseUrl()}/api/users/check-following-status?currentUserId=${_currentUserId}&targetUserId=${widget.userId}');
       
       final response = await http.get(
         url,
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
         },
       );
 
@@ -190,12 +192,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
         setState(() {
           _isFollowing = data['isFollowing'] ?? false;
         });
-        print('✅ Statut de suivi vérifié: $_isFollowing');
       } else {
-        print('❌ Erreur HTTP: ${response.statusCode} - ${response.body}');
+        // En cas d'erreur, simplement considérer que l'utilisateur ne suit pas
+        setState(() {
+          _isFollowing = false;
+        });
       }
     } catch (e) {
-      print('❌ Erreur réseau: $e');
+      print('⚠️ Impossible de vérifier le statut de suivi: $e');
+      setState(() {
+        _isFollowing = false;
+      });
     }
   }
 
@@ -213,8 +220,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         return;
       }
       
-      final url = Uri.parse('${getBaseUrl()}/api/users/follow/$userId');
-      
+      final url = Uri.parse('${constants.getBaseUrl()}/api/users/follow/$userId');
+
       final response = await http.post(
         url,
         headers: {
@@ -249,6 +256,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
         SnackBar(content: Text('Erreur réseau: $e')),
       );
     }
+
+    // --- ADDED: Log follow action --- 
+    _logGenericUserAction('follow_user', targetUserId: userId);
+    // --- End Log --- 
   }
 
   /// Arrêter de suivre l'utilisateur
@@ -265,8 +276,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         return;
       }
       
-      final url = Uri.parse('${getBaseUrl()}/api/users/unfollow/$userId');
-      
+      final url = Uri.parse('${constants.getBaseUrl()}/api/users/unfollow/$userId');
+
       final response = await http.post(
         url,
         headers: {
@@ -301,6 +312,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
         SnackBar(content: Text('Erreur réseau: $e')),
       );
     }
+
+    // --- ADDED: Log unfollow action --- 
+    _logGenericUserAction('unfollow_user', targetUserId: userId);
+    // --- End Log --- 
   }
 
   /// Navigation vers les détails d'un producteur ou événement
@@ -323,7 +338,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           throw Exception("Type non reconnu pour l'ID : $id");
       }
 
-      final url = Uri.parse('${getBaseUrl()}/api/$endpoint/$id');
+      final url = Uri.parse('${constants.getBaseUrl()}/api/$endpoint/$id');
       final response = await http.get(url);
 
       if (response.statusCode == 200) {
@@ -379,7 +394,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final recipientAvatar = recipientInfo['profilePicture'] ?? '';
       
       // Créer ou récupérer une conversation existante
-      final url = Uri.parse('${getBaseUrl()}/api/users/conversations/new-message');
+      final url = Uri.parse('${constants.getBaseUrl()}/api/users/conversations/new-message');
       
       final response = await http.post(
         url,
@@ -422,11 +437,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
         SnackBar(content: Text('Erreur: $e')),
       );
     }
+
+    // --- ADDED: Log start conversation action --- 
+    _logGenericUserAction('start_conversation', targetUserId: recipientId);
+    // --- End Log --- 
   }
 
   Future<Map<String, dynamic>> _fetchUserInfo(String userId) async {
     try {
-      final url = Uri.parse('${getBaseUrl()}/api/users/$userId/info');
+      final url = Uri.parse('${constants.getBaseUrl()}/api/users/$userId/info');
       final response = await http.get(url);
       
       if (response.statusCode == 200) {
@@ -616,40 +635,40 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                           }
                                         },
                                         child: Container(
-                                          width: 100,
-                                          height: 100,
-                                          decoration: BoxDecoration(
-                                            shape: BoxShape.circle,
-                                            border: Border.all(color: Colors.white, width: 3),
-                                            boxShadow: [
-                                              BoxShadow(
-                                                color: Colors.black.withOpacity(0.2),
-                                                blurRadius: 8,
-                                                offset: const Offset(0, 3),
-                                              ),
-                                            ],
+                                      width: 100,
+                                      height: 100,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        border: Border.all(color: Colors.white, width: 3),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.black.withOpacity(0.2),
+                                            blurRadius: 8,
+                                            offset: const Offset(0, 3),
                                           ),
-                                          child: ClipRRect(
-                                            borderRadius: BorderRadius.circular(50),
-                                            child: user['photo_url'] != null && user['photo_url'].toString().isNotEmpty
-                                              ? CachedNetworkImage(
-                                                  imageUrl: user['photo_url'],
-                                                  fit: BoxFit.cover,
-                                                  placeholder: (context, url) => Container(
-                                                    color: Colors.grey[300],
-                                                    child: const Center(child: CircularProgressIndicator()),
-                                                  ),
-                                                  errorWidget: (context, url, error) => Container(
-                                                    color: Colors.grey[300],
-                                                    child: const Icon(Icons.person, size: 50, color: Colors.white),
-                                                  ),
-                                                )
-                                              : Container(
-                                                  color: Colors.grey[300],
-                                                  child: const Icon(Icons.person, size: 50, color: Colors.white),
+                                        ],
+                                      ),
+                                      child: ClipRRect(
+                                        borderRadius: BorderRadius.circular(50),
+                                        child: user['photo_url'] != null && user['photo_url'].toString().isNotEmpty
+                                          ? CachedNetworkImage(
+                                              imageUrl: user['photo_url'],
+                                              fit: BoxFit.cover,
+                                              placeholder: (context, url) => Container(
+                                                color: Colors.grey[300],
+                                                child: const Center(child: CircularProgressIndicator()),
+                                              ),
+                                              errorWidget: (context, url, error) => Container(
+                                                color: Colors.grey[300],
+                                                child: const Icon(Icons.person, size: 50, color: Colors.white),
+                                              ),
+                                            )
+                                          : Container(
+                                              color: Colors.grey[300],
+                                              child: const Icon(Icons.person, size: 50, color: Colors.white),
                                                 ),
                                           ),
-                                        ),
+                                            ),
                                       ),
                                     ),
                                     const SizedBox(height: 12),
@@ -658,21 +677,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                     Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        Text(
-                                          user['name'] ?? 'Nom non spécifié',
-                                          style: const TextStyle(
-                                            fontSize: 24,
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.white,
-                                            shadows: [
-                                              Shadow(
-                                                offset: Offset(0, 1),
-                                                blurRadius: 3,
-                                                color: Colors.black26,
-                                              ),
-                                            ],
+                                    Text(
+                                      user['name'] ?? 'Nom non spécifié',
+                                      style: const TextStyle(
+                                        fontSize: 24,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.white,
+                                        shadows: [
+                                          Shadow(
+                                            offset: Offset(0, 1),
+                                            blurRadius: 3,
+                                            color: Colors.black26,
                                           ),
-                                        ),
+                                        ],
+                                      ),
+                                    ),
                                         if (user['is_star'] == true) ... [
                                           const SizedBox(width: 6),
                                           const Icon(Icons.verified, color: Colors.lightBlueAccent, size: 20),
@@ -881,25 +900,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
       child: Padding(
         padding: const EdgeInsets.all(8.0),
         child: Column(
-          children: [
-            Text(
-              count,
-              style: TextStyle(
-                fontSize: 22, 
-                fontWeight: FontWeight.bold,
-                color: Colors.indigo,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              title,
-              style: TextStyle(
-                fontSize: 13, 
-                color: Colors.grey[700],
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
+      children: [
+        Text(
+          count,
+          style: TextStyle(
+            fontSize: 22, 
+            fontWeight: FontWeight.bold,
+            color: Colors.indigo,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          title,
+          style: TextStyle(
+            fontSize: 13, 
+            color: Colors.grey[700],
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
         ),
       ),
     );
@@ -1041,7 +1060,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     
     for (final userId in userIds) {
       try {
-        final url = Uri.parse('${getBaseUrl()}/api/users/${userId.toString()}/info');
+        final url = Uri.parse('${constants.getBaseUrl()}/api/users/${userId.toString()}/info');
         final response = await http.get(url);
         
         if (response.statusCode == 200) {
@@ -1228,7 +1247,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
-              children: tags.map<Widget>((tag) {
+            children: tags.map<Widget>((tag) {
                 final Color tagColor = getTagColor(tag);
                 final IconData tagIcon = getTagIcon(tag);
                 
@@ -1239,18 +1258,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       backgroundColor: tagColor.withOpacity(0.2),
                       child: Icon(tagIcon, color: tagColor, size: 16),
                     ),
-                    label: Text(tag),
+                label: Text(tag),
                     backgroundColor: tagColor.withOpacity(0.1),
                     labelStyle: TextStyle(color: tagColor, fontSize: 13),
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
                       side: BorderSide(color: tagColor.withOpacity(0.3)),
-                    ),
-                    padding: const EdgeInsets.symmetric(horizontal: 2),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 2),
                   ),
-                );
-              }).toList(),
+              );
+            }).toList(),
             ),
           ),
         ],
@@ -1314,12 +1333,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
           },
           color: Colors.indigo,
           child: ListView.builder(
-            padding: const EdgeInsets.all(8),
-            itemCount: posts.length,
-            itemBuilder: (context, index) {
-              final post = posts[index];
-              return _buildPostCard(post);
-            },
+          padding: const EdgeInsets.all(8),
+          itemCount: posts.length,
+          itemBuilder: (context, index) {
+            final post = posts[index];
+            return _buildPostCard(post);
+          },
           ),
         );
       },
@@ -1407,8 +1426,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         post['author_name'] ?? 'Nom non spécifié',
                         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                       ),
-                      Row(
-                        children: [
+                        Row(
+                          children: [
                           Text(
                             formattedDate,
                             style: TextStyle(fontSize: 12, color: Colors.grey[600]),
@@ -1426,8 +1445,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               ),
                             ),
                           ],
-                        ],
-                      ),
+                          ],
+                        ),
                     ],
                   ),
                 ),
@@ -1517,9 +1536,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 alignment: Alignment.bottomCenter,
                 children: [
                   PageView.builder(
-                    itemCount: mediaUrls.length,
-                    itemBuilder: (context, index) {
-                      String url = mediaUrls[index].toString();
+                itemCount: mediaUrls.length,
+                itemBuilder: (context, index) {
+                  String url = mediaUrls[index].toString();
                       return GestureDetector(
                         onTap: () {
                           // Open full screen image view
@@ -1528,21 +1547,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         child: Hero(
                           tag: 'post_image_${post['_id']}_$index',
                           child: CachedNetworkImage(
-                            imageUrl: url,
-                            fit: BoxFit.cover,
-                            placeholder: (context, url) => Container(
-                              color: Colors.grey[200],
-                              child: const Center(child: CircularProgressIndicator()),
-                            ),
-                            errorWidget: (context, url, error) => _buildPlaceholderImage(
-                              Colors.grey[200]!,
-                              Icons.broken_image,
-                              'Image non disponible'
+                    imageUrl: url,
+                    fit: BoxFit.cover,
+                    placeholder: (context, url) => Container(
+                      color: Colors.grey[200],
+                      child: const Center(child: CircularProgressIndicator()),
+                    ),
+                    errorWidget: (context, url, error) => _buildPlaceholderImage(
+                      Colors.grey[200]!,
+                      Icons.broken_image,
+                      'Image non disponible'
                             ),
                           ),
-                        ),
-                      );
-                    },
+                    ),
+                  );
+                },
                   ),
                   
                   // Indicator dots for multiple images
@@ -1591,14 +1610,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   color: Colors.indigo,
                 ),
                 if (hasLocation)
-                  _buildActionButton(
-                    icon: Icons.check_circle_outline,
-                    label: 'Choice',
+                _buildActionButton(
+                  icon: Icons.check_circle_outline,
+                  label: 'Choice',
                     onTap: () {
-                      _showChoiceDialog(context, post);
-                    },
-                    color: Colors.indigo,
-                  ),
+                    _showChoiceDialog(context, post);
+                  },
+                  color: Colors.indigo,
+                ),
                 _buildActionButton(
                   icon: Icons.share_outlined,
                   label: 'Partager',
@@ -1698,21 +1717,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) {
-        return DraggableScrollableSheet(
+            return DraggableScrollableSheet(
           initialChildSize: 0.8,
-          minChildSize: 0.5,
-          maxChildSize: 0.95,
-          builder: (_, scrollController) {
-            return Container(
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.only(
-                  topLeft: Radius.circular(20),
-                  topRight: Radius.circular(20),
-                ),
-              ),
-              child: Column(
-                children: [
+              minChildSize: 0.5,
+              maxChildSize: 0.95,
+              builder: (_, scrollController) {
+                return Container(
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.only(
+                      topLeft: Radius.circular(20),
+                      topRight: Radius.circular(20),
+                    ),
+                  ),
+          child: Column(
+            children: [
                   Padding(
                     padding: const EdgeInsets.all(16.0),
                     child: Row(
@@ -1723,14 +1742,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           style: TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.close),
-                          onPressed: () => Navigator.pop(context),
-                        ),
-                      ],
                     ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
                   ),
                   const Divider(height: 1),
                   Expanded(
@@ -1764,12 +1783,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       top: 8.0,
                     ),
                     child: Row(
-                      children: [
-                        Expanded(
+                children: [
+                  Expanded(
                           child: TextField(
-                            decoration: InputDecoration(
+                decoration: InputDecoration(
                               hintText: 'Ajouter un commentaire...',
-                              border: OutlineInputBorder(
+                  border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(20),
                                 borderSide: BorderSide.none,
                               ),
@@ -1784,15 +1803,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                         IconButton(
                           icon: const Icon(Icons.send, color: Colors.indigo),
-                          onPressed: () {
+                  onPressed: () {
                             // Envoi du commentaire
                           },
                         ),
                       ],
-                    ),
-                  ),
-                ],
+                ),
               ),
+            ],
+          ),
             );
           },
         );
@@ -1838,7 +1857,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         return;
       }
       
-      final url = Uri.parse('${getBaseUrl()}/api/posts/$postId/like');
+      final url = Uri.parse('${constants.getBaseUrl()}/api/posts/$postId/like');
       
       final response = await http.post(
         url,
@@ -1847,8 +1866,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           'Authorization': 'Bearer $token',
         },
       );
-
-      if (response.statusCode == 200) {
+        
+        if (response.statusCode == 200) {
         // Mettre à jour l'affichage des likes
         setState(() {
           _postsFuture = _postsFuture.then((posts) {
@@ -1864,8 +1883,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         });
       } else {
         print('❌ Erreur lors de l\'ajout du like: ${response.statusCode} - ${response.body}');
-      }
-    } catch (e) {
+        }
+      } catch (e) {
       print('❌ Erreur réseau: $e');
     }
   }
@@ -1905,7 +1924,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         return;
       }
       
-      final url = Uri.parse('${getBaseUrl()}/api/posts/$postId');
+      final url = Uri.parse('${constants.getBaseUrl()}/api/posts/$postId');
       
       final response = await http.delete(
         url,
@@ -1913,8 +1932,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           'Authorization': 'Bearer $token',
         },
       );
-
-      if (response.statusCode == 200) {
+          
+          if (response.statusCode == 200) {
         // Mettre à jour la liste des posts
         setState(() {
           _postsFuture = _postsFuture.then((posts) {
@@ -1930,8 +1949,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Erreur lors de la suppression du post')),
         );
-      }
-    } catch (e) {
+          }
+        } catch (e) {
       print('❌ Erreur réseau: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Erreur réseau: $e')),
@@ -1997,56 +2016,56 @@ class _ProfileScreenState extends State<ProfileScreen> {
           color: Colors.indigo,
           child: GridView.builder(
             padding: const EdgeInsets.all(12),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              childAspectRatio: 0.8,
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            childAspectRatio: 0.8,
               crossAxisSpacing: 12,
               mainAxisSpacing: 12,
-            ),
-            itemCount: interests.length,
-            itemBuilder: (context, index) {
+          ),
+          itemCount: interests.length,
+          itemBuilder: (context, index) {
               final interestId = interestIds[index];
-              
-              // Get place details if available
-              final placeDetail = placeDetails[interestId] ?? {};
-              final String placeName = placeDetail['name'] ?? 
-                                       placeDetail['intitulé'] ?? 
-                                       placeDetail['titre'] ?? 
-                                       'Lieu favori';
-              
-              // Use specific fields based on the place type
-              final String? imageUrl;
-              if (placeDetail['photos']?.isNotEmpty == true) {
-                imageUrl = placeDetail['photos']?[0];
-              } else if (placeDetail['image'] != null) {
-                imageUrl = placeDetail['image'];
-              } else if (placeDetail['photo_url'] != null) {
-                imageUrl = placeDetail['photo_url'];
-              } else {
-                imageUrl = '';
-              }
-                    
-              // Determine place type icon
-              IconData placeIcon = Icons.place;
+            
+            // Get place details if available
+            final placeDetail = placeDetails[interestId] ?? {};
+            final String placeName = placeDetail['name'] ?? 
+                                     placeDetail['intitulé'] ?? 
+                                     placeDetail['titre'] ?? 
+                                     'Lieu favori';
+            
+            // Use specific fields based on the place type
+            final String? imageUrl;
+            if (placeDetail['photos']?.isNotEmpty == true) {
+              imageUrl = placeDetail['photos']?[0];
+            } else if (placeDetail['image'] != null) {
+              imageUrl = placeDetail['image'];
+            } else if (placeDetail['photo_url'] != null) {
+              imageUrl = placeDetail['photo_url'];
+            } else {
+              imageUrl = '';
+            }
+                  
+            // Determine place type icon
+            IconData placeIcon = Icons.place;
               if (placeDetail['category']?.toString().contains('restaurant') == true) {
-                placeIcon = Icons.restaurant;
+              placeIcon = Icons.restaurant;
               } else if (placeDetail['category']?.toString().contains('event') == true) {
-                placeIcon = Icons.event;
+              placeIcon = Icons.event;
               } else if (placeDetail['category']?.toString().contains('culture') == true) {
-                placeIcon = Icons.museum;
-              }
-              
-              return GestureDetector(
-                onTap: () {
-                  // Determine type for navigation
-                  String placeType = 'restaurant'; // Default
-                  if (placeDetail.containsKey('intitulé') || placeDetail.containsKey('titre')) {
-                    placeType = 'event';
-                  } else if (placeDetail.containsKey('lieu')) {
-                    placeType = 'leisureProducer';
-                  }
-                  _navigateToDetails(interestId, placeType);
-                },
+              placeIcon = Icons.museum;
+            }
+            
+            return GestureDetector(
+              onTap: () {
+                // Determine type for navigation
+                String placeType = 'restaurant'; // Default
+                if (placeDetail.containsKey('intitulé') || placeDetail.containsKey('titre')) {
+                  placeType = 'event';
+                } else if (placeDetail.containsKey('lieu')) {
+                  placeType = 'leisureProducer';
+                }
+                _navigateToDetails(interestId, placeType);
+              },
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 300),
                   decoration: BoxDecoration(
@@ -2063,110 +2082,110 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     borderRadius: BorderRadius.circular(16),
                     child: Container(
                       color: Colors.white,
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
                           // Image
-                          Positioned.fill(
+                    Positioned.fill(
                             child: Hero(
                               tag: 'interest_$interestId',
-                              child: imageUrl != null && imageUrl.isNotEmpty
-                                ? CachedNetworkImage(
-                                    imageUrl: imageUrl,
-                                    fit: BoxFit.cover,
-                                    placeholder: (context, url) => Container(
-                                      color: Colors.grey[200],
-                                      child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
-                                    ),
-                                    errorWidget: (context, url, error) => _buildPlaceholderImage(Colors.grey[200]!, placeIcon, placeName),
-                                  )
-                                : _buildPlaceholderImage(Colors.grey[200]!, placeIcon, placeName),
+                      child: imageUrl != null && imageUrl.isNotEmpty
+                        ? CachedNetworkImage(
+                            imageUrl: imageUrl,
+                            fit: BoxFit.cover,
+                            placeholder: (context, url) => Container(
+                              color: Colors.grey[200],
+                              child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
                             ),
+                            errorWidget: (context, url, error) => _buildPlaceholderImage(Colors.grey[200]!, placeIcon, placeName),
+                          )
+                        : _buildPlaceholderImage(Colors.grey[200]!, placeIcon, placeName),
+                    ),
                           ),
                           
                           // Gradient overlay at bottom for text
-                          Positioned(
-                            bottom: 0,
-                            left: 0,
-                            right: 0,
-                            child: Container(
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  begin: Alignment.topCenter,
-                                  end: Alignment.bottomCenter,
-                                  colors: [
-                                    Colors.transparent,
+                    Positioned(
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.transparent,
                                     Colors.black.withOpacity(0.8),
-                                  ],
-                                ),
-                              ),
+                            ],
+                          ),
+                        ),
                               padding: const EdgeInsets.all(12),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    placeName,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.bold,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              placeName,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
                                       fontSize: 16,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              children: [
+                                const Icon(Icons.place, size: 12, color: Colors.white70),
+                                const SizedBox(width: 4),
+                                Expanded(
+                                  child: Text(
+                                    placeDetail['address'] ?? 
+                                    placeDetail['lieu'] ?? 
+                                    placeDetail['adresse'] ?? 
+                                    'Voir détails',
+                                    style: const TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 12,
                                     ),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                   ),
-                                  const SizedBox(height: 4),
-                                  Row(
-                                    children: [
-                                      const Icon(Icons.place, size: 12, color: Colors.white70),
-                                      const SizedBox(width: 4),
-                                      Expanded(
-                                        child: Text(
-                                          placeDetail['address'] ?? 
-                                          placeDetail['lieu'] ?? 
-                                          placeDetail['adresse'] ?? 
-                                          'Voir détails',
-                                          style: const TextStyle(
-                                            color: Colors.white70,
-                                            fontSize: 12,
-                                          ),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
+                                ),
+                              ],
                             ),
-                          ),
+                          ],
+                        ),
+                      ),
+                    ),
                           
                           // Type badge
-                          Positioned(
+                    Positioned(
                             top: 12,
                             left: 12,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
                                 color: Colors.white,
                                 borderRadius: BorderRadius.circular(12),
-                              ),
+                        ),
                               child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
                                   Icon(placeIcon, color: Colors.indigo, size: 14),
                                   const SizedBox(width: 4),
-                                  Text(
+                            Text(
                                     _getPlaceTypeName(placeDetail),
                                     style: const TextStyle(
                                       color: Colors.indigo,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ],
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
                               ),
                             ),
-                          ),
+                          ],
+                        ),
+                      ),
+                    ),
                           
                           // Favorite icon
                           Positioned(
@@ -2188,10 +2207,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ],
                       ),
                     ),
-                  ),
                 ),
-              );
-            },
+              ),
+            );
+          },
           ),
         );
       },
@@ -2287,29 +2306,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
           child: ListView.builder(
             padding: const EdgeInsets.all(12),
             itemCount: placeIds.length,
-            itemBuilder: (context, index) {
+          itemBuilder: (context, index) {
               final targetId = placeIds[index];
               final choiceData = choiceDetails[targetId] ?? {};
-              
-              // Get place details if available
-              final placeDetail = placeDetails[targetId] ?? {};
-              final String placeName = placeDetail['name'] ?? 
-                                       placeDetail['intitulé'] ?? 
-                                       placeDetail['titre'] ?? 
-                                       'Lieu non spécifié';
-              
-              // Use specific fields based on the place type
-              final String? imageUrl;
-              if (placeDetail['photos']?.isNotEmpty == true) {
-                imageUrl = placeDetail['photos']?[0];
-              } else if (placeDetail['image'] != null) {
-                imageUrl = placeDetail['image'];
-              } else if (placeDetail['photo_url'] != null) {
-                imageUrl = placeDetail['photo_url'];
-              } else {
-                imageUrl = '';
-              }
-              
+            
+            // Get place details if available
+            final placeDetail = placeDetails[targetId] ?? {};
+            final String placeName = placeDetail['name'] ?? 
+                                     placeDetail['intitulé'] ?? 
+                                     placeDetail['titre'] ?? 
+                                     'Lieu non spécifié';
+            
+            // Use specific fields based on the place type
+            final String? imageUrl;
+            if (placeDetail['photos']?.isNotEmpty == true) {
+              imageUrl = placeDetail['photos']?[0];
+            } else if (placeDetail['image'] != null) {
+              imageUrl = placeDetail['image'];
+            } else if (placeDetail['photo_url'] != null) {
+              imageUrl = placeDetail['photo_url'];
+            } else {
+              imageUrl = '';
+            }
+            
               // Extract rating information
               final aspects = choiceData['aspects'] ?? {};
               final int qualityRating = aspects['qualité générale'] ?? 0;
@@ -2333,7 +2352,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   children: [
                     // Header with image
                     Stack(
-                      children: [
+                        children: [
                         ClipRRect(
                           borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
                           child: SizedBox(
@@ -2355,17 +2374,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               : Container(
                                   color: Colors.grey[200],
                                   child: const Icon(Icons.image_not_supported, size: 40, color: Colors.grey),
-                                ),
+                          ),
                           ),
                         ),
                         // Type badge
-                        Positioned(
+                          Positioned(
                           top: 12,
                           left: 12,
-                          child: Container(
+                            child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
+                              decoration: BoxDecoration(
+                                      color: Colors.white,
                               borderRadius: BorderRadius.circular(16),
                               boxShadow: [
                                 BoxShadow(
@@ -2377,45 +2396,45 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             ),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
-                              children: [
+                                    children: [
                                 Icon(
                                   _getTypeIcon(placeDetail),
                                   color: Colors.indigo,
                                   size: 16,
                                 ),
-                                const SizedBox(width: 4),
-                                Text(
+                                      const SizedBox(width: 4),
+                                      Text(
                                   _getPlaceTypeName(placeDetail),
-                                  style: const TextStyle(
+                                        style: const TextStyle(
                                     color: Colors.indigo,
-                                    fontSize: 12,
+                                          fontSize: 12,
                                     fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                ),
-                              ],
+                              ),
                             ),
-                          ),
-                        ),
                         // Choice badge
-                        Positioned(
+                          Positioned(
                           top: 12,
                           right: 12,
-                          child: Container(
+                            child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: Colors.indigo,
-                              borderRadius: BorderRadius.circular(16),
+                              decoration: BoxDecoration(
+                                color: Colors.indigo,
+                                borderRadius: BorderRadius.circular(16),
                               boxShadow: [
                                 BoxShadow(
                                   color: Colors.black.withOpacity(0.1),
                                   blurRadius: 4,
                                   offset: const Offset(0, 2),
-                                ),
+                              ),
                               ],
                             ),
                             child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
                                 const Icon(
                                   Icons.check_circle,
                                   color: Colors.white,
@@ -2423,16 +2442,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 ),
                                 const SizedBox(width: 4),
                                 const Text(
-                                  'CHOICE',
-                                  style: TextStyle(
-                                    color: Colors.white,
+                                    'CHOICE',
+                                    style: TextStyle(
+                                      color: Colors.white,
                                     fontSize: 12,
-                                    fontWeight: FontWeight.bold,
+                                      fontWeight: FontWeight.bold,
+                                    ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
-                          ),
                         ),
                         // Rating
                         if (averageRating > 0)
@@ -2449,9 +2468,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                     color: Colors.black.withOpacity(0.1),
                                     blurRadius: 4,
                                     offset: const Offset(0, 2),
-                                  ),
-                                ],
-                              ),
+                          ),
+                        ],
+                      ),
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
@@ -2495,9 +2514,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               const Icon(Icons.location_on, size: 14, color: Colors.grey),
                               const SizedBox(width: 4),
                               Expanded(
-                                child: Text(
-                                  placeDetail['address'] ?? 
-                                  placeDetail['lieu'] ?? 
+                      child: Text(
+                        placeDetail['address'] ?? 
+                        placeDetail['lieu'] ?? 
                                   placeDetail['adresse'] ?? 
                                   'Adresse non disponible',
                                   style: TextStyle(
@@ -2505,11 +2524,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                     color: Colors.grey[600],
                                   ),
                                   maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ],
-                          ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
                           
                           const SizedBox(height: 16),
                           
@@ -2600,9 +2619,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                     ),
                   ],
-                ),
-              );
-            },
+              ),
+            );
+          },
           ),
         );
       },
@@ -2674,7 +2693,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     try {
       // Utiliser l'API unifiée pour récupérer plusieurs lieux en une seule requête
-      final url = Uri.parse('${getBaseUrl()}/api/unified/batch');
+      final url = Uri.parse('${constants.getBaseUrl()}/api/unified/batch');
       
       final response = await http.post(
         url,
@@ -2706,7 +2725,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         if (fetched) continue;
         
         try {
-          final url = Uri.parse('${getBaseUrl()}/api/$endpoint/$placeId');
+          final url = Uri.parse('${constants.getBaseUrl()}/api/$endpoint/$placeId');
           final response = await http.get(url);
           
           if (response.statusCode == 200) {
@@ -2723,27 +2742,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return results;
   }
 
-  Widget _buildTagsSection(List<dynamic> userTags) {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: List.generate(userTags.length, (index) {
-        final tag = userTags[index];
-        final Color tagColor = Colors.blue; // Utiliser une couleur simple au lieu de shade800
-        
-        return Chip(
-          backgroundColor: tagColor.withOpacity(0.1),
-          labelStyle: TextStyle(color: tagColor, fontSize: 13), // Utiliser tagColor directement sans shade800
-          label: Text(tag['name'] ?? 'Tag'),
-          avatar: tag['type'] == 'interest' 
-            ? Icon(Icons.tag, size: 18, color: tagColor) 
-            : null,
-        );
-      }),
-    );
-  }
-  
-  // Méthode pour construire un bouton d'action standardisé
+  // Méthode pour créer un bouton d'action standard
   Widget _buildActionButton({
     required IconData icon,
     required String label,
@@ -2753,17 +2752,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return InkWell(
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8.0),
+        padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: color, size: 20),
-            SizedBox(height: 4),
+            Icon(icon, color: color, size: 22),
+            const SizedBox(height: 2),
             Text(
               label,
               style: TextStyle(
                 fontSize: 12,
-                color: Colors.grey[600],
+                color: color,
               ),
             ),
           ],
@@ -2772,79 +2771,82 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  // Méthode pour afficher la boîte de dialogue de choix
+  // Méthode pour afficher la boîte de dialogue de choice
   void _showChoiceDialog(BuildContext context, Map<String, dynamic> post) {
     showDialog(
       context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Faire un choix'),
-          content: const Text('Êtes-vous intéressé par ce lieu ?'),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-              },
-              child: const Text('Annuler'),
-            ),
-            TextButton(
-              onPressed: () {
-                // Enregistrer le choix
-                _makeChoice(post['_id']);
-                Navigator.pop(context);
-              },
-              child: const Text('Oui, je suis intéressé'),
-            ),
-          ],
-        );
-      },
+      builder: (context) => AlertDialog(
+        title: const Text('Marquer comme Choice'),
+        content: const Text('Voulez-vous marquer ce lieu comme un "Choice" ? Cela indique que vous avez visité ce lieu et le recommandez.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Annuler'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              // Ici, ajoutez la logique pour marquer le post comme Choice
+              // Exemple: _markAsChoice(post['_id']);
+            },
+            child: const Text('Confirmer', style: TextStyle(color: Colors.indigo)),
+          ),
+        ],
+      ),
     );
   }
 
-  // Méthode pour enregistrer un choix
-  Future<void> _makeChoice(String postId) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token') ?? '';
-      
-      if (token.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Vous devez être connecté pour faire un choix')),
-        );
-        return;
-      }
-      
-      final url = Uri.parse('${getBaseUrl()}/api/posts/$postId/choice');
-      
-      final response = await http.post(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
-
-      if (response.statusCode == 200) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Choix enregistré avec succès')),
-        );
-        
-        // Refresh user data
-        setState(() {
-          _userFuture = _fetchUserProfile(widget.userId);
-          _userFuture.then((user) {
-            _postsFuture = _fetchUserPosts(user['posts'] ?? []);
-          });
-        });
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: ${response.statusCode}')),
-        );
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur réseau: $e')),
-      );
+  /// Logs the profile view activity.
+  Future<void> _logProfileViewActivity(String profileId, String profileType) async {
+    final String? currentUserId = _currentUserId; // Get the logged-in user ID
+    if (currentUserId == null || currentUserId.isEmpty) {
+      print('📊 Cannot log profile view: Current user ID not available.');
+      return; // Don't log if no user is logged in
     }
+
+    // Avoid logging viewing your own profile
+    if (currentUserId == profileId) {
+       print('📊 Not logging view of own profile.');
+       return;
+    }
+
+    // Get current location (handle null)
+    final LatLng? currentLocation = await LocationUtils.getCurrentLocation();
+    final LatLng locationToSend = currentLocation ?? LocationUtils.defaultLocation();
+
+    print('📊 Logging profile view: User: $currentUserId, Viewed Profile ID: $profileId, Type: $profileType, Location: $locationToSend');
+
+    AppDataSenderService.sendActivityLog(
+      userId: currentUserId,
+      action: 'view_profile', // Specific action type
+      location: locationToSend,
+      producerId: profileId, // Use producerId field for the viewed profile ID
+      producerType: profileType, // 'user', 'restaurant', 'leisure', etc.
+    );
+  }
+
+  /// Generic helper to log user actions on this profile screen.
+  Future<void> _logGenericUserAction(String action, {String? targetUserId}) async {
+    final String? currentUserId = _currentUserId;
+    if (currentUserId == null || currentUserId.isEmpty) {
+      print('📊 Cannot log action \'$action\': Current user ID not available.');
+      return;
+    }
+
+    // Get current location
+    final LatLng? currentLocation = await LocationUtils.getCurrentLocation();
+    final LatLng locationToSend = currentLocation ?? LocationUtils.defaultLocation();
+
+    print('📊 Logging Action: User: $currentUserId, Action: $action, Target: $targetUserId, Location: $locationToSend');
+
+    AppDataSenderService.sendActivityLog(
+      userId: currentUserId,
+      action: action,
+      location: locationToSend,
+      // Send the target user ID as producerId for context
+      producerId: targetUserId ?? widget.userId, 
+      producerType: 'user', 
+      // Add more metadata if needed
+    );
   }
 }

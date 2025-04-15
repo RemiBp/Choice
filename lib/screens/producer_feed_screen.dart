@@ -17,6 +17,7 @@ import 'reels_view_screen.dart';
 import 'post_detail_screen.dart';
 import 'producer_screen.dart';
 import 'producerLeisure_screen.dart';
+import 'comments_screen.dart'; // Assume CommentsScreen exists
 
 class ProducerFeedScreen extends StatefulWidget {
   final String userId;
@@ -48,7 +49,7 @@ class _ProducerFeedScreenState extends State<ProducerFeedScreen> with SingleTick
     _controller = ProducerFeedScreenController(userId: widget.userId);
     
     // Set up tab controller for feed filters
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this); // Increased length to 4
     _tabController.addListener(_handleTabChange);
     
     // Load initial feed content
@@ -87,6 +88,9 @@ class _ProducerFeedScreenState extends State<ProducerFeedScreen> with SingleTick
         break;
       case 2:
         newFilter = ProducerFeedContentType.localTrends;
+        break;
+      case 3: // New case for Followers
+        newFilter = ProducerFeedContentType.followers;
         break;
       default:
         newFilter = ProducerFeedContentType.venue;
@@ -219,6 +223,7 @@ class _ProducerFeedScreenState extends State<ProducerFeedScreen> with SingleTick
                     Tab(text: 'Mon lieu'),
                     Tab(text: 'Interactions'),
                     Tab(text: 'Tendances'),
+                    Tab(text: 'Followers'), // Added Followers tab
                   ],
                 ),
               ),
@@ -400,6 +405,10 @@ class _ProducerFeedScreenState extends State<ProducerFeedScreen> with SingleTick
       case 2: // Local trends
         emptyMessage = 'Aucune tendance locale à afficher pour le moment.';
         emptyIcon = Icons.trending_up;
+        break;
+      case 3: // Followers
+        emptyMessage = 'Aucun post récent de vos followers.';
+        emptyIcon = Icons.group;
         break;
       default:
         emptyMessage = 'Aucun contenu à afficher.';
@@ -591,9 +600,7 @@ class _ProducerFeedScreenState extends State<ProducerFeedScreen> with SingleTick
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
                             border: Border.all(
-                              color: post.isLeisureProducer 
-                                  ? Colors.purple.shade300 
-                                  : (post.isProducerPost ? Colors.amber.shade300 : Colors.blue.shade300),
+                              color: _getPostTypeColor(post), // Use helper function
                               width: 2,
                             ),
                           ),
@@ -625,9 +632,7 @@ class _ProducerFeedScreenState extends State<ProducerFeedScreen> with SingleTick
                             ],
                           ),
                           child: Text(
-                            post.isLeisureProducer 
-                                ? '🎭' 
-                                : (post.isProducerPost ? '🍽️' : '👤'),
+                            _getVisualBadge(post), // Use helper function
                             style: const TextStyle(fontSize: 10),
                           ),
                         ),
@@ -697,20 +702,14 @@ class _ProducerFeedScreenState extends State<ProducerFeedScreen> with SingleTick
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                               decoration: BoxDecoration(
-                                color: post.isLeisureProducer 
-                                    ? Colors.purple.shade50
-                                    : (post.isProducerPost ? Colors.amber.shade50 : Colors.blue.shade50),
+                                color: _getPostTypeColor(post).withOpacity(0.9), // Use helper color
                                 borderRadius: BorderRadius.circular(10),
                               ),
                               child: Text(
-                                post.isLeisureProducer 
-                                    ? 'Loisir' 
-                                    : (post.isProducerPost ? 'Restaurant' : 'Utilisateur'),
+                                _getPostTypeLabel(post), // Use helper function
                                 style: TextStyle(
                                   fontSize: 10,
-                                  color: post.isLeisureProducer 
-                                      ? Colors.purple.shade700
-                                      : (post.isProducerPost ? Colors.amber.shade700 : Colors.blue.shade700),
+                                  color: _getPostTypeColor(post).withOpacity(0.9), // Use helper color
                                   fontWeight: FontWeight.w500,
                                 ),
                               ),
@@ -1078,9 +1077,7 @@ class _ProducerFeedScreenState extends State<ProducerFeedScreen> with SingleTick
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
                             border: Border.all(
-                              color: isLeisureProducer 
-                                  ? Colors.purple.shade300 
-                                  : (isProducerPost ? Colors.amber.shade300 : Colors.blue.shade300),
+                              color: _getPostTypeColor(post), // Use helper function
                               width: 2,
                             ),
                           ),
@@ -1112,10 +1109,7 @@ class _ProducerFeedScreenState extends State<ProducerFeedScreen> with SingleTick
                             ],
                           ),
                           child: Text(
-                            post['visualBadge'] as String? ?? 
-                              (isLeisureProducer 
-                                ? '🎭' 
-                                : (isProducerPost ? '🍽️' : '👤')),
+                            post['visualBadge'] as String? ?? _getVisualBadge(post), // Use helper as fallback
                             style: const TextStyle(fontSize: 10),
                           ),
                         ),
@@ -1185,20 +1179,14 @@ class _ProducerFeedScreenState extends State<ProducerFeedScreen> with SingleTick
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                               decoration: BoxDecoration(
-                                color: isLeisureProducer 
-                                    ? Colors.purple.shade50
-                                    : (isProducerPost ? Colors.amber.shade50 : Colors.blue.shade50),
+                                color: _getPostTypeColor(post).withOpacity(0.9), // Use helper color
                                 borderRadius: BorderRadius.circular(10),
                               ),
                               child: Text(
-                                isLeisureProducer 
-                                    ? 'Loisir' 
-                                    : (isProducerPost ? 'Restaurant' : 'Utilisateur'),
+                                _getPostTypeLabel(post), // Use helper function
                                 style: TextStyle(
                                   fontSize: 10,
-                                  color: isLeisureProducer 
-                                      ? Colors.purple.shade700
-                                      : (isProducerPost ? Colors.amber.shade700 : Colors.blue.shade700),
+                                  color: _getPostTypeColor(post).withOpacity(0.9), // Use helper color
                                   fontWeight: FontWeight.w500,
                                 ),
                               ),
@@ -1356,7 +1344,7 @@ class _ProducerFeedScreenState extends State<ProducerFeedScreen> with SingleTick
                     label: 'Comment',
                     count: commentsCount,
                     onPressed: () {
-                      _openDynamicPostDetail(post);
+                      _openComments(post); // Use new method
                     },
                   ),
                   
@@ -1447,7 +1435,7 @@ class _ProducerFeedScreenState extends State<ProducerFeedScreen> with SingleTick
                     if ((post['comments'] as List).length > 2)
                       TextButton(
                         onPressed: () {
-                          _openDynamicPostDetail(post);
+                          _openComments(post); // Use new method
                         },
                         child: Text(
                           'Voir les ${(post['comments'] as List).length - 2} autres commentaires',
@@ -1665,10 +1653,11 @@ class _ProducerFeedScreenState extends State<ProducerFeedScreen> with SingleTick
   
   // Open dynamic post detail
   void _openDynamicPostDetail(Map<String, dynamic> post) {
-    // TODO: Implement post detail screen for dynamic posts
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Détails du post bientôt disponibles')),
-    );
+    _openComments(post);
+    // Original SnackBar logic removed
+    // ScaffoldMessenger.of(context).showSnackBar(
+    //   const SnackBar(content: Text('Détails du post bientôt disponibles')),
+    // );
   }
   
   // Show post options
@@ -2421,6 +2410,123 @@ class _ProducerFeedScreenState extends State<ProducerFeedScreen> with SingleTick
       ),
     );
   }
+
+  // Open comments screen for a post (can be Post or Map)
+  void _openComments(dynamic postData) {
+    String postIdToOpen;
+    Post? postObject; // To pass the actual Post object if available
+
+    if (postData is Post) {
+      postIdToOpen = postData.id;
+      postObject = postData;
+    } else if (postData is Map<String, dynamic>) {
+      postIdToOpen = postData['_id']?.toString() ?? '';
+      // Optionally, try to convert Map to Post if CommentsScreen needs it
+      // postObject = _convertToPost(postData); // You'd need a conversion function
+    } else {
+      print('❌ Cannot open comments for unknown post type');
+      return;
+    }
+
+    if (postIdToOpen.isEmpty) {
+        print('❌ Cannot open comments: Post ID is empty');
+        return;
+    }
+
+    // Navigate to CommentsScreen instead of PostDetailScreen
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => CommentsScreen(
+          // Assuming CommentsScreen takes postId and userId,
+          // and potentially the Post object itself
+          postId: postIdToOpen,
+          userId: widget.userId,
+          post: postObject, // Pass the Post object if available and needed
+        ),
+      ),
+    );
+  }
+  
+  // Helper to get comments count robustly
+  int _getCommentsCount(dynamic post) {
+    if (post is Post) {
+      return post.comments.length; // Assuming Post model has a comments list
+    } else if (post is Map<String, dynamic>) {
+      final comments = post['comments'];
+      final count = post['comments_count'] ?? post['commentsCount'];
+      if (comments is List) return comments.length;
+      if (count is int) return count;
+    }
+    return 0;
+  }
+  
+  // Helper to check if post has comments robustly
+  bool _hasComments(dynamic post) {
+    return _getCommentsCount(post) > 0;
+  }
+  
+  // Helper to build comments preview robustly
+  List<Widget> _getCommentsWidgets(dynamic post, int limit) {
+    List<dynamic>? commentsData;
+    if (post is Post) {
+      commentsData = post.comments;
+    } else if (post is Map<String, dynamic> && post['comments'] is List) {
+      commentsData = post['comments'] as List;
+    }
+
+    if (commentsData == null || commentsData.isEmpty) {
+      return [const SizedBox.shrink()];
+    }
+
+    final commentsToShow = commentsData.take(limit);
+
+    return commentsToShow.map((comment) {
+      if (comment is Map<String, dynamic>) {
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              CircleAvatar(
+                radius: 14,
+                backgroundImage: CachedNetworkImageProvider(
+                  comment['author_avatar']?.toString() ?? 
+                  comment['authorAvatar']?.toString() ?? 
+                  'https://api.dicebear.com/6.x/adventurer/png?seed=${comment['author_id'] ?? comment['authorId'] ?? 'default'}'
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      comment['author_name']?.toString() ?? 
+                      comment['authorName']?.toString() ?? 'Utilisateur',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                    ),
+                    Text(
+                      comment['content']?.toString() ?? 
+                      comment['text']?.toString() ?? '',
+                      style: const TextStyle(fontSize: 13),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      } else {
+        return const SizedBox.shrink();
+      }
+    }).toList();
+  }
 }
 
 // Special controller for the producer feed that only shows posts related to the producer
@@ -2504,12 +2610,25 @@ class ProducerFeedScreenController extends ChangeNotifier {
   Future<Map<String, dynamic>> _fetchProducerFeed(int page, ProducerFeedContentType filter) async {
     // API endpoint to get producer-specific feed
     try {
+      // Determine producer type string based on _isLeisureProducer
+      // TODO: Need a more robust way if Wellness producers use this screen/controller too.
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final accountType = authService.accountType; // Get account type from AuthService
+      String producerTypeString = 'restaurant'; // Default
+      if (accountType == 'LeisureProducer') {
+        producerTypeString = 'leisure';
+      } else if (accountType == 'WellnessProducer') {
+        producerTypeString = 'wellness';
+      }
+
       // Utiliser la nouvelle méthode getProducerFeed pour toutes les requêtes
       return await _apiService.getProducerFeed(
         userId,
-        contentType: filter,
+        contentType: filter, // Pass the enum value directly
         page: page,
         limit: 10,
+        // Only add producerType query parameter if the filter is followers
+        producerType: filter == ProducerFeedContentType.followers ? producerTypeString : null,
       );
     } catch (e) {
       print('❌ Error in _fetchProducerFeed: $e');
@@ -2621,4 +2740,105 @@ enum ProducerFeedContentType {
   venue,
   interactions,
   localTrends,
+  followers, // Added followers type
+}
+
+// Helper function to determine border color based on post type
+Color _getPostTypeColor(dynamic post) {
+  bool isLeisure = false;
+  bool isRestaurant = false;
+  bool isWellness = false;
+  bool isUser = true;
+
+  if (post is Post) {
+    isLeisure = post.isLeisureProducer ?? false;
+    isWellness = post.isBeautyProducer ?? false; // Check wellness/beauty flag
+    isRestaurant = (post.isProducerPost ?? false) && !isLeisure && !isWellness;
+    isUser = !(post.isProducerPost ?? false);
+  } else if (post is Map<String, dynamic>) {
+    isLeisure = post['isLeisureProducer'] == true;
+    isWellness = post['isWellnessProducer'] == true || post['is_wellness_producer'] == true || post['isBeautyProducer'] == true;
+    isRestaurant = (post['isProducerPost'] == true || post['producer_id'] != null) && !isLeisure && !isWellness;
+    isUser = !(isLeisure || isRestaurant || isWellness);
+  }
+
+  if (isLeisure) return Colors.purple.shade300;
+  if (isRestaurant) return Colors.amber.shade300;
+  if (isWellness) return Colors.green.shade300; // Uncommented wellness color
+  return Colors.blue.shade300; // Default for users
+}
+
+// Helper function to determine icon based on post type
+IconData _getPostTypeIcon(dynamic post) {
+  bool isLeisure = false;
+  bool isRestaurant = false;
+  bool isWellness = false;
+  bool isUser = true;
+
+  if (post is Post) {
+    isLeisure = post.isLeisureProducer ?? false;
+    isWellness = post.isBeautyProducer ?? false;
+    isRestaurant = (post.isProducerPost ?? false) && !isLeisure && !isWellness;
+    isUser = !(post.isProducerPost ?? false);
+  } else if (post is Map<String, dynamic>) {
+    isLeisure = post['isLeisureProducer'] == true;
+    isWellness = post['isWellnessProducer'] == true || post['is_wellness_producer'] == true || post['isBeautyProducer'] == true;
+    isRestaurant = (post['isProducerPost'] == true || post['producer_id'] != null) && !isLeisure && !isWellness;
+    isUser = !(isLeisure || isRestaurant || isWellness);
+  }
+
+  if (isLeisure) return Icons.local_activity;
+  if (isRestaurant) return Icons.restaurant;
+  if (isWellness) return Icons.spa; // Uncommented wellness icon
+  return Icons.person; // Default for users
+}
+
+// Helper function to determine type label based on post type
+String _getPostTypeLabel(dynamic post) {
+  bool isLeisure = false;
+  bool isRestaurant = false;
+  bool isWellness = false;
+  bool isUser = true;
+
+  if (post is Post) {
+    isLeisure = post.isLeisureProducer ?? false;
+    isWellness = post.isBeautyProducer ?? false;
+    isRestaurant = (post.isProducerPost ?? false) && !isLeisure && !isWellness;
+    isUser = !(post.isProducerPost ?? false);
+  } else if (post is Map<String, dynamic>) {
+    isLeisure = post['isLeisureProducer'] == true;
+    isWellness = post['isWellnessProducer'] == true || post['is_wellness_producer'] == true || post['isBeautyProducer'] == true;
+    isRestaurant = (post['isProducerPost'] == true || post['producer_id'] != null) && !isLeisure && !isWellness;
+    isUser = !(isLeisure || isRestaurant || isWellness);
+  }
+
+  if (isLeisure) return 'Loisir';
+  if (isRestaurant) return 'Restaurant';
+  if (isWellness) return 'Bien-être'; // Uncommented wellness label
+  return 'Utilisateur'; // Default for users
+}
+
+// Helper function to determine visual badge based on post type
+String _getVisualBadge(dynamic post) {
+  bool isLeisure = false;
+  bool isRestaurant = false;
+  bool isWellness = false;
+  bool isUser = true;
+
+  if (post is Post) {
+    isLeisure = post.isLeisureProducer ?? false;
+    isWellness = post.isBeautyProducer ?? false;
+    isRestaurant = (post.isProducerPost ?? false) && !isLeisure && !isWellness;
+    isUser = !(post.isProducerPost ?? false);
+  } else if (post is Map<String, dynamic>) {
+    isLeisure = post['isLeisureProducer'] == true;
+    isWellness = post['isWellnessProducer'] == true || post['is_wellness_producer'] == true || post['isBeautyProducer'] == true;
+    isRestaurant = (post['isProducerPost'] == true || post['producer_id'] != null) && !isLeisure && !isWellness;
+    isUser = !(isLeisure || isRestaurant || isWellness);
+  }
+
+  if (isLeisure) return '🎭';
+  if (isRestaurant) return '🍽️';
+  if (isWellness) return '🧘'; // Uncommented wellness badge
+  return '👤'; // Default for users
 }

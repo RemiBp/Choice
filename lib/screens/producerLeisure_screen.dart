@@ -1794,6 +1794,9 @@ class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> with Sing
     required Map<String, dynamic> event,
     required Function(dynamic) onEventTap,
   }) {
+    // Safely get the image URL using the helper
+    final imageUrl = getEventImageUrl(event); // Use helper from leisureHelpers.dart
+
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -1806,23 +1809,29 @@ class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> with Sing
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Image de l'événement
+              // Image de l'événement using CachedNetworkImage
               ClipRRect(
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
-                child: Image.network(
-                  event['image'] ?? 'https://via.placeholder.com/300x150?text=Événement',
-                  height: 120,
-                  width: double.infinity,
+                borderRadius: BorderRadius.circular(8), // Apply radius to the image
+                child: CachedNetworkImage(
+                  imageUrl: imageUrl ?? 'https://via.placeholder.com/100x100?text=Event',
+                  height: 80,
+                  width: 80,
                   fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) => 
-                    Container(
-                      height: 120,
-                      width: double.infinity,
-                      color: Colors.grey[300],
-                      child: Icon(Icons.event, size: 40, color: Colors.grey[400]),
-                    ),
+                  placeholder: (context, url) => Container(
+                    height: 80,
+                    width: 80,
+                    color: Colors.grey[300],
+                    child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                  ),
+                  errorWidget: (context, url, error) => Container(
+                    height: 80,
+                    width: 80,
+                    color: Colors.grey[300],
+                    child: Icon(Icons.event_busy, size: 40, color: Colors.grey[400]),
+                  ),
                 ),
               ),
+              const SizedBox(width: 16), // Add spacing between image and text
               
               // Informations sur l'événement
               Expanded(
@@ -2366,49 +2375,31 @@ class EventCard extends StatelessWidget {
             ),
             
             // Informations sur l'événement
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    event['title'] ?? event['intitulé'] ?? 'Événement sans titre',
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 4),
-                  
-                  // Date
-                  Row(
-                    children: [
-                      Icon(Icons.calendar_today, size: 14, color: Colors.grey[600]),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          event['date'] ?? event['prochaines_dates'] ?? 'Date non spécifiée',
-                          style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      event['title'] ?? event['intitulé'] ?? 'Événement sans titre',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
                       ),
-                    ],
-                  ),
-                  
-                  const SizedBox(height: 4),
-                  
-                  // Catégorie
-                  if (event['category'] != null || event['catégorie'] != null)
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    
+                    // Date
                     Row(
                       children: [
-                        Icon(Icons.category, size: 14, color: Colors.grey[600]),
+                        Icon(Icons.calendar_today, size: 14, color: Colors.grey[600]),
                         const SizedBox(width: 4),
                         Expanded(
                           child: Text(
-                            event['category'] ?? event['catégorie'] ?? '',
+                            event['date'] ?? event['prochaines_dates'] ?? 'Date non spécifiée',
                             style: TextStyle(fontSize: 14, color: Colors.grey[600]),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -2416,7 +2407,27 @@ class EventCard extends StatelessWidget {
                         ),
                       ],
                     ),
-                ],
+                    
+                    const SizedBox(height: 4),
+                    
+                    // Catégorie
+                    if (event['category'] != null || event['catégorie'] != null)
+                      Row(
+                        children: [
+                          Icon(Icons.category, size: 14, color: Colors.grey[600]),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              event['category'] ?? event['catégorie'] ?? '',
+                              style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                  ],
+                ),
               ),
             ),
           ],

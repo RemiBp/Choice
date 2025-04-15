@@ -15,6 +15,11 @@ import 'package:http/http.dart' as http;
 import 'package:http/http.dart' show HttpLoggingInterceptor;
 import '../utils/utils.dart';
 import '../models/media.dart' as app_media;
+import '../models/kpi_data.dart';
+import '../models/recommendation_data.dart';
+import '../models/profile_data.dart';
+import '../models/sales_data.dart';
+import '../models/ai_query_response.dart';
 
 // Enum manquant pour les types de contenu du feed du producteur
 enum ProducerFeedContentType {
@@ -37,7 +42,7 @@ class ApiService {
 
   /// Méthode pour obtenir l'URL de base de façon cohérente
   static String getBaseUrl() {
-    return constants.getBaseUrlSync();
+    return constants.getBaseUrl();
   }
 
   /// Initialisation du client HTTP commun avec intercepteurs pour logging
@@ -1336,8 +1341,9 @@ class ApiService {
   // Enregistrer une vue sur un post
   Future<void> recordPostView(String postId) async {
     try {
+      final baseUrl = await constants.getBaseUrl(); // Await here
       final response = await _dio.post(
-        '${constants.getBaseUrl()}/api/posts/$postId/view',
+        '$baseUrl/api/posts/$postId/view',
         options: Options(headers: await _getHeaders()),
       );
       
@@ -2516,8 +2522,8 @@ class ApiService {
 
   // Method to get the API base URL as a direct String (not Future)
   String getApiBaseUrl() {
-    // Return the base URL directly
-    return 'https://api.choiceapp.io';
+    // Return the base URL using constants
+    return constants.getBaseUrl();
   }
 
   // Method to mark a post as interested or not
@@ -2559,5 +2565,217 @@ class ApiService {
   Future<String> getUserId() async {
     final storage = FlutterSecureStorage();
     return await storage.read(key: 'user_id') ?? '';
+  }
+
+  // --- Producer Analytics Endpoints --- 
+
+  Future<List<KpiData>> getKpis(String producerType, String producerId) async {
+    final String token = await getToken() ?? '';
+    final url = Uri.parse('${getBaseUrl()}/api/analytics/kpis/$producerType/$producerId');
+    print('🚀 GET KPIs: $url');
+    try {
+      final response = await http.get(url, headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      });
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+        print('✅ KPIs received: ${data.length}');
+        return data.map((kpiJson) => KpiData.fromJson(kpiJson)).toList();
+      } else {
+        print('❌ Error fetching KPIs: ${response.statusCode} ${response.body}');
+        throw Exception('Failed to load KPIs: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('❌ Exception fetching KPIs: $e');
+      rethrow; // Or return empty list: return [];
+    }
+  }
+
+  Future<List<SalesData>> getTrends(String producerType, String producerId, String period) async {
+    final String token = await getToken() ?? '';
+    final url = Uri.parse('${getBaseUrl()}/api/analytics/trends/$producerType/$producerId?period=$period');
+     print('🚀 GET Trends: $url');
+    try {
+      final response = await http.get(url, headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      });
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+         print('✅ Trends received: ${data.length} points for period $period');
+        return data.map((trendJson) => SalesData.fromJson(trendJson)).toList();
+      } else {
+        print('❌ Error fetching Trends: ${response.statusCode} ${response.body}');
+        throw Exception('Failed to load trends: ${response.statusCode}');
+      }
+    } catch (e) {
+       print('❌ Exception fetching Trends: $e');
+      rethrow; // Or return empty list: return [];
+    }
+  }
+
+  Future<List<ProfileData>> getCompetitors(String producerType, String producerId) async {
+    final String token = await getToken() ?? '';
+    final url = Uri.parse('${getBaseUrl()}/api/analytics/competitors/$producerType/$producerId');
+     print('🚀 GET Competitors: $url');
+    try {
+      final response = await http.get(url, headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      });
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+         print('✅ Competitors received: ${data.length}');
+        // Assuming ProfileData.fromJson exists and handles the competitor structure
+        return data.map((compJson) => ProfileData.fromJson(compJson)).toList();
+      } else {
+         print('❌ Error fetching Competitors: ${response.statusCode} ${response.body}');
+        throw Exception('Failed to load competitors: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('❌ Exception fetching Competitors: $e');
+      rethrow; // Or return empty list: return [];
+    }
+  }
+
+  // --- Producer AI Endpoints --- 
+
+  Future<List<RecommendationData>> getRecommendations(String producerType, String producerId) async {
+    final String token = await getToken() ?? '';
+    final url = Uri.parse('${getBaseUrl()}/api/ai/recommendations/$producerType/$producerId');
+     print('🚀 GET Recommendations: $url');
+    try {
+      final response = await http.get(url, headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      });
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+         print('✅ Recommendations received: ${data.length}');
+        return data.map((recJson) => RecommendationData.fromJson(recJson)).toList();
+      } else {
+         print('❌ Error fetching Recommendations: ${response.statusCode} ${response.body}');
+        throw Exception('Failed to load recommendations: ${response.statusCode}');
+      }
+    } catch (e) {
+       print('❌ Exception fetching Recommendations: $e');
+      rethrow; // Or return empty list: return [];
+    }
+  }
+
+  Future<AiQueryResponse> postProducerQuery(String producerType, String producerId, String message) async {
+    final String token = await getToken() ?? '';
+    final url = Uri.parse('${getBaseUrl()}/api/ai/producer-query');
+    print('🚀 POST Producer Query: $url');
+    try {
+      final response = await http.post(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'producerType': producerType,
+          'producerId': producerId,
+          'message': message,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> data = jsonDecode(response.body);
+        print('✅ AI Query response received.');
+        return AiQueryResponse.fromJson(data);
+      } else {
+        print('❌ Error posting producer query: ${response.statusCode} ${response.body}');
+        throw Exception('Failed to process query: ${response.statusCode}');
+      }
+    } catch (e) {
+       print('❌ Exception posting producer query: $e');
+       // Return a default error response object
+       return AiQueryResponse(response: "Une erreur est survenue lors de la connexion au service AI.", profiles: []); 
+    }
+  }
+  
+  // --- Placeholder for Interaction Logging from Frontend --- 
+  // Call this from UI widgets when a user performs a specific action to log
+  Future<void> logInteraction(String producerId, String producerType, String interactionType, {Map<String, dynamic>? metadata}) async {
+    try {
+      final token = await getToken() ?? '';
+      // Use the stored userId from ApiService instance
+      final currentUserId = userId; // Access the stored _userId
+      
+      if (currentUserId == null || currentUserId.isEmpty) {
+        print('⚠️ Cannot log interaction: User ID not available in ApiService.');
+        return;
+      }
+      if (token.isEmpty) {
+         print('⚠️ Cannot log interaction: Auth token not available.');
+         // Optionally handle this case, e.g., prompt login
+         return;
+      }
+      
+      final url = Uri.parse('${getBaseUrl()}/api/interactions'); 
+      print('🚀 Logging Interaction: $interactionType for $producerType $producerId by $currentUserId');
+      
+      final response = await http.post(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token'
+        },
+        body: jsonEncode({
+          'userId': currentUserId, // Send the logged-in user's ID
+          'producerId': producerId,
+          'producerType': producerType,
+          'type': interactionType,
+          'metadata': metadata ?? {},
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        // print('✅ Interaction logged successfully via API.');
+      } else {
+        print('❌ Failed to log interaction via API: ${response.statusCode} ${response.body}');
+      }
+    } catch (e) {
+      print('❌ Exception logging interaction from frontend: $e');
+    }
+  }
+
+  Future<String> detectProducerType(String producerId) async {
+    final String token = await getToken() ?? '';
+    // Use a default type in case of error or if detection fails
+    const String defaultType = 'restaurant'; 
+    final url = Uri.parse('${getBaseUrl()}/api/ai/detect-producer-type/$producerId');
+    print('🚀 GET Detect Producer Type: $url');
+    try {
+      final response = await http.get(url, headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      });
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> data = jsonDecode(response.body);
+        final detectedType = data['producerType'] as String?;
+        if (detectedType != null && detectedType != 'unknown') {
+          print('✅ Detected Producer Type: $detectedType');
+          return detectedType;
+        } else {
+           print('⚠️ Could not detect producer type via API, using default: $defaultType');
+           return defaultType;
+        }
+      } else {
+        print('❌ Error detecting producer type: ${response.statusCode} ${response.body}');
+        return defaultType; // Return default on error
+      }
+    } catch (e) {
+       print('❌ Exception detecting producer type: $e');
+      return defaultType; // Return default on exception
+    }
   }
 }

@@ -17,7 +17,7 @@ class AIService {
 
   /// Méthode pour obtenir l'URL de base de façon cohérente
   String getBaseUrl() {
-    return constants.getBaseUrlSync();
+    return constants.getBaseUrl();
   }
 
   /// Journalisation des opérations
@@ -26,8 +26,8 @@ class AIService {
   }
 
   /// Formate correctement une URL en gérant les doublons de slash
-  Uri _formatUrl(String endpoint) {
-    String baseUrl = getBaseUrl();
+  Future<Uri> _formatUrl(String endpoint) async {
+    String baseUrl = await getBaseUrl();
     
     // Nettoyer le baseUrl s'il termine par un slash
     if (baseUrl.endsWith('/')) {
@@ -53,7 +53,7 @@ class AIService {
       _log('Requête simple: "$query"');
       
       final response = await http.post(
-        _formatUrl('api/ai/query'),
+        await _formatUrl('api/ai/query'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'query': query,
@@ -96,7 +96,7 @@ class AIService {
       _log('Recherche du plat: "$dishName"');
       
       final response = await http.post(
-        _formatUrl('api/ai/query'),
+        await _formatUrl('api/ai/query'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'query': 'Donne-moi les restaurants qui proposent du $dishName',
@@ -140,7 +140,7 @@ class AIService {
       _log('Requête utilisateur: "$query" (userId: $userId)');
       
       final response = await http.post(
-        _formatUrl('api/ai/user/query'),
+        await _formatUrl('api/ai/user/query'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'userId': userId,
@@ -245,7 +245,7 @@ class AIService {
       _log('Analyse producteur: type="${analysisType ?? 'general'}" (producerId: $producerId)');
       
       final response = await http.post(
-        _formatUrl('api/ai/producer/analysis'),
+        await _formatUrl('api/ai/producer/analysis'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'producerId': producerId,
@@ -287,7 +287,7 @@ class AIService {
       _log('Récupération des insights pour l\'utilisateur: $userId');
       
       final response = await http.get(
-        _formatUrl('api/ai/insights/user/$userId'),
+        await _formatUrl('api/ai/insights/user/$userId'),
         headers: {'Content-Type': 'application/json'},
       );
 
@@ -374,7 +374,7 @@ class AIService {
       _log('Vérification de l\'état de santé du service IA');
       
       final response = await http.get(
-        _formatUrl('api/ai/health'),
+        await _formatUrl('api/ai/health'),
         headers: {'Content-Type': 'application/json'},
       );
 
@@ -407,7 +407,7 @@ class AIService {
       _log('Génération de cartographie sensorielle: "$vibe" ${location != null ? 'à $location' : ''} (userId: $userId)');
       
       final response = await http.post(
-        _formatUrl('api/ai/generate-vibe-map'),
+        await _formatUrl('api/ai/generate-vibe-map'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'userId': userId,
@@ -441,7 +441,7 @@ class AIService {
       _log('Test de connexion au service IA et MongoDB');
       
       final response = await http.get(
-        _formatUrl('api/ai/health'),
+        await _formatUrl('api/ai/health'),
         headers: {'Content-Type': 'application/json'},
       );
 

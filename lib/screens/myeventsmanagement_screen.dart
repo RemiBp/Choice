@@ -15,7 +15,7 @@ import 'dart:io';
 
 // Définir ApiService pour avoir baseUrl
 class ApiService {
-  static final String baseUrl = getBaseUrl();
+  static final String baseUrl = constants.getBaseUrl();
 }
 
 // Extension pour ajouter des minutes à TimeOfDay
@@ -3750,8 +3750,6 @@ class _MyEventsManagementScreenState extends State<MyEventsManagementScreen>
 
   /// Fonction d'aide pour obtenir l'URL de base
   String getBaseUrl() {
-    // Fonction utilitaire pour déterminer l'URL de base selon l'environnement
-    const baseUrl = 'https://api.choiceapp.fr'; // URL de production
-    return baseUrl;
+    return constants.getBaseUrl();
   }
 } 

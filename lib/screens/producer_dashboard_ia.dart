@@ -7,12 +7,16 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'utils.dart';
 import '../services/ai_service.dart'; // Import du nouveau service AI
+import '../services/api_service.dart'; // Add this import
 import 'package:cached_network_image/cached_network_image.dart'; // Pour charger les images avec cache
 import 'producer_screen.dart'; // Pour les détails des restaurants
 import 'producerLeisure_screen.dart'; // Pour les producteurs de loisirs
 import 'package:scroll_to_index/scroll_to_index.dart'; // Pour le contrôleur de défilement
 import 'package:flutter_animate/flutter_animate.dart';
 import '../models/sales_data.dart';
+import '../models/kpi_data.dart';
+import '../models/recommendation_data.dart';
+import '../models/ai_query_response.dart';
 
 class ProducerDashboardIaPage extends StatefulWidget {
   final String producerId;
@@ -42,6 +46,18 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
   String _producerType = 'restaurant'; // Valeur par défaut
   Map<String, dynamic>? _producerData;
   bool _isLoadingProducerData = true;
+  bool _isLoadingProducerType = true; // Renamed loading state
+  bool _isLoadingDashboard = true;
+
+  // State variables for dashboard data (using imported models)
+  KpiData? _visibilityKpi;
+  KpiData? _performanceKpi;
+  List<SalesData> _trendData = [];
+  List<ProfileData> _competitors = [];
+  List<RecommendationData> _recommendations = [];
+  String _chartPeriod = 'Semaine'; // Default chart period
+
+  final ApiService _apiService = ApiService();
 
   @override
   void initState() {
@@ -1008,13 +1024,13 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
   Widget _buildCustomChart() {
     // Données adaptées au type de producteur
     final List<SalesData> currentData = [
-      SalesData('Lun', 35, 28),
-      SalesData('Mar', 28, 25),
-      SalesData('Mer', 34, 30),
-      SalesData('Jeu', 32, 28),
-      SalesData('Ven', 40, 34),
-      SalesData('Sam', 50, 42),
-      SalesData('Dim', 45, 38),
+      SalesData(day: 'Lun', sales: 35, lastWeek: 28),
+      SalesData(day: 'Mar', sales: 28, lastWeek: 25),
+      SalesData(day: 'Mer', sales: 34, lastWeek: 30),
+      SalesData(day: 'Jeu', sales: 32, lastWeek: 28),
+      SalesData(day: 'Ven', sales: 40, lastWeek: 34),
+      SalesData(day: 'Sam', sales: 50, lastWeek: 42),
+      SalesData(day: 'Dim', sales: 45, lastWeek: 38),
     ];
 
     return SfCartesianChart(
@@ -1171,32 +1187,7 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
   Widget _buildCompetitorsList() {
     return Column(
       children: [
-        _buildCompetitorItem(
-          name: "Le Bistrot Parisien",
-          rating: 4.7,
-          distance: "0.8 km",
-          better: true,
-          perfScore: 78,
-          yourScore: 88,
-        ),
-        const SizedBox(height: 16),
-        _buildCompetitorItem(
-          name: "L'Atelier Gourmand",
-          rating: 4.2,
-          distance: "1.2 km",
-          better: false,
-          perfScore: 82,
-          yourScore: 78,
-        ),
-        const SizedBox(height: 16),
-        _buildCompetitorItem(
-          name: "Saveurs du Monde",
-          rating: 4.0,
-          distance: "1.5 km",
-          better: false,
-          perfScore: 80,
-          yourScore: 78,
-        ),
+        Text("Competitors list is now built from API data.") // Placeholder
       ],
     );
   }
@@ -1205,9 +1196,6 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
     required String name,
     required double rating,
     required String distance,
-    required bool better,
-    required int perfScore,
-    required int yourScore,
   }) {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -1222,7 +1210,7 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
             children: [
               // Logo/Image
               ClipRRect(
-            borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(8),
                 child: Image.network(
                   'https://via.placeholder.com/50',
                   width: 50,
@@ -1234,122 +1222,39 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
                     color: Colors.grey[300],
                     child: const Icon(Icons.restaurant, color: Colors.grey),
                   ),
-          ),
-        ),
-        const SizedBox(width: 12),
+                ),
+              ),
+              const SizedBox(width: 12),
               // Infos
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                name,
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
                         fontSize: 16,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Row(
-                children: [
-                  const Icon(Icons.star, color: Colors.amber, size: 14),
-                  Text(
-                    " $rating",
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        const Icon(Icons.star, color: Colors.amber, size: 14),
+                        Text(
+                          " $rating",
                           style: const TextStyle(fontSize: 14),
-                  ),
-                  const SizedBox(width: 8),
-                  const Icon(Icons.place, color: Colors.grey, size: 14),
-                  Text(
-                    " $distance",
+                        ),
+                        const SizedBox(width: 8),
+                        const Icon(Icons.place, color: Colors.grey, size: 14),
+                        Text(
+                          " $distance",
                           style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-              // Performance
-        Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            color: better ? Colors.green.withOpacity(0.1) : Colors.orange.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(30),
-          ),
-          child: Text(
-                  better ? "+10 pts" : "-4 pts",
-            style: TextStyle(
-                    fontSize: 14,
-              color: better ? Colors.green[700] : Colors.orange[700],
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ),
-      ],
-          ),
-          const SizedBox(height: 12),
-          // Barre de progression
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: Stack(
-        children: [
-                // Fond
-                Container(
-                  height: 8,
-                  color: Colors.grey[200],
-                ),
-                // Barre concurrent
-                Container(
-                  height: 8,
-                  width: MediaQuery.of(context).size.width * (perfScore / 100) * 0.7,
-                  color: Colors.grey[400],
-                ),
-                // Votre barre
-                Container(
-                  height: 8,
-                  width: MediaQuery.of(context).size.width * (yourScore / 100) * 0.7,
-                  color: better ? Colors.green : Colors.orange,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 8),
-          // Légende
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 10,
-                    height: 10,
-                    decoration: BoxDecoration(
-                      color: better ? Colors.green : Colors.orange,
-                      borderRadius: BorderRadius.circular(2),
+                        ),
+                      ],
                     ),
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    "Vous ($yourScore)",
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                ],
-              ),
-              Row(
-                children: [
-                  Container(
-                    width: 10,
-                    height: 10,
-                    decoration: BoxDecoration(
-                      color: Colors.grey[400],
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    "Concurrent ($perfScore)",
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ],
           ),
@@ -1404,195 +1309,109 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
             ),
           ),
           const SizedBox(height: 24),
-          
-          _buildRecommendationItem(
-            icon: Icons.photo_camera,
-            title: "Ajouter des photos de qualité",
-            description: "Les établissements avec 5+ photos HD obtiennent +30% d'interactions",
-            impact: "Élevé",
-            effort: "Faible",
-          ),
-          
-          const SizedBox(height: 16),
-          
-          _buildRecommendationItem(
-            icon: Icons.local_offer,
-            title: "Créer une promotion",
-            description: "Les promotions créent un pic d'engagement de +45% en moyenne",
-            impact: "Élevé",
-            effort: "Moyen",
-          ),
-          
-          const SizedBox(height: 16),
-          
-          _buildRecommendationItem(
-            icon: Icons.restaurant_menu,
-            title: "Mettre à jour votre menu",
-            description: "Un menu à jour et complet améliore la visibilité dans les recherches",
-            impact: "Moyen",
-            effort: "Moyen",
-          ),
+          _recommendations.isEmpty
+          ? Center(child: Text("Aucune recommandation pour le moment.", style: TextStyle(color: Colors.grey[600]))) 
+          : Column(
+              // Use map and toList().cast<Widget>() for type safety
+              children: _recommendations
+                .map((rec) => Padding(
+                      padding: const EdgeInsets.only(bottom: 16.0),
+                      child: _buildRecommendationItem(rec), // Pass RecommendationData object
+                    ))
+                .toList().cast<Widget>(), 
+            ),
         ],
       ),
     );
   }
 
-  Widget _buildRecommendationItem({
-    required IconData icon,
-    required String title,
-    required String description,
-    required String impact,
-    required String effort,
-  }) {
+  // Update this function to accept RecommendationData
+  Widget _buildRecommendationItem(RecommendationData recommendation) {
     Color impactColor;
     Color effortColor;
+    IconData recIcon = getIconDataFromName(recommendation.iconName); // Use helper to get IconData
     
     // Couleurs pour l'impact
-    switch (impact) {
+    switch (recommendation.impact) {
       case "Élevé":
         impactColor = Colors.green;
         break;
       case "Moyen":
         impactColor = Colors.orange;
         break;
-      default:
+      default: // Faible or other
         impactColor = Colors.blue;
     }
     
     // Couleurs pour l'effort
-    switch (effort) {
+    switch (recommendation.effort) {
       case "Faible":
         effortColor = Colors.green;
         break;
       case "Moyen":
         effortColor = Colors.orange;
         break;
-      default:
+      default: // Élevé or other
         effortColor = Colors.red;
     }
-    
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.grey[50],
         borderRadius: BorderRadius.circular(12),
+        color: Colors.grey[50],
         border: Border.all(color: Colors.grey[200]!),
       ),
-      child: Column(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.amber.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
+          Icon(recIcon, color: _getColorForType(), size: 28), // Use fetched icon
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  recommendation.title, // Use data from object
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                 ),
-                child: Icon(icon, color: Colors.amber[700], size: 20),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  title,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                  ),
+                const SizedBox(height: 6),
+                Text(
+                  recommendation.description, // Use data from object
+                  style: TextStyle(fontSize: 14, color: Colors.grey[600], height: 1.4),
                 ),
-              ),
-              Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: () {
-                    // Action quand on clique sur "Appliquer"
-                  },
-                  borderRadius: BorderRadius.circular(30),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: Colors.amber.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                    child: const Text(
-                      "Appliquer",
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.amber,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    _buildTag("Impact", recommendation.impact, impactColor),
+                    const SizedBox(width: 8),
+                    _buildTag("Effort", recommendation.effort, effortColor),
+                  ],
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text(
-            description,
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey[700],
-              height: 1.4,
+              ],
             ),
           ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: impactColor.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.trending_up,
-                      size: 12,
-                      color: impactColor,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      "Impact: $impact",
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: impactColor,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: effortColor.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.build,
-                      size: 12,
-                      color: effortColor,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      "Effort: $effort",
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: effortColor,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
+          const SizedBox(width: 8),
+          Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey[400]), // Action indicator
         ],
+      ),
+    );
+  }
+
+  Widget _buildTag(String label, String value, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        "$label: $value",
+        style: TextStyle(
+          fontSize: 12,
+          color: color,
+          fontWeight: FontWeight.w500,
+        ),
       ),
     );
   }
@@ -2207,6 +2026,27 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
       case 'restaurant':
       default:
         return "Espace Restaurant";
+    }
+  }
+
+  // Helper function to map icon name string to IconData
+  IconData getIconDataFromName(String iconName) {
+    switch (iconName.toLowerCase()) {
+      case 'photocamera':
+        return Icons.photo_camera;
+      case 'localoffer':
+        return Icons.local_offer;
+      case 'restaurantmenu':
+        return Icons.restaurant_menu;
+      case 'event':
+        return Icons.event;
+      case 'trendingup':
+        return Icons.trending_up;
+      case 'campaign':
+        return Icons.campaign;
+      // Add more mappings as needed based on backend icon names
+      default:
+        return Icons.lightbulb_outline; // Default icon
     }
   }
 }

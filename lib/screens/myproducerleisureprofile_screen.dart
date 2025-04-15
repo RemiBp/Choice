@@ -401,7 +401,7 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      data['lieu'] ?? data['name'] ?? 'Nom non spécifié',
+                      _getStringSafe(data, ['lieu', 'name']) ?? 'Nom non spécifié',
                       style: const TextStyle(
                         fontSize: 22,
                         fontWeight: FontWeight.bold,
@@ -425,7 +425,7 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(
-                        data['catégorie'] ?? data['category'] ?? 'Catégorie non spécifiée',
+                        _getStringSafe(data, ['catégorie', 'category']) ?? 'Catégorie non spécifiée',
                         style: const TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.w500,
@@ -442,7 +442,7 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
                         const SizedBox(width: 4),
                         Expanded(
                           child: Text(
-                            data['adresse'] ?? data['address'] ?? 'Adresse non spécifiée',
+                            _getStringSafe(data, ['adresse', 'address']) ?? 'Adresse non spécifiée',
                             style: const TextStyle(color: Colors.white70, fontSize: 14),
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
@@ -453,13 +453,13 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
                     const SizedBox(height: 4),
                     
                     // Notation 
-                    if (data['note'] != null || data['rating'] != null)
+                    if (data['note'] != null || data['rating'] != null || data['note_google'] != null)
                       Row(
                         children: [
                           const Icon(Icons.star, size: 16, color: Colors.amber),
                           const SizedBox(width: 4),
                           Text(
-                            '${data['note'] ?? data['rating']} / 5',
+                            '${_formatRating(data)} / 5',
                             style: const TextStyle(
                               color: Colors.white,
                               fontWeight: FontWeight.bold,
@@ -467,7 +467,7 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
                           ),
                           const SizedBox(width: 4),
                           Text(
-                            '(${data['reviews_count'] ?? data['avis']?.length ?? 0} avis)',
+                            '(${_formatReviewCount(data)} avis)',
                             style: const TextStyle(color: Colors.white70, fontSize: 12),
                           ),
                         ],
@@ -476,6 +476,22 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
                 ),
               ),
             ],
+          ),
+          // Edit Profile Button
+          Positioned(
+            top: 10,
+            right: 10,
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.5),
+                shape: BoxShape.circle,
+              ),
+              child: IconButton(
+                icon: const Icon(Icons.edit, color: Colors.white, size: 20),
+                onPressed: () => _showEditLeisureProfileDialog(data),
+                tooltip: 'Modifier le profil',
+              ),
+            ),
           ),
           
           // Statistiques rapides
@@ -1169,7 +1185,7 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
     );
   }
 
-  DateTime _parseEventDate(String dateStr) {
+  DateTime? _parseEventDate(String dateStr) {
     try {
       // Try common date formats
       if (dateStr.contains('/')) {
@@ -1186,11 +1202,11 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
         return DateTime.parse(dateStr);
       }
       
-      // If we can't parse, return a far future date
-      return DateTime(2099);
+      // If we can't parse, return null
+      return null;
     } catch (e) {
-      // If there's an error, return a far future date
-      return DateTime(2099);
+      // If there's an error, return null
+      return null;
     }
   }
 
@@ -1779,8 +1795,88 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
   
   // Construire l'onglet de statistiques
   Widget _buildStatisticsTab(Map<String, dynamic> producer) {
-    return Center(
-      child: Text('Statistiques pour ${producer['lieu'] ?? producer['name'] ?? 'ce lieu'}'),
+    // Extract potential counts safely
+    final int followersCount = (producer['followers']?['count'] is int) 
+                                ? producer['followers']['count'] 
+                                : (producer['followers'] is List ? producer['followers'].length : 0);
+                                
+    final int interestedCount = (producer['interestedUsers']?['count'] is int) 
+                                ? producer['interestedUsers']['count'] 
+                                : (producer['interestedUsers'] is List ? producer['interestedUsers'].length : 0);
+                                
+    final int choicesCount = (producer['choiceUsers']?['count'] is int) 
+                                ? producer['choiceUsers']['count'] 
+                                : (producer['choiceUsers'] is List ? producer['choiceUsers'].length : 0);
+    
+    final int eventCount = (producer['evenements'] is List ? producer['evenements'].length : 0); // Assuming events are fetched separately
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Statistiques Clés',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 20),
+          GridView.count(
+            crossAxisCount: 2,
+            crossAxisSpacing: 16,
+            mainAxisSpacing: 16,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            children: [
+              _buildStatCard('Événements', eventCount.toString(), Icons.event, Colors.blue),
+              _buildStatCard('Followers', followersCount.toString(), Icons.people, Colors.purple),
+              _buildStatCard('Intéressés', interestedCount.toString(), Icons.star, Colors.amber),
+              _buildStatCard('Choix', choicesCount.toString(), Icons.check_circle, Colors.green),
+            ],
+          ),
+          const SizedBox(height: 30),
+          const Text(
+            'Plus de statistiques bientôt disponibles!',
+            style: TextStyle(fontSize: 16, color: Colors.grey),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Helper widget for statistics cards
+  Widget _buildStatCard(String title, String value, IconData icon, Color color) {
+    return Card(
+      elevation: 3,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircleAvatar(
+              radius: 25,
+              backgroundColor: color.withOpacity(0.1),
+              child: Icon(icon, size: 30, color: color),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 24, 
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              title,
+              style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1929,10 +2025,14 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
   // Vérifie si un événement est passé
   bool isEventPassed(Map<String, dynamic> event) {
     try {
-      final dateStr = event['date_debut'] ?? event['prochaines_dates'] ?? '';
-      if (dateStr == null || dateStr.isEmpty) return false;
-      
-      final DateTime eventDate = _parseEventDate(dateStr);
+      final dateStr = event['date_debut']?.toString() ?? event['prochaines_dates']?.toString() ?? '';
+      if (dateStr.isEmpty) return false;
+
+      // Use nullable DateTime
+      final DateTime? eventDate = _parseEventDate(dateStr);
+      // If date couldn't be parsed, assume it's not passed (or handle as needed)
+      if (eventDate == null) return false; 
+
       return eventDate.isBefore(DateTime.now());
     } catch (e) {
       return false;
@@ -1954,8 +2054,11 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
     
     String formattedDate = 'Date non spécifiée';
     try {
-      final DateTime eventDate = _parseEventDate(dateStr);
+      // Use nullable DateTime
+      final DateTime? eventDate = _parseEventDate(dateStr);
+      if (eventDate != null) {
       formattedDate = DateFormat('dd/MM/yyyy').format(eventDate);
+      }
     } catch (e) {
       // Utiliser la chaîne brute si le parsing échoue
       formattedDate = dateStr;
@@ -2355,6 +2458,230 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
         _isLoadingEvents = false;
       });
     }
+  }
+
+  // Show Edit Profile Dialog
+  void _showEditLeisureProfileDialog(Map<String, dynamic> currentData) {
+    final nameController = TextEditingController(text: _getStringSafe(currentData, ['lieu', 'name']));
+    final descriptionController = TextEditingController(text: _getStringSafe(currentData, ['description']));
+    final addressController = TextEditingController(text: _getStringSafe(currentData, ['adresse', 'address']));
+    bool isUpdating = false;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setStateDialog) {
+          return AlertDialog(
+            title: const Text('Modifier le profil'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: nameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Nom du lieu',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.storefront),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: descriptionController,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                      labelText: 'Description',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.description),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: addressController,
+                    decoration: const InputDecoration(
+                      labelText: 'Adresse',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.location_on),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  // Note: Category editing might be complex for a dialog.
+                  // Note: Photo editing is handled by tapping the profile picture.
+                  if (isUpdating)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 16.0),
+                      child: CircularProgressIndicator(),
+                    ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Annuler'),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue,
+                ),
+                onPressed: isUpdating ? null : () async {
+                  setStateDialog(() {
+                    isUpdating = true;
+                  });
+                  final updatedData = {
+                    'name': nameController.text,
+                    'lieu': nameController.text, // Ensure both are updated if needed
+                    'description': descriptionController.text,
+                    'address': addressController.text,
+                    'adresse': addressController.text, // Ensure both are updated
+                  };
+                  bool success = await _updateLeisureProfile(updatedData);
+                  setStateDialog(() {
+                    isUpdating = false;
+                  });
+                  Navigator.pop(context);
+                  if (success) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Profil mis à jour avec succès!'),
+                        backgroundColor: Colors.green,
+                      ),
+                    );
+                    // Refresh data
+                    setState(() {
+                      _producerFuture = _fetchProducerData(widget.userId);
+                    });
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Échec de la mise à jour du profil.'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
+                },
+                child: const Text('Enregistrer'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  // Update Leisure Profile via API
+  Future<bool> _updateLeisureProfile(Map<String, dynamic> updateData) async {
+    try {
+      final baseUrl = await constants.getBaseUrl();
+      Uri url;
+      // Use the leisureProducers endpoint as it's the one confirmed working for GET
+      final endpoint = '/api/leisureProducers/${widget.userId}';
+      if (baseUrl.startsWith('http://')) {
+        final domain = baseUrl.replaceFirst('http://', '');
+        url = Uri.http(domain, endpoint);
+      } else {
+        final domain = baseUrl.replaceFirst('https://', '');
+        url = Uri.https(domain, endpoint);
+      }
+
+      print('⬆️ Sending PUT request to $url with data: ${json.encode(updateData)}');
+
+      final response = await http.put(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          // Add Authorization header if needed
+          // 'Authorization': 'Bearer ${widget.token}',
+        },
+        body: json.encode(updateData),
+      );
+
+      if (response.statusCode == 200) {
+        print('✅ Profil leisure mis à jour avec succès');
+        return true;
+      } else {
+        print('❌ Échec de la mise à jour du profil leisure: ${response.statusCode} - ${response.body}');
+        return false;
+      }
+    } catch (e) {
+      print('❌ Erreur réseau lors de la mise à jour du profil leisure: $e');
+      return false;
+    }
+  }
+
+  // Helper function to safely get a string from dynamic data (handles String and List<String>)
+  String _getStringSafe(dynamic data, List<String> possibleKeys, [String defaultValue = '']) {
+    for (final key in possibleKeys) {
+      if (data is Map && data.containsKey(key)) {
+        final value = data[key];
+        if (value is String) {
+          return value;
+        } else if (value is List && value.isNotEmpty && value[0] is String) {
+          // If it's a list of strings, return the first element
+          return value[0];
+        }
+      }
+    }
+    return defaultValue;
+  }
+
+  // Helper to parse rating from various fields (note, rating, note_google)
+  String _formatRating(Map<String, dynamic> data) {
+    dynamic ratingValue = data['note'] ?? data['rating'];
+    String ratingStr = '';
+
+    if (ratingValue != null) {
+      if (ratingValue is num) {
+        ratingStr = ratingValue.toStringAsFixed(1);
+      } else if (ratingValue is String) {
+        // Try parsing as double, handling potential errors
+        final parsedDouble = double.tryParse(ratingValue.replaceAll(',', '.'));
+        if (parsedDouble != null) {
+          ratingStr = parsedDouble.toStringAsFixed(1);
+        }
+      }
+    }
+
+    // If still no rating, try note_google
+    if (ratingStr.isEmpty && data['note_google'] is String) {
+      final noteGoogle = data['note_google'] as String;
+      // Extract the number before the newline or parenthesis
+      final match = RegExp(r'^([\\d,.]+)').firstMatch(noteGoogle);
+      if (match != null && match.group(1) != null) {
+        final parsedDouble = double.tryParse(match.group(1)!.replaceAll(',', '.'));
+        if (parsedDouble != null) {
+          ratingStr = parsedDouble.toStringAsFixed(1);
+        }
+      }
+    }
+
+    return ratingStr.isNotEmpty ? '$ratingStr / 5' : 'N/A';
+  }
+
+  // Helper to parse review count from various fields (avis, reviews_count, note_google)
+  String _formatReviewCount(Map<String, dynamic> data) {
+    int? count;
+    if (data['avis'] is List) {
+      count = (data['avis'] as List).length;
+    } else if (data['reviews_count'] is int) {
+      count = data['reviews_count'];
+    } else if (data['reviews_count'] is String) {
+      count = int.tryParse(data['reviews_count']);
+    }
+
+    // If still no count, try note_google
+    if (count == null && data['note_google'] is String) {
+      final noteGoogle = data['note_google'] as String;
+      // Extract the number within parentheses
+      final match = RegExp(r'\\(([^\\)]+)\\)').firstMatch(noteGoogle);
+      if (match != null && match.group(1) != null) {
+        // Remove non-digit characters (like dots or spaces used as thousands separators)
+        final cleanedCountStr = match.group(1)!.replaceAll(RegExp(r'\\D'), '');
+        count = int.tryParse(cleanedCountStr);
+      }
+    }
+
+    return '(${count ?? 0} avis)';
   }
 }
 

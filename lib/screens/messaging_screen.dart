@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -14,6 +15,11 @@ import '../services/conversation_service.dart';
 import '../services/notification_service.dart';
 import 'group_creation_screen.dart';
 import '../models/contact.dart';
+import 'package:choice_app/screens/profile_screen.dart';
+import 'package:choice_app/screens/producer_screen.dart';
+import 'package:choice_app/screens/producerLeisure_screen.dart';
+import 'package:choice_app/screens/wellness_producer_profile_screen.dart';
+import '../utils/api_config.dart';
 
 class MessagingScreen extends StatefulWidget {
   final String userId;
@@ -105,14 +111,38 @@ class _MessagingScreenState extends State<MessagingScreen>
     try {
       final conversations = await _conversationService.getConversations(widget.userId);
       
+      // --- DEBUGGING START ---
+      print("DEBUG: Type of conversations received: ${conversations.runtimeType}");
+      print("DEBUG: Value of conversations received: $conversations"); 
+      // --- DEBUGGING END ---
+      
       // Même si les conversations sont vides, ne pas afficher d'erreur
       // Simuler des statuts d'écriture pour certaines conversations si la liste n'est pas vide
-      if (conversations.isNotEmpty) {
+      if (conversations is List && conversations.isNotEmpty) {
         _simulateTypingStatuses(conversations);
       }
       
       setState(() {
-        _conversations = conversations;
+        // Ensure conversations is actually a List before assigning
+        if (conversations is List<Map<String, dynamic>>) {
+          _conversations = conversations;
+        } else if (conversations is List) {
+           // Attempt to cast if it's a List<dynamic>
+           try {
+             _conversations = List<Map<String, dynamic>>.from(conversations.map((item) => Map<String, dynamic>.from(item as Map)));
+           } catch (e) {
+             print("DEBUG: Failed to cast conversations to List<Map<String, dynamic>>: $e");
+             _hasError = true;
+             _errorMessage = 'Erreur: Format de données invalide reçu du serveur.';
+             _conversations = []; // Reset to empty list on error
+           }
+        } else {
+          // Handle cases where it's not a list (e.g., an error map)
+          print("DEBUG: Received data is not a List. Type: ${conversations.runtimeType}");
+          _hasError = true;
+          _errorMessage = 'Erreur: Réponse inattendue du serveur.';
+          _conversations = []; // Reset to empty list on error
+        }
         _filterConversationsByTab(); // Appliquer le filtre actuel
       });
       
@@ -894,36 +924,91 @@ class _MessagingScreenState extends State<MessagingScreen>
     );
   }
   
+  // Helper function to safely get a value as a specific type
+  T _safeGet<T>(Map<String, dynamic> map, String key, T defaultValue) {
+    try {
+      final value = map[key];
+      if (value is T) {
+        return value;
+      }
+      // Attempt type conversion for common cases
+      if (T == int && value is num) {
+        return value.toInt() as T;
+      }
+      if (T == double && value is num) {
+        return value.toDouble() as T;
+      }
+      if (T == String && value != null) {
+        return value.toString() as T;
+      }
+      if (T == bool && value is int) {
+        return (value == 1) as T;
+      }
+      if (T == bool && value is String) {
+        return (value.toLowerCase() == 'true' || value == '1') as T;
+      }
+    } catch (e) {
+      print("⚠️ Error safely getting key '$key': $e. Using default: $defaultValue");
+    }
+    return defaultValue;
+  }
+
   // Construction d'une tuile de conversation avec design moderne
   Widget _buildConversationTile(Map<String, dynamic> conversation, Color primaryColor, Color bgColor, Color textColor) {
-    final bool hasUnread = (conversation['unreadCount'] ?? 0) > 0;
-    final bool isRestaurant = conversation['isRestaurant'] == true;
-    final bool isLeisure = conversation['isLeisure'] == true;
-    final bool isGroup = conversation['isGroup'] == true;
-    
-    // Formatage du temps
-    String formattedTime;
-    if (conversation['time'] is String) {
-      final DateTime time = DateTime.parse(conversation['time']);
-      formattedTime = _formatConversationTime(time);
-    } else {
-      formattedTime = '';
+    // --- Safe Data Access ---
+    final String conversationId = _safeGet<String>(conversation, 'id', 'unknown_id_${DateTime.now().millisecondsSinceEpoch}');
+    final int unreadCount = _safeGet<int>(conversation, 'unreadCount', 0);
+    final bool hasUnread = unreadCount > 0;
+    final bool isRestaurant = _safeGet<bool>(conversation, 'isRestaurant', false);
+    final bool isLeisure = _safeGet<bool>(conversation, 'isLeisure', false);
+    final bool isGroup = _safeGet<bool>(conversation, 'isGroup', false);
+    final String name = _safeGet<String>(conversation, 'name', 'Conversation');
+    final String lastMessage = _safeGet<String>(conversation, 'lastMessage', '');
+    final String avatarUrl = _safeGet<String>(conversation, 'avatar', '');
+    final String timeString = _safeGet<String>(conversation, 'time', '');
+
+    // Formatage du temps avec try-catch
+    String formattedTime = '';
+    try {
+      if (timeString.isNotEmpty) {
+        final DateTime time = DateTime.parse(timeString);
+        formattedTime = _formatConversationTime(time);
+      }
+    } catch (e) {
+      print("⚠️ Error parsing conversation time '$timeString': $e");
+      formattedTime = '--:--'; // Default value on error
     }
-    
+
+    // Avatar par défaut si l'URL est invalide ou vide
+    final String defaultAvatarName = name.isNotEmpty && name != 'Conversation' && name != 'Utilisateur' 
+        ? name 
+        : '??';
+    final String finalAvatarUrl = (avatarUrl.isNotEmpty && (avatarUrl.startsWith('http://') || avatarUrl.startsWith('https://')))
+        ? avatarUrl
+        : 'https://ui-avatars.com/api/?name=${Uri.encodeComponent(defaultAvatarName)}&background=random&size=128'; // Use defaultAvatarName
+
     // Déterminer les couleurs spécifiques à ce type de conversation
-    final Color typeColor = isRestaurant 
-        ? Colors.amber 
-        : isLeisure 
-            ? Colors.purple 
-            : isGroup 
-                ? Colors.teal 
+    final Color typeColor = isRestaurant
+        ? Colors.amber
+        : isLeisure
+            ? Colors.purple
+            : isGroup
+                ? Colors.teal
                 : primaryColor;
-    
+
     // Vérifier si quelqu'un est en train d'écrire
-    final bool isTyping = _typingStatus[conversation['id']] ?? false;
-    
+    final bool isTyping = _typingStatus[conversationId] ?? false;
+
+    // Utiliser conversationId pour la clé et le tag Hero
+    final String heroTag = 'avatar_$conversationId';
+    final Key dismissibleKey = Key('conversation_$conversationId');
+
+    // Get other participant info (added in ConversationService)
+    final String otherParticipantId = _safeGet<String>(conversation, 'otherParticipantId', '');
+    final String participantType = _safeGet<String>(conversation, 'participantType', 'user');
+
     return Dismissible(
-      key: Key('conversation_${conversation['id']}'),
+      key: dismissibleKey,
       background: Container(
         color: Colors.red,
         alignment: Alignment.centerRight,
@@ -937,7 +1022,7 @@ class _MessagingScreenState extends State<MessagingScreen>
           builder: (BuildContext context) {
             return AlertDialog(
               backgroundColor: bgColor,
-              title: Text('Supprimer cette conversation?', 
+              title: Text('Supprimer cette conversation?',
                 style: TextStyle(color: textColor),
               ),
               content: Text(
@@ -960,19 +1045,19 @@ class _MessagingScreenState extends State<MessagingScreen>
       },
       onDismissed: (direction) {
         // Supprimer la conversation
-        _deleteConversation(conversation['id']);
+        _deleteConversation(conversationId); // Use safe ID
       },
       child: InkWell(
         onTap: () => _navigateToConversationDetail(conversation),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
-            color: hasUnread 
+            color: hasUnread
                 ? (_isDarkMode ? primaryColor.withOpacity(0.2) : primaryColor.withOpacity(0.05))
                 : bgColor,
             border: Border(
               bottom: BorderSide(
-                color: _isDarkMode ? Colors.grey[900]! : Colors.grey[200]!, 
+                color: _isDarkMode ? Colors.grey[900]! : Colors.grey[200]!,
                 width: 0.5
               ),
             ),
@@ -980,56 +1065,80 @@ class _MessagingScreenState extends State<MessagingScreen>
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              // Avatar avec indicateur de type
-              Stack(
-                children: [
-                  Hero(
-                    tag: 'avatar_${conversation['id']}',
-                    child: CircleAvatar(
-                      radius: 28,
-                      backgroundImage: CachedNetworkImageProvider(conversation['avatar']),
-                      child: isGroup && conversation['avatar'].contains('ui-avatars.com')
-                          ? Icon(Icons.group, color: Colors.white.withOpacity(0.8), size: 24)
-                          : null,
+              // Wrap avatar Stack in GestureDetector for profile navigation
+              GestureDetector(
+                onTap: () {
+                   // Only navigate to profile if it's NOT a group chat
+                   if (!isGroup && otherParticipantId.isNotEmpty) {
+                     _navigateToProfile(otherParticipantId, participantType);
+                   }
+                },
+                child: Stack(
+                  children: [
+                    Hero(
+                      tag: heroTag, 
+                      child: CachedNetworkImage( 
+                        imageUrl: finalAvatarUrl,
+                        imageBuilder: (context, imageProvider) => CircleAvatar(
+                          radius: 28,
+                          backgroundImage: imageProvider,
+                          child: isGroup && finalAvatarUrl.contains('ui-avatars.com')
+                              ? Icon(Icons.group, color: Colors.white.withOpacity(0.8), size: 24)
+                              : null,
+                        ),
+                        placeholder: (context, url) => CircleAvatar(
+                          radius: 28,
+                          backgroundColor: Colors.grey[300],
+                          child: Icon(Icons.person, color: Colors.grey[600]),
+                        ),
+                        errorWidget: (context, url, error) {
+                          print("⚠️ Error widget triggered for avatar: $url, error: $error");
+                          return CircleAvatar(
+                            radius: 28,
+                            backgroundColor: Colors.grey[300],
+                            child: Icon(Icons.broken_image, color: Colors.grey[600]), 
+                          );
+                        },
+                      ),
                     ),
-                  ),
-                  // Indicateur de type
-                  if ((isRestaurant || isLeisure || isGroup) && !isGroup && !isRestaurant && !isLeisure)
+                    // Indicateur de type (condition seems complex, keep as is for now)
+                    if ((isRestaurant || isLeisure || isGroup) && !isGroup && !isRestaurant && !isLeisure)
+                      Positioned(
+                        bottom: 0,
+                        right: 0,
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: typeColor,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: bgColor, width: 2),
+                          ),
+                          child: Icon(
+                            isRestaurant ? Icons.restaurant : isLeisure ? Icons.local_activity : Icons.group,
+                            color: Colors.white,
+                            size: 10,
+                          ),
+                        ),
+                      ),
+                    // Indicateur en ligne
                     Positioned(
-                      bottom: 0,
+                      top: 0,
                       right: 0,
                       child: Container(
-                        padding: const EdgeInsets.all(4),
+                        width: 14,
+                        height: 14,
                         decoration: BoxDecoration(
-                          color: typeColor,
+                          color: Colors.green, // Consider making this dynamic based on presence
                           shape: BoxShape.circle,
                           border: Border.all(color: bgColor, width: 2),
                         ),
-                        child: Icon(
-                          isRestaurant ? Icons.restaurant : isLeisure ? Icons.local_activity : Icons.group,
-                          color: Colors.white,
-                          size: 10,
-                        ),
                       ),
                     ),
-                  // Indicateur en ligne
-                  Positioned(
-                    top: 0,
-                    right: 0,
-                    child: Container(
-                      width: 14,
-                      height: 14,
-                      decoration: BoxDecoration(
-                        color: Colors.green,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: bgColor, width: 2),
-                      ),
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
               const SizedBox(width: 12),
-              
+
               // Détails de la conversation
               Expanded(
                 child: Column(
@@ -1041,7 +1150,7 @@ class _MessagingScreenState extends State<MessagingScreen>
                         // Nom
                         Expanded(
                           child: Text(
-                            conversation['name'],
+                            name, // Use safe name
                             style: TextStyle(
                               fontWeight: hasUnread ? FontWeight.bold : FontWeight.w500,
                               fontSize: 16,
@@ -1051,10 +1160,10 @@ class _MessagingScreenState extends State<MessagingScreen>
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                        
+
                         // Heure
                         Text(
-                          formattedTime,
+                          formattedTime, // Use safe formatted time
                           style: TextStyle(
                             color: hasUnread ? primaryColor : textColor.withOpacity(0.6),
                             fontSize: 12,
@@ -1063,28 +1172,28 @@ class _MessagingScreenState extends State<MessagingScreen>
                         ),
                       ],
                     ),
-                    
+
                     const SizedBox(height: 6),
-                    
+
                     // Dernier message ou indicateur de frappe
                     Row(
                       children: [
                         // Icône de statut de message
-                        if (!isTyping && conversation['lastMessage'] != null)
+                        if (!isTyping && lastMessage.isNotEmpty) // Check if last message exists
                           Icon(
-                            hasUnread 
-                                ? Icons.mark_chat_unread 
-                                : Icons.check_circle,
+                            hasUnread
+                                ? Icons.mark_chat_unread
+                                : Icons.check_circle, // Consider adding sent/delivered status
                             size: 14,
                             color: hasUnread ? primaryColor : Colors.grey,
                           ),
-                        
+
                         // Indicateur de frappe
                         if (isTyping)
                           Row(
                             children: [
                               Text(
-                                'En train d\'écrire',
+                                "En train d'écrire",
                                 style: TextStyle(
                                   color: primaryColor,
                                   fontStyle: FontStyle.italic,
@@ -1095,12 +1204,12 @@ class _MessagingScreenState extends State<MessagingScreen>
                               _buildTypingIndicator(primaryColor),
                             ],
                           )
-                        else
+                        else if (lastMessage.isNotEmpty) // Only show last message if it exists
                           Expanded(
                             child: Padding(
                               padding: const EdgeInsets.only(left: 4),
                               child: Text(
-                                conversation['lastMessage'],
+                                lastMessage, // Use safe last message
                                 style: TextStyle(
                                   color: hasUnread ? textColor : textColor.withOpacity(0.6),
                                   fontWeight: hasUnread ? FontWeight.w500 : FontWeight.normal,
@@ -1111,7 +1220,7 @@ class _MessagingScreenState extends State<MessagingScreen>
                               ),
                             ),
                           ),
-                        
+
                         if (hasUnread)
                           Container(
                             margin: const EdgeInsets.only(left: 8),
@@ -1121,7 +1230,7 @@ class _MessagingScreenState extends State<MessagingScreen>
                               shape: BoxShape.circle,
                             ),
                             child: Text(
-                              conversation['unreadCount'].toString(),
+                              unreadCount.toString(), // Use safe unread count
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 12,
@@ -1794,5 +1903,108 @@ class _MessagingScreenState extends State<MessagingScreen>
         ),
       ),
     );
+  }
+
+  // ---- Navigation Logic ----
+  Future<void> _navigateToProfile(String participantId, String participantType) async {
+    if (participantId.isEmpty) return;
+
+    // Type is already determined by participantType parameter
+    final String resolvedType = participantType;
+
+    // Show loading indicator
+    showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return Dialog(
+            child: Padding(
+              padding: const EdgeInsets.all(20.0),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(width: 20),
+                  Text("Chargement du profil..."),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+
+    try {
+      if (resolvedType == 'user') {
+        Navigator.pop(context); // Close loading dialog
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ProfileScreen(
+              userId: participantId,
+              viewMode: 'public',
+            ),
+          ),
+        );
+      } else if (resolvedType == 'restaurant') {
+        Navigator.pop(context); // Close loading dialog
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ProducerScreen(
+              producerId: participantId,
+              userId: widget.userId, 
+            ),
+          ),
+        );
+      } else if (resolvedType == 'leisure') {
+        // Fetch data first for Leisure producer
+        final url = Uri.parse('${ApiConfig.baseUrl}/api/producers/leisure/$participantId'); // Adjust API endpoint if needed
+        final response = await http.get(url);
+        Navigator.pop(context); // Close loading dialog
+        if (response.statusCode == 200) {
+          final data = json.decode(response.body);
+          Navigator.push(
+           context,
+           MaterialPageRoute(
+             // Assuming ProducerLeisureScreen accepts producerData map
+             builder: (context) => ProducerLeisureScreen(producerData: data),
+           ),
+         );
+        } else {
+           throw Exception("Failed to load leisure producer data (${response.statusCode})");
+        }
+       
+      } else if (resolvedType == 'wellness' || resolvedType == 'beauty') {
+        // Fetch data first for Wellness/Beauty producer
+        // Adjust API endpoint as needed (using unified/ID or specific beauty endpoint)
+        final url = Uri.parse('${ApiConfig.baseUrl}/api/unified/$participantId'); 
+        final response = await http.get(url);
+         Navigator.pop(context); // Close loading dialog
+        if (response.statusCode == 200) {
+            final data = json.decode(response.body);
+            // Pass the full data map to WellnessProducerProfileScreen
+            Navigator.push(
+                context,
+                MaterialPageRoute(
+                builder: (context) => WellnessProducerProfileScreen(producerData: data), 
+                ),
+            );
+        } else {
+            throw Exception("Failed to load wellness/beauty producer data (${response.statusCode})");
+        }
+      } else {
+        Navigator.pop(context); // Close loading dialog
+        print("⚠️ Unknown participant type for profile navigation: $resolvedType");
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Type de profil inconnu: $resolvedType"))
+        );
+      }
+    } catch (e) {
+        Navigator.pop(context); // Close loading dialog on error
+        print("❌ Error navigating to profile: $e");
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Erreur lors du chargement du profil: $e"))
+        );
+    }
   }
 }

@@ -15,6 +15,9 @@ import '../widgets/profile_post_card.dart';
 import 'post_detail_screen.dart';
 import 'messaging_screen.dart';
 import '../utils/utils.dart';
+import '../services/app_data_sender_service.dart'; // Import the sender service
+import '../utils/location_utils.dart'; // Import location utils
+import 'package:google_maps_flutter/google_maps_flutter.dart'; // For LatLng
 
 class TimeoutException implements Exception {
   final String message;
@@ -68,11 +71,23 @@ class _ProducerScreenState extends State<ProducerScreen> with SingleTickerProvid
     
     // Charger les données initiales
     _producerFuture.then((producer) {
+      // Check for error state before proceeding
+      if (producer.containsKey('error') && producer['error'] == true) {
+         print("🔥 Producer details fetch failed, skipping further initializations.");
+         return; // Don't proceed if fetch failed
+      }
+
       // Initialiser les données de suivi
       setState(() {
-        _followersCount = producer['followers']?.length ?? 0;
-        if (widget.userId != null && producer['followers'] != null) {
-          _isFollowing = (producer['followers'] as List).contains(widget.userId);
+        // Safely access followers count
+        _followersCount = (producer['followers'] as List?)?.length ?? 
+                         (producer['relations']?['followers'] as List?)?.length ?? 0;
+                         
+        // Check following status if user is logged in
+        if (widget.userId != null && widget.userId!.isNotEmpty) {
+           final followersList = (producer['followers'] as List?) ?? 
+                                (producer['relations']?['followers'] as List?);
+           _isFollowing = followersList?.contains(widget.userId) ?? false;
         }
       });
       
@@ -81,6 +96,9 @@ class _ProducerScreenState extends State<ProducerScreen> with SingleTickerProvid
       
       // Charger les menus
       _loadMenus(producer);
+
+      // Log producer view activity
+      _logProducerViewActivity(widget.producerId, producer['type'] ?? 'restaurant'); // Use detected type or default
     });
   }
 
@@ -535,6 +553,11 @@ class _ProducerScreenState extends State<ProducerScreen> with SingleTickerProvid
       return;
     }
     
+    // --- ADDED: Log follow/unfollow action --- 
+    final actionType = _isFollowing ? 'unfollow_producer' : 'follow_producer';
+    _logGenericProducerAction(actionType);
+    // --- End Log --- 
+    
     try {
       final url = Uri.parse('${constants.getBaseUrl()}/api/producers/$producerId/follow');
       final response = await http.post(
@@ -588,6 +611,10 @@ class _ProducerScreenState extends State<ProducerScreen> with SingleTickerProvid
       );
       return;
     }
+    
+    // --- ADDED: Log send message action --- 
+    _logGenericProducerAction('send_message_producer');
+    // --- End Log --- 
     
     setState(() {
       _isSendingMessage = true;
@@ -646,6 +673,10 @@ class _ProducerScreenState extends State<ProducerScreen> with SingleTickerProvid
     final String name = producer['name'] ?? 'Producteur';
     final String description = producer['description'] ?? '';
     final String shareText = 'Découvrez $name sur Choice App.\n$description';
+    
+    // --- ADDED: Log share action --- 
+    _logGenericProducerAction('share_producer');
+    // --- End Log --- 
     
     _shareViaSystem(shareText);
   }
@@ -710,6 +741,10 @@ class _ProducerScreenState extends State<ProducerScreen> with SingleTickerProvid
     }
     
     final Uri url = Uri.parse(mapsUrl);
+    // --- ADDED: Log open maps action --- 
+    _logGenericProducerAction('open_maps');
+    // --- End Log --- 
+    
     if (await canLaunchUrl(url)) {
       await launchUrl(url);
     } else {
@@ -734,6 +769,10 @@ class _ProducerScreenState extends State<ProducerScreen> with SingleTickerProvid
     phone = phone.replaceAll(RegExp(r'\s+'), '');
     
     final Uri url = Uri.parse('tel:$phone');
+    // --- ADDED: Log call action --- 
+    _logGenericProducerAction('call_producer');
+    // --- End Log --- 
+    
     if (await canLaunchUrl(url)) {
       await launchUrl(url);
     } else {
@@ -755,6 +794,10 @@ class _ProducerScreenState extends State<ProducerScreen> with SingleTickerProvid
     }
     
     final Uri url = Uri.parse(website);
+    // --- ADDED: Log open website action --- 
+    _logGenericProducerAction('open_website');
+    // --- End Log --- 
+    
     if (await canLaunchUrl(url)) {
       await launchUrl(url, mode: LaunchMode.externalApplication);
     } else {
@@ -2544,6 +2587,84 @@ class _ProducerScreenState extends State<ProducerScreen> with SingleTickerProvid
           ),
         ),
       ),
+    );
+  }
+
+  /// Logs the producer profile view activity.
+  Future<void> _logProducerViewActivity(String producerId, String producerType) async {
+    // Use the userId passed to the widget, assuming it's the logged-in user
+    final String? currentUserId = widget.userId; 
+    if (currentUserId == null || currentUserId.isEmpty) {
+      print('📊 Cannot log producer view: Current user ID not available.');
+      return; // Don't log if no user is logged in
+    }
+
+    // Get current location (handle null)
+    final LatLng? currentLocation = await LocationUtils.getCurrentLocation();
+    final LatLng locationToSend = currentLocation ?? LocationUtils.defaultLocation();
+
+    print('📊 Logging producer view: User: $currentUserId, Viewed Producer ID: $producerId, Type: $producerType, Location: $locationToSend');
+
+    // Use the correct producerType based on fetched data or widget param
+    String finalProducerType = 'restaurant'; // Default
+    if (widget.isWellness) {
+      finalProducerType = 'wellness';
+    } else if (widget.isBeauty) {
+       finalProducerType = 'beauty'; // Assuming a type for beauty
+    } else if (producerType.toLowerCase().contains('leisure')) {
+       finalProducerType = 'leisure';
+    }
+    // Add more logic if needed based on producer data fields
+
+    AppDataSenderService.sendActivityLog(
+      userId: currentUserId,
+      action: 'view_producer', // Specific action type
+      location: locationToSend,
+      producerId: producerId,
+      producerType: finalProducerType, // Use determined type
+    );
+  }
+
+  /// Generic helper to log producer interaction actions.
+  Future<void> _logGenericProducerAction(String action) async {
+    final String? currentUserId = widget.userId;
+    if (currentUserId == null || currentUserId.isEmpty) {
+      // FIXED: Use correct string interpolation
+      print('📊 Cannot log action \'$action\': Current user ID not available.');
+      return;
+    }
+
+    // Get current location
+    final LatLng? currentLocation = await LocationUtils.getCurrentLocation();
+    final LatLng locationToSend = currentLocation ?? LocationUtils.defaultLocation();
+
+    // Determine producer type more robustly
+    String finalProducerType = 'restaurant'; // Default
+    if (widget.isWellness) {
+      finalProducerType = 'wellness';
+    } else if (widget.isBeauty) {
+       finalProducerType = 'beauty';
+    } else {
+        // Try to infer from future data if available
+        try {
+          final producer = await _producerFuture;
+           String? fetchedType = producer['type']?.toString().toLowerCase();
+           if (fetchedType != null) {
+               if (fetchedType.contains('leisure')) finalProducerType = 'leisure';
+               // Add other type checks if needed
+           }
+        } catch (_) { /* Ignore error if future hasn't completed */ }
+    }
+
+    print('📊 Logging Action: User: $currentUserId, Action: $action, Producer: ${widget.producerId}, Type: $finalProducerType, Location: $locationToSend');
+
+    AppDataSenderService.sendActivityLog(
+      userId: currentUserId,
+      action: action,
+      location: locationToSend,
+      producerId: widget.producerId, 
+      producerType: finalProducerType,
+      // Add more metadata if needed (e.g., button clicked)
     );
   }
 }

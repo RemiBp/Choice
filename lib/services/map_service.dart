@@ -70,12 +70,12 @@ class MapService {
   late final Dio dio;
   
   // Propriété pour stocker l'URL de base
-  String get baseUrl => constants.getBaseUrlSync();
+  String get baseUrl => constants.getBaseUrl();
   
   // Méthode pour récupérer l'URL de base SANS récursion
   String getBaseUrl() {
     // Appel à la méthode dans constants au lieu de s'appeler elle-même
-    return constants.getBaseUrlSync();
+    return constants.getBaseUrl();
   }
   
   // Méthode générique pour effectuer une recherche avec gestion des timeouts
@@ -752,7 +752,7 @@ class MapService {
   /// Récupère l'URL de base pour les appels API
   String _getBaseUrl() {
     // Utiliser les constantes existantes au lieu d'ApiConfig
-    return constants.getBaseUrlSync();
+    return constants.getBaseUrl();
   }
   
   // MOCK DATA METHODS

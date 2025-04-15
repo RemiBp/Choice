@@ -64,6 +64,12 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
 
+  late Map<String, dynamic> post; // Post à modifier localement
+  late int interestedCount;
+  late int choicesCount;
+  bool _isMarkingInterested = false; // Loading flag for Interested
+  bool _isMarkingChoice = false;     // Loading flag for Choice
+
   @override
   void initState() {
     super.initState();
@@ -456,7 +462,6 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
       if (!resultData.containsKey('events')) {
         resultData['events'] = [];
       }
-
       print('🔍 Fetching additional events data');
       
       try {
@@ -558,8 +563,8 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
 
       return resultData;
     } catch (e) {
-      print('❌ Network error: $e');
-      throw Exception('Impossible de charger les données du producteur: $e');
+      print('❌ Erreur lors de la récupération des détails du producteur: $e');
+      return {'error': e.toString()};
     }
   }
 
@@ -614,9 +619,12 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
     }
   }
 
-  Future<void> _markInterested(String targetId, Map<String, dynamic> post) async {
+  Future<void> _markInterested(String targetId) async {
     final url = Uri.parse('${constants.getBaseUrl()}/api/choicexinterest/interested');
     final body = {'userId': widget.producerId, 'targetId': targetId};
+
+    if (_isMarkingInterested) return; // Prevent double taps
+    setState(() { _isMarkingInterested = true; });
 
     try {
       final response = await http.post(
@@ -637,11 +645,19 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
     } catch (e) {
       print('❌ Erreur réseau lors de l\'ajout à Interested : $e');
     }
+    finally {
+      if (mounted) {
+        setState(() { _isMarkingInterested = false; });
+      }
+    }
   }
 
-  Future<void> _markChoice(String targetId, Map<String, dynamic> post) async {
+  Future<void> _markChoice(String targetId) async {
     final url = Uri.parse('${constants.getBaseUrl()}/api/choicexinterest/choice');
     final body = {'userId': widget.producerId, 'targetId': targetId};
+
+    if (_isMarkingChoice) return; // Prevent double taps
+    setState(() { _isMarkingChoice = true; });
 
     try {
       final response = await http.post(
@@ -661,6 +677,11 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
       }
     } catch (e) {
       print('❌ Erreur réseau lors de l\'ajout à Choices : $e');
+    }
+    finally {
+      if (mounted) {
+        setState(() { _isMarkingChoice = false; });
+      }
     }
   }
 
@@ -2822,7 +2843,6 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
         ),
       );
     }
-
     return Padding(
       padding: const EdgeInsets.all(16.0),
       child: Column(
@@ -3328,18 +3348,20 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
                   if (isProducerPost)
                     Column(
                       children: [
-                        IconButton(
-                          icon: Icon(
-                            post['interested']?.contains(widget.producerId) ?? false
-                                ? Icons.emoji_objects
-                                : Icons.emoji_objects_outlined,
-                            color: post['interested']?.contains(widget.producerId) ?? false
-                                ? Colors.orange
-                                : Colors.grey,
-                          ),
-                          onPressed: () => _markInterested(producerId!, post), // Passez `post`
-                        ),
-                        Text('$interestedCount Interested'),
+                        _isMarkingInterested
+                            ? const SizedBox(width: 48, height: 48, child: Center(child: SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)))) // Show loader aligned with IconButton
+                            : IconButton(
+                                icon: Icon(
+                                  post['interested']?.contains(widget.producerId) ?? false
+                                      ? Icons.emoji_objects
+                                      : Icons.emoji_objects_outlined,
+                                  color: post['interested']?.contains(widget.producerId) ?? false
+                                      ? Colors.orange
+                                      : Colors.grey,
+                                ),
+                                onPressed: () => _markInterested(producerId!), // Passez `post`
+                              ),
+                        Padding(padding: EdgeInsets.only(top: _isMarkingInterested ? 0 : 0), child: Text('$interestedCount Interested')),
                       ],
                     ),
 
@@ -3347,18 +3369,24 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
                   if (isProducerPost)
                     Column(
                       children: [
-                        IconButton(
-                          icon: Icon(
-                            post['choices']?.contains(widget.producerId) ?? false
-                                ? Icons.check_circle
-                                : Icons.check_circle_outline,
-                            color: post['choices']?.contains(widget.producerId) ?? false
-                                ? Colors.green
-                                : Colors.grey,
-                          ),
-                          onPressed: () => _markChoice(producerId!, post), // Passez `post` en second argument
-                        ),
-                        Text('$choicesCount Choices'),
+                        _isMarkingChoice
+                            ? const SizedBox(width: 48, height: 48, child: Center(child: SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)))) // Show loader
+                            : IconButton(
+                                icon: Icon(
+                                  post['choices']?.contains(widget.producerId) ?? false
+                                      ? Icons.check_circle
+                                      : Icons.check_circle_outline,
+                                  color: post['choices']?.contains(widget.producerId) ?? false
+                                      ? Colors.green
+                                      : Colors.grey,
+                                ),
+                                onPressed: () {
+                                  if (producerId != null) {
+                                    _markChoice(producerId);
+                                  }
+                                },
+                              ),
+                        Padding(padding: EdgeInsets.only(top: _isMarkingChoice ? 0: 0), child: Text('$choicesCount Choices')),
                       ],
                     ),
 
@@ -3776,6 +3804,8 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   late Map<String, dynamic> post; // Post à modifier localement
   late int interestedCount;
   late int choicesCount;
+  bool _isMarkingInterested = false; // Loading flag for Interested
+  bool _isMarkingChoice = false;     // Loading flag for Choice
 
   @override
   void initState() {
@@ -3788,6 +3818,9 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   Future<void> _markInterested(String targetId) async {
     final url = Uri.parse('${constants.getBaseUrl()}/api/choicexinterest/interested');
     final body = {'userId': widget.producerId, 'targetId': targetId};
+
+    if (_isMarkingInterested) return; // Prevent double taps
+    setState(() { _isMarkingInterested = true; });
 
     try {
       final response = await http.post(
@@ -3809,11 +3842,19 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     } catch (e) {
       print('❌ Erreur réseau lors de l\'ajout à Interested : $e');
     }
+    finally {
+      if (mounted) {
+        setState(() { _isMarkingInterested = false; });
+      }
+    }
   }
 
   Future<void> _markChoice(String targetId) async {
     final url = Uri.parse('${constants.getBaseUrl()}/api/choicexinterest/choice');
-    final body = {'producerId': widget.producerId, 'targetId': targetId};
+    final body = {'userId': widget.producerId, 'targetId': targetId};
+
+    if (_isMarkingChoice) return; // Prevent double taps
+    setState(() { _isMarkingChoice = true; });
 
     try {
       final response = await http.post(
@@ -3834,6 +3875,11 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       }
     } catch (e) {
       print('❌ Erreur réseau lors de l\'ajout à Choices : $e');
+    }
+    finally {
+      if (mounted) {
+        setState(() { _isMarkingChoice = false; });
+      }
     }
   }
 
@@ -3879,44 +3925,48 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                   // Interested Button
                   Column(
                     children: [
-                      IconButton(
-                        icon: Icon(
-                          post['interested']?.contains(widget.producerId) ?? false
-                              ? Icons.emoji_objects
-                              : Icons.emoji_objects_outlined,
-                          color: post['interested']?.contains(widget.producerId) ?? false
-                              ? Colors.orange
-                              : Colors.grey,
-                        ),
-                        onPressed: () {
-                          if (producerId != null) {
-                            _markInterested(producerId);
-                          }
-                        },
-                      ),
-                      Text('$interestedCount Interested'),
+                      _isMarkingInterested
+                          ? const SizedBox(width: 48, height: 48, child: Center(child: SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)))) // Show loader aligned with IconButton
+                          : IconButton(
+                              icon: Icon(
+                                post['interested']?.contains(widget.producerId) ?? false
+                                    ? Icons.emoji_objects
+                                    : Icons.emoji_objects_outlined,
+                                color: post['interested']?.contains(widget.producerId) ?? false
+                                    ? Colors.orange
+                                    : Colors.grey,
+                              ),
+                              onPressed: () {
+                                if (producerId != null) {
+                                  _markInterested(producerId);
+                                }
+                              },
+                            ),
+                      Padding(padding: EdgeInsets.only(top: _isMarkingInterested ? 0 : 0), child: Text('$interestedCount Interested')),
                     ],
                   ),
 
                   // Choice Button
                   Column(
                     children: [
-                      IconButton(
-                        icon: Icon(
-                          post['choices']?.contains(widget.producerId) ?? false
-                              ? Icons.check_circle
-                              : Icons.check_circle_outline,
-                          color: post['choices']?.contains(widget.producerId) ?? false
-                              ? Colors.green
-                              : Colors.grey,
-                        ),
-                        onPressed: () {
-                          if (producerId != null) {
-                            _markChoice(producerId);
-                          }
-                        },
-                      ),
-                      Text('$choicesCount Choices'),
+                      _isMarkingChoice
+                          ? const SizedBox(width: 48, height: 48, child: Center(child: SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)))) // Show loader
+                          : IconButton(
+                              icon: Icon(
+                                post['choices']?.contains(widget.producerId) ?? false
+                                    ? Icons.check_circle
+                                    : Icons.check_circle_outline,
+                                color: post['choices']?.contains(widget.producerId) ?? false
+                                    ? Colors.green
+                                    : Colors.grey,
+                              ),
+                              onPressed: () {
+                                if (producerId != null) {
+                                  _markChoice(producerId);
+                                }
+                              },
+                            ),
+                      Padding(padding: EdgeInsets.only(top: _isMarkingChoice ? 0: 0), child: Text('$choicesCount Choices')),
                     ],
                   ),
 
@@ -5355,4 +5405,7 @@ class RestaurantStatsScreen extends StatelessWidget {
     );
   }
 }
+
+
+
 

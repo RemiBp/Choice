@@ -16,6 +16,10 @@ import 'eventLeisure_screen.dart'; // Pour les événements
 import 'profile_screen.dart'; // Pour les utilisateurs
 import 'wellness_producer_screen.dart'; // Pour les producteurs de bien-être
 import 'dart:io' show SocketException;
+import '../utils/constants.dart' as constants;
+import '../services/app_data_sender_service.dart'; // Import the sender service
+import '../utils/location_utils.dart'; // Import location utils
+import 'package:google_maps_flutter/google_maps_flutter.dart'; // For LatLng
 
 class ProducerSearchPage extends StatefulWidget {
   final String userId;
@@ -57,7 +61,7 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> with SingleTick
   List<dynamic> _surprise = [];
   
   String getBaseUrl() {
-    return 'https://api.choiceapp.io';
+    return constants.getBaseUrl();
   }
   
   @override
@@ -96,7 +100,7 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> with SingleTick
     });
     
     try {
-      final baseUrl = getBaseUrl();
+      final baseUrl = await constants.getBaseUrl(); // Use await and constants.getBaseUrl()
       Uri url = Uri.parse('$baseUrl/api/unified/trending-public');
       
       // Ajout des paramètres de pagination
@@ -185,7 +189,7 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> with SingleTick
     });
     
     try {
-      final baseUrl = getBaseUrl();
+      final baseUrl = await constants.getBaseUrl(); // Use await and constants.getBaseUrl()
       Uri url;
       
       if (baseUrl.startsWith('http://')) {
@@ -327,7 +331,7 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> with SingleTick
     });
     
     try {
-      final baseUrl = getBaseUrl();
+      final baseUrl = await constants.getBaseUrl(); // Use await and constants.getBaseUrl()
       Uri url;
       
       if (baseUrl.startsWith('http://')) {
@@ -416,7 +420,7 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> with SingleTick
     });
     
     try {
-      final baseUrl = getBaseUrl();
+      final baseUrl = await constants.getBaseUrl(); // Use await and constants.getBaseUrl()
       Uri url;
       
       if (baseUrl.startsWith('http://')) {
@@ -794,127 +798,72 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> with SingleTick
     );
   }
 
-  /// Recherche des producteurs, événements et utilisateurs via l'API
-  Future<void> _searchItems() async {
-    // Animer le bouton de recherche
-    _searchAnimationController.forward().then((_) {
-      _searchAnimationController.reverse();
-    });
-    if (_query.isEmpty) {
-      setState(() {
-        _searchResults = [];
-        _errorMessage = "Veuillez entrer un mot-clé pour la recherche.";
-      });
-      return;
-    }
+  /// Méthode pour déclencher la recherche de producteurs
+  void _performSearch(String query) async {
+    if (query.length < 3) return;
 
     setState(() {
       _isLoading = true;
       _errorMessage = "";
     });
 
+    // Log the search action
+    _logSearchActivity(query);
+
     try {
-      // Utiliser l'endpoint public qui ne nécessite pas d'authentification
-      final url = Uri.parse('${getBaseUrl()}/api/unified/search-public?query=$_query');
-      
-      final response = await http.get(url).timeout(
-        const Duration(seconds: 15),
-        onTimeout: () {
-          throw Exception("La requête a pris trop de temps. Veuillez réessayer.");
-        },
+      final baseUrl = await constants.getBaseUrl();
+      final url = Uri.parse('$baseUrl/api/unified/search').replace(
+        queryParameters: {
+          'query': query,
+          'limit': '20' // Limiter les résultats de la recherche principale
+        }
       );
 
+      final response = await http.get(url).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () => throw Exception("Search timed out"),
+      );
+      
+      if (!mounted) return;
+      
       if (response.statusCode == 200) {
-        final dynamic decoded = json.decode(response.body);
-        final List<dynamic> resultList;
-        
-        if (decoded is List) {
-          resultList = decoded;
-        } else if (decoded is Map && decoded.containsKey('data') && decoded['data'] is List) {
-          resultList = decoded['data'];
-        } else if (decoded is Map && decoded.containsKey('results') && decoded['results'] is List) {
-          resultList = decoded['results'];
-        } else if (decoded is Map) {
-          // Create a single item list from the map
-          resultList = [decoded];
-        } else {
-          resultList = [];
-          print('❌ Format de données inattendu pour la recherche: ${decoded.runtimeType}');
-        }
-        
-        // Utiliser _transformApiData pour normaliser les données des résultats
-        final transformedResults = _transformApiData(resultList);
-
+        final List<dynamic> results = json.decode(response.body);
         setState(() {
-          _searchResults = transformedResults;
-          if (_searchResults.isEmpty) {
-            _errorMessage = "Aucun résultat trouvé pour cette recherche.";
-          }
+          _searchResults = _transformApiData(results);
+          _isLoading = false;
         });
       } else {
-        // Si l'API échoue, fournir des résultats de recherche fictifs
-        print('❌ Erreur lors de la recherche: ${response.statusCode}: ${response.body}');
-        
-        setState(() {
-          _errorMessage = "";
-          // Données de secours pour la recherche - déjà formatées comme _transformApiData
-          if (_query.toLowerCase().contains("restaurant") || _query.toLowerCase().contains("food")) {
-            _searchResults = [
-              {
-                'id': '101',
-                'type': 'restaurant',
-                'name': 'Le Bistrot Parisien',
-                'image': 'https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=500&q=80',
-                'rating': 4.7,
-                'category': 'Cuisine française'
-              }
-            ];
-          } else if (_query.toLowerCase().contains("event") || _query.toLowerCase().contains("concert")) {
-            _searchResults = [
-              {
-                'id': '202',
-                'type': 'event',
-                'name': 'Festival de Jazz',
-                'image': 'https://images.unsplash.com/photo-1501281668745-f7f57925c3b4?w=500&q=80',
-                'rating': 4.5,
-                'category': 'Concert'
-              }
-            ];
-          } else {
-            _searchResults = [
-              {
-                'id': '303',
-                'type': 'leisureProducer',
-                'name': 'Musée d\'Art Moderne',
-                'image': 'https://images.unsplash.com/photo-1626126525134-fbbc0db37b8a?w=500&q=80',
-                'rating': 4.6,
-                'category': 'Musée'
-              }
-            ];
-          }
-        });
+        throw Exception("Error ${response.statusCode}: ${response.body}");
       }
     } catch (e) {
-      print('❌ Erreur réseau lors de la recherche: $e');
+      print('❌ Erreur de recherche: $e');
+      if (!mounted) return;
       setState(() {
-        _errorMessage = "";
-        // Fournir des résultats par défaut en cas d'erreur réseau en format normalisé
-        _searchResults = [
-          {
-            'id': '404',
-            'type': 'restaurant',
-            'name': 'Café de la Place',
-            'image': 'https://images.unsplash.com/photo-1554118811-1e0d58224f24?w=500&q=80',
-            'rating': 4.2,
-            'category': 'Café'
-          }
-        ];
-      });
-    } finally {
-      setState(() {
+        _errorMessage = "Erreur lors de la recherche. Veuillez réessayer.";
         _isLoading = false;
       });
     }
+  }
+
+  /// Logs the search activity using AppDataSenderService.
+  Future<void> _logSearchActivity(String query) async {
+    final String userId = widget.userId; // Assuming userId is available in the widget
+    // Get current location (handle null)
+    final LatLng? currentLocation = await LocationUtils.getCurrentLocation();
+    
+    // If location is unavailable, use a default or skip logging location
+    final LatLng locationToSend = currentLocation ?? LocationUtils.defaultLocation();
+
+    print('📊 Logging search activity: User: $userId, Query: $query, Location: $locationToSend');
+
+    // Call the service without awaiting (fire and forget)
+    AppDataSenderService.sendActivityLog(
+      userId: userId,
+      action: 'search', // Standardized action type
+      location: locationToSend,
+      query: query,
+      // producerId and producerType are not applicable for a general search
+    );
   }
 
   Future<void> _navigateToDetails(String id, String type) async {
@@ -1428,18 +1377,22 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> with SingleTick
                     Expanded(
                       child: TextField(
                         controller: _searchController,
+                        onChanged: (text) {
+                          setState(() {
+                            _query = text;
+                          });
+                          // Optionnel: Déclencher la recherche automatiquement après un délai
+                          // _debounceSearch(text);
+                        },
+                        onSubmitted: (text) {
+                          _performSearch(text);
+                        },
                         decoration: InputDecoration(
                           hintText: 'Rechercher restaurants, activités...',
                           prefixIcon: const Icon(Icons.search, color: Colors.grey),
                           border: InputBorder.none,
                           contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
                         ),
-                        onChanged: (value) {
-                          setState(() {
-                            _query = value.trim();
-                          });
-                        },
-                        onSubmitted: (_) => _searchItems(),
                       ),
                     ),
                     AnimatedBuilder(
@@ -1473,7 +1426,8 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> with SingleTick
                       ),
                       child: IconButton(
                         icon: const Icon(Icons.search, color: Colors.white),
-                        onPressed: _searchItems,
+                        // Call _performSearch with the current text from the controller
+                        onPressed: () => _performSearch(_searchController.text),
                       ),
                     ),
                   ],

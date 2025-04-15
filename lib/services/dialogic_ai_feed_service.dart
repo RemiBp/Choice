@@ -59,7 +59,7 @@ class DialogicAIFeedService {
   DialogicAIFeedService._internal();
 
   String getBaseUrl() {
-    return constants.getBaseUrlSync();
+    return constants.getBaseUrl();
   }
   final AIService _aiService = AIService();
 

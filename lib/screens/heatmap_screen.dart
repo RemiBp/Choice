@@ -1,20 +1,158 @@
+import 'dart:async';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:google_maps_flutter_platform_interface/src/types/heatmap.dart' as google_maps show WeightedLatLng;
+import 'package:socket_io_client/socket_io_client.dart' as IO;
+import 'package:google_maps_cluster_manager/google_maps_cluster_manager.dart' as cluster_manager;
 import '../utils/custom_heatmap.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'utils.dart';
 import '../models/user_hotspot.dart' as models;
 import '../models/faker_data.dart';
 import '../utils/constants.dart' as constants;
+import 'dart:ui' as ui;
+import 'package:fl_chart/fl_chart.dart';
+import 'package:flutter/services.dart';
+import '../services/secure_storage_service.dart';
+import 'package:timeago/timeago.dart' as timeago;
+
+void initializeTimeago() {
+  try {
+    timeago.setLocaleMessages('fr', timeago.FrMessages());
+    timeago.setLocaleMessages('en', timeago.EnMessages());
+    print("🕰️ Timeago locales initialized.");
+  } catch (e) {
+    print("🕰️ Error initializing timeago locales: $e");
+  }
+}
+
+class Place with cluster_manager.ClusterItem {
+  final String id;
+  final String name;
+  @override
+  final LatLng location;
+  final bool isZone;
+  final int? visitorCount;
+  final DateTime? liveTimestamp;
+
+  Place({
+    required this.id,
+    required this.name,
+    required this.location,
+    this.isZone = false,
+    this.visitorCount,
+    this.liveTimestamp,
+  });
+
+  Marker toMarker({VoidCallback? onTap}) => Marker(
+    markerId: MarkerId(id),
+    position: location,
+    icon: isZone
+        ? BitmapDescriptor.defaultMarker
+        : BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+    infoWindow: InfoWindow(
+      title: name,
+      snippet: isZone
+          ? '$visitorCount visiteurs'
+          : (liveTimestamp != null ? 'Vu à ${DateFormat.Hms().format(liveTimestamp!)}' : '')
+    ),
+    onTap: onTap,
+    zIndex: isZone ? 0.0 : 1.0,
+  );
+}
+
+class LiveUserData {
+  final String userId;
+  final LatLng location;
+  final DateTime timestamp;
+
+  LiveUserData({required this.userId, required this.location, required this.timestamp});
+}
+
+class NearbySearchEvent {
+  final String id = UniqueKey().toString();
+  final String userId;
+  final String query;
+  final LatLng location;
+  final DateTime timestamp;
+
+  NearbySearchEvent({required this.userId, required this.query, required this.location, required this.timestamp});
+}
+
+class PublicUserProfile {
+  final String id;
+  final String name;
+  final String? profilePicture;
+  final String? bio;
+  final List<String> likedTags;
+
+  PublicUserProfile({
+    required this.id,
+    required this.name,
+    this.profilePicture,
+    this.bio,
+    this.likedTags = const [],
+  });
+
+  factory PublicUserProfile.fromJson(Map<String, dynamic> json) {
+    return PublicUserProfile(
+      id: json['id'] as String? ?? 'unknown_id', // Handle potential null ID
+      name: json['name'] as String? ?? 'Utilisateur',
+      profilePicture: json['profilePicture'] as String?,
+      bio: json['bio'] as String?,
+      likedTags: List<String>.from(json['liked_tags'] ?? []),
+    );
+  }
+}
+
+class ActiveUser {
+  final String userId;
+  final String name;
+  final String? profilePicture;
+  final LatLng location;
+  final DateTime lastSeen;
+  final double? distance;
+
+  ActiveUser({
+    required this.userId,
+    required this.name,
+    this.profilePicture,
+    required this.location,
+    required this.lastSeen,
+    this.distance,
+  });
+
+  factory ActiveUser.fromJson(Map<String, dynamic> json) {
+    LatLng? loc;
+    if (json['location'] != null) {
+        if (json['location']['type'] == 'Point' && json['location']['coordinates'] is List && json['location']['coordinates'].length == 2) {
+            loc = LatLng(json['location']['coordinates'][1], json['location']['coordinates'][0]);
+        } else if (json['location'] is Map && json['location']['latitude'] != null && json['location']['longitude'] != null) {
+             // Added check for Map type here
+             loc = LatLng(json['location']['latitude'], json['location']['longitude']);
+        }
+    }
+    loc ??= const LatLng(0, 0);
+
+    return ActiveUser(
+      userId: json['userId'] as String? ?? 'unknown_user', // Handle potential null ID
+      name: json['name'] as String? ?? 'Utilisateur Actif',
+      profilePicture: json['profilePicture'] as String?,
+      location: loc,
+      lastSeen: DateTime.tryParse(json['lastSeen'] as String? ?? '') ?? DateTime.now(), // Safer parsing
+      distance: (json['distance'] as num?)?.toDouble(),
+    );
+  }
+}
 
 class HeatmapScreen extends StatefulWidget {
   final String userId;
+  final String? producerName;
 
-  const HeatmapScreen({Key? key, required this.userId}) : super(key: key);
+  const HeatmapScreen({Key? key, required this.userId, this.producerName}) : super(key: key);
 
   @override
   _HeatmapScreenState createState() => _HeatmapScreenState();
@@ -28,30 +166,67 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
   String _selectedTimeFilter = 'Tous';
   String _selectedDayFilter = 'Tous';
   
-  // Data for heatmap and markers
   List<models.UserHotspot> _hotspots = [];
   List<models.UserHotspot> _filteredHotspots = [];
   Map<MarkerId, Marker> _markers = {};
   
-  // Default location (Paris)
+  IO.Socket? _socket;
+  
+  late cluster_manager.ClusterManager _clusterManager;
+  Set<Marker> _clusterMarkers = {};
+  List<Place> _places = [];
+  
+  final List<NearbySearchEvent> _nearbySearchEvents = [];
+  final Duration _searchEventTimeout = const Duration(minutes: 5);
+  
+  List<ActiveUser> _activeUsers = [];
+  Timer? _activeUserPollTimer;
+  final Duration _activeUserPollInterval = const Duration(seconds: 45);
+  bool _isFetchingActiveUsers = false;
+  
   final CameraPosition _initialCameraPosition = const CameraPosition(
     target: LatLng(48.8566, 2.3522),
     zoom: 13,
   );
   
-  // Statistics by zone
   Map<String, Map<String, dynamic>> _zoneStats = {};
-  
-  // Selected zone (when user taps on a hotspot)
   String? _selectedZoneId;
-  
-  // Insights about zones
   List<Map<String, dynamic>> _zoneInsights = [];
+  
+  final List<String> _timeFilterOptions = ['Tous', 'Matin', 'Après-midi', 'Soir'];
+  final List<String> _dayFilterOptions = ['Tous', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
+  
+  final _customPushTitleController = TextEditingController();
+  final _customPushBodyController = TextEditingController();
+  final _customDiscountController = TextEditingController(text: '30');
+  final _customDurationController = TextEditingController(text: '1');
+  
+  PublicUserProfile? _fetchedUserProfile;
+  bool _isFetchingProfile = false;
+  bool _isLoadingInsights = false;
   
   @override
   void initState() {
     super.initState();
+    initializeTimeago();
+    _clusterManager = _initClusterManager();
     _loadData();
+    _initSocket();
+    Timer.periodic(const Duration(minutes: 1), (_) => _cleanupSearchEvents());
+    _startActiveUserPolling();
+  }
+  
+  @override
+  void dispose() {
+    _socket?.disconnect();
+    _socket?.dispose();
+    _activeUserPollTimer?.cancel();
+    _customPushTitleController.dispose();
+    _customPushBodyController.dispose();
+    _customDiscountController.dispose();
+    _customDurationController.dispose();
+    _googleMapController?.dispose();
+    super.dispose();
   }
   
   Future<void> _loadData() async {
@@ -60,21 +235,17 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
     });
     
     try {
-      // Get producer location first
       final locationData = await _fetchProducerLocation();
       
-      // Then load hotspots around that location
       final hotspots = await _fetchHotspots(
         locationData['latitude'] ?? 48.8566,
         locationData['longitude'] ?? 2.3522,
       );
       
-      // Process and set data
       setState(() {
         _hotspots = hotspots;
         _filteredHotspots = List.from(hotspots);
         
-        // Create markers for each hotspot
         _markers = {};
         for (var hotspot in hotspots) {
           final markerId = MarkerId(hotspot.id);
@@ -93,16 +264,13 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
           );
         }
         
-        // Generate zone stats
         _generateZoneStats();
         
-        // Load insights
         _loadZoneInsights();
         
         _isLoading = false;
       });
       
-      // Center map on producer location
       if (_mapController != null) {
         _mapController!.animateCamera(
           CameraUpdate.newLatLng(
@@ -119,7 +287,6 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
         _isLoading = false;
       });
       
-      // Show error message
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Erreur lors du chargement des données: $e'),
@@ -158,7 +325,7 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
         queryParameters: {
           'latitude': latitude.toString(),
           'longitude': longitude.toString(),
-          'radius': '2000', // 2km par défaut
+          'radius': '2000',
         },
       );
       
@@ -170,22 +337,20 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
       } else {
         print('❌ Erreur lors de la récupération des hotspots: ${response.statusCode}');
         
-        // Utiliser des données fictives en cas d'erreur
         print('ℹ️ Utilisation de données simulées pour la carte de chaleur');
         return FakerData.generateFakeHotspots(
           LatLng(latitude, longitude), 
-          15, // 15 hotspots
+          15,
           maxRadius: 2000
         );
       }
     } catch (e) {
       print('❌ Exception lors de la récupération des hotspots: $e');
       
-      // Utiliser des données fictives en cas d'erreur
       print('ℹ️ Utilisation de données simulées pour la carte de chaleur');
       return FakerData.generateFakeHotspots(
         LatLng(latitude, longitude), 
-        15, // 15 hotspots
+        15,
         maxRadius: 2000
       );
     }
@@ -193,9 +358,7 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
   
   void _applyFilters() {
     setState(() {
-      // Filter hotspots by time and day
       _filteredHotspots = _hotspots.where((hotspot) {
-        // Apply time filter
         if (_selectedTimeFilter != 'Tous') {
           final timeDistribution = hotspot.timeDistribution;
           
@@ -211,12 +374,10 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
           }
         }
         
-        // Apply day filter
         if (_selectedDayFilter != 'Tous') {
           final dayDistribution = hotspot.dayDistribution;
           String dayKey = _selectedDayFilter.toLowerCase();
           
-          // Handle English day keys in the data
           if (dayKey == 'lundi') dayKey = 'monday';
           else if (dayKey == 'mardi') dayKey = 'tuesday';
           else if (dayKey == 'mercredi') dayKey = 'wednesday';
@@ -233,7 +394,6 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
         return true;
       }).toList();
       
-      // Update markers
       _markers = {};
       for (var hotspot in _filteredHotspots) {
         final markerId = MarkerId(hotspot.id);
@@ -252,7 +412,6 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
         );
       }
       
-      // Regenerate zone stats
       _generateZoneStats();
     });
   }
@@ -262,16 +421,20 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
       _selectedZoneId = zoneId;
     });
     
-    // Show bottom sheet with zone details
     _showZoneDetailsSheet();
   }
   
   void _showZoneDetailsSheet() {
     final selectedHotspot = _hotspots.firstWhere(
       (hotspot) => hotspot.id == _selectedZoneId,
-      orElse: () => _hotspots.first,
+      orElse: () => models.UserHotspot(id: 'error', zoneName: 'Erreur', latitude: 0, longitude: 0, visitorCount: 0, intensity: 0, timeDistribution: {}, dayDistribution: {})
     );
     
+    if (selectedHotspot.id == 'error') {
+        print("Error: Could not find selected hotspot details.");
+        return;
+    }
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -328,7 +491,6 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
                     controller: scrollController,
                     padding: const EdgeInsets.all(20),
                     children: [
-                      // Visitor stats
                       _buildStatCard(
                         icon: Icons.people,
                         title: 'Affluence',
@@ -338,47 +500,32 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
                       ),
                       const SizedBox(height: 16),
                       
-                      // Time distribution
-                      const Text(
-                        'Distribution par heure',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
+                      const Text('Distribution par heure', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                       const SizedBox(height: 10),
                       Container(
-                        height: 160,
-                        padding: const EdgeInsets.all(16),
+                        height: 180,
+                        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
                         decoration: BoxDecoration(
                           color: Colors.grey[100],
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        child: _buildTimeDistributionChart(selectedHotspot.timeDistribution),
+                        child: _buildTimeDistributionFlChart(selectedHotspot.timeDistribution),
                       ),
                       const SizedBox(height: 20),
                       
-                      // Day distribution
-                      const Text(
-                        'Distribution par jour',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
+                      const Text('Distribution par jour', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                       const SizedBox(height: 10),
                       Container(
-                        height: 170,
-                        padding: const EdgeInsets.all(16),
+                        height: 200,
+                        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
                         decoration: BoxDecoration(
                           color: Colors.grey[100],
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        child: _buildDayDistributionChart(selectedHotspot.dayDistribution),
+                        child: _buildDayDistributionFlChart(selectedHotspot.dayDistribution),
                       ),
                       const SizedBox(height: 20),
                       
-                      // Action recommendations for this zone
                       _buildActionRecommendations(selectedHotspot),
                     ],
                   ),
@@ -391,159 +538,167 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
     );
   }
   
-  Widget _buildTimeDistributionChart(Map<String, double> timeDistribution) {
-    final morningValue = (timeDistribution['morning'] ?? 0) * 100;
-    final afternoonValue = (timeDistribution['afternoon'] ?? 0) * 100;
-    final eveningValue = (timeDistribution['evening'] ?? 0) * 100;
-    
-    return Column(
-      children: [
-        Expanded(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              // Morning bar
-              _buildTimeBar('Matin', morningValue, Colors.orange),
-              
-              // Afternoon bar
-              _buildTimeBar('Après-midi', afternoonValue, Colors.blue),
-              
-              // Evening bar
-              _buildTimeBar('Soir', eveningValue, Colors.purple),
-            ],
+  Widget _buildTimeDistributionFlChart(Map<String, double> timeDistribution) {
+    final morningValue = (timeDistribution['morning'] ?? 0.0);
+    final afternoonValue = (timeDistribution['afternoon'] ?? 0.0);
+    final eveningValue = (timeDistribution['evening'] ?? 0.0);
+    final total = morningValue + afternoonValue + eveningValue;
+    final double safeTotal = total == 0 ? 1.0 : total;
+
+    const Color morningColor = Colors.orangeAccent;
+    const Color afternoonColor = Colors.lightBlueAccent;
+    const Color eveningColor = Colors.purpleAccent;
+
+    return BarChart(
+      BarChartData(
+        alignment: BarChartAlignment.spaceAround,
+        maxY: 1.0,
+        barTouchData: BarTouchData(
+          enabled: true,
+          touchTooltipData: BarTouchTooltipData(
+            getTooltipColor: (group) => Colors.blueGrey.withOpacity(0.8),
+            getTooltipItem: (group, groupIndex, rod, rodIndex) {
+              String label;
+              switch (group.x.toInt()) {
+                case 0: label = 'Matin'; break;
+                case 1: label = 'Après-midi'; break;
+                case 2: label = 'Soir'; break;
+                default: label = '';
+              }
+              return BarTooltipItem(
+                '$label\n',
+                const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                children: <TextSpan>[
+                  TextSpan(
+                    text: (rod.toY * 100).toStringAsFixed(0) + '%',
+                    style: const TextStyle(color: Colors.yellow, fontSize: 12, fontWeight: FontWeight.w500),
+                  ),
+                ],
+              );
+            },
           ),
         ),
-        const SizedBox(height: 10),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              'Matin: ${morningValue.toInt()}%',
-              style: const TextStyle(fontSize: 12),
-            ),
-            Text(
-              'Après-midi: ${afternoonValue.toInt()}%',
-              style: const TextStyle(fontSize: 12),
-            ),
-            Text(
-              'Soir: ${eveningValue.toInt()}%',
-              style: const TextStyle(fontSize: 12),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-  
-  Widget _buildTimeBar(String label, double value, Color color) {
-    final height = (value / 100) * 80; // Max height 80
-    
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.end,
-      children: [
-        Container(
-          width: 40,
-          height: height,
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: const BorderRadius.only(
-              topLeft: Radius.circular(6),
-              topRight: Radius.circular(6),
+        titlesData: FlTitlesData(
+          show: true,
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 30,
+              getTitlesWidget: (value, meta) {
+                String text = '';
+                switch (value.toInt()) {
+                  case 0: text = 'Matin'; break;
+                  case 1: text = 'Après-midi'; break;
+                  case 2: text = 'Soir'; break;
+                }
+                return Padding(
+                   padding: const EdgeInsets.only(top: 4.0),
+                   child: Text(text, style: const TextStyle(fontSize: 12))
+                );
+              },
             ),
           ),
+          leftTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 40,
+              interval: 0.2,
+              getTitlesWidget: (value, meta) {
+                if (value == 0 || value == 1.0) return Container();
+                return Text('${(value * 100).toInt()}%', style: const TextStyle(fontSize: 10));
+              },
+            ),
+          ),
+          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
         ),
-        const SizedBox(height: 8),
-        Text(
-          label,
-          style: const TextStyle(fontSize: 12),
-        ),
-      ],
+        borderData: FlBorderData(show: false),
+        barGroups: [
+          BarChartGroupData(x: 0, barRods: [BarChartRodData(toY: morningValue / safeTotal, color: morningColor, width: 22)]),
+          BarChartGroupData(x: 1, barRods: [BarChartRodData(toY: afternoonValue / safeTotal, color: afternoonColor, width: 22)]),
+          BarChartGroupData(x: 2, barRods: [BarChartRodData(toY: eveningValue / safeTotal, color: eveningColor, width: 22)]),
+        ],
+        gridData: const FlGridData(show: false),
+      ),
     );
   }
-  
-  Widget _buildDayDistributionChart(Map<String, double> dayDistribution) {
-    final List<MapEntry<String, double>> entries = dayDistribution.entries.toList();
-    
-    // Convert English day keys to French
+
+  Widget _buildDayDistributionFlChart(Map<String, double> dayDistribution) {
+    final List<String> dayKeys = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
     final Map<String, String> dayTranslation = {
-      'monday': 'Lun',
-      'tuesday': 'Mar',
-      'wednesday': 'Mer',
-      'thursday': 'Jeu',
-      'friday': 'Ven',
-      'saturday': 'Sam',
-      'sunday': 'Dim',
+      'monday': 'Lun', 'tuesday': 'Mar', 'wednesday': 'Mer', 'thursday': 'Jeu', 'friday': 'Ven', 'saturday': 'Sam', 'sunday': 'Dim'
     };
-    
-    // Sort entries by day of week
-    final List<String> dayOrder = [
-      'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'
-    ];
-    entries.sort((a, b) => dayOrder.indexOf(a.key).compareTo(dayOrder.indexOf(b.key)));
-    
-    return Column(
-      children: [
-        Expanded(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: entries.map((entry) {
-              final value = entry.value * 100;
-              final dayAbbr = dayTranslation[entry.key] ?? entry.key;
-              
-              return _buildDayBar(dayAbbr, value, Colors.teal);
-            }).toList(),
+    double maxValue = dayDistribution.values.fold(0.0, (max, v) => v > max ? v : max);
+    if (maxValue == 0) maxValue = 1.0;
+
+    return BarChart(
+      BarChartData(
+        alignment: BarChartAlignment.spaceAround,
+        maxY: maxValue * 1.1,
+        barTouchData: BarTouchData(
+          enabled: true,
+           touchTooltipData: BarTouchTooltipData(
+             getTooltipColor: (group) => Colors.blueGrey.withOpacity(0.8),
+             getTooltipItem: (group, groupIndex, rod, rodIndex) {
+              String day = dayTranslation[dayKeys[groupIndex]] ?? '';
+              String valueText = (rod.toY).toStringAsFixed(1); 
+              return BarTooltipItem(
+                '$day\n', 
+                const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                children: <TextSpan>[
+                  TextSpan(
+                    text: valueText,
+                    style: const TextStyle(color: Colors.yellow, fontSize: 12, fontWeight: FontWeight.w500),
+                  ),
+                ],
+              );
+            },
           ),
         ),
-        const SizedBox(height: 10),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: entries.map((entry) {
-            final value = entry.value * 100;
-            final dayAbbr = dayTranslation[entry.key] ?? entry.key;
-            
-            return Text(
-              '$dayAbbr: ${value.toInt()}%',
-              style: const TextStyle(fontSize: 10),
-            );
-          }).toList(),
-        ),
-      ],
-    );
-  }
-  
-  Widget _buildDayBar(String label, double value, Color color) {
-    final height = (value / 100) * 100; // Max height 100
-    
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.end,
-      children: [
-        Container(
-          width: 20,
-          height: height,
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: const BorderRadius.only(
-              topLeft: Radius.circular(4),
-              topRight: Radius.circular(4),
+        titlesData: FlTitlesData(
+          show: true,
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 30,
+              getTitlesWidget: (value, meta) {
+                 if (value.toInt() >= dayKeys.length) return Container(); // Avoid index out of bounds
+                 final dayKey = dayKeys[value.toInt()];
+                return Padding(
+                   padding: const EdgeInsets.only(top: 4.0),
+                   child: Text(dayTranslation[dayKey] ?? '', style: const TextStyle(fontSize: 11))
+                );
+              },
             ),
           ),
+          leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
         ),
-        const SizedBox(height: 8),
-        Text(
-          label,
-          style: const TextStyle(fontSize: 10),
-        ),
-      ],
+        borderData: FlBorderData(show: false),
+        barGroups: List.generate(dayKeys.length, (index) {
+          final dayKey = dayKeys[index];
+          final value = dayDistribution[dayKey] ?? 0.0;
+          return BarChartGroupData(
+            x: index,
+            barRods: [
+              BarChartRodData(
+                toY: value,
+                color: Colors.primaries[index % Colors.primaries.length].withOpacity(0.8),
+                width: 18,
+                borderRadius: BorderRadius.circular(4),
+              )
+            ],
+          );
+        }),
+        gridData: const FlGridData(show: false),
+      ),
     );
   }
-  
+
   Widget _buildActionRecommendations(models.UserHotspot hotspot) {
-    // Generate action recommendations based on hotspot data
     List<Map<String, dynamic>> recommendations = [];
     
-    // Recommendation based on time distribution
     final timeDistribution = hotspot.timeDistribution;
     final bestTime = _getBestTimeSlot(timeDistribution);
     
@@ -557,7 +712,6 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
       });
     }
     
-    // Recommendation based on day distribution
     final dayDistribution = hotspot.dayDistribution;
     final bestDay = _getBestDay(dayDistribution);
     
@@ -571,7 +725,6 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
       });
     }
     
-    // Location-based recommendation
     if (hotspot.intensity > 0.7) {
       recommendations.add({
         'title': 'Zone à fort potentiel',
@@ -582,7 +735,6 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
       });
     }
     
-    // Build recommendation widgets
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -696,7 +848,6 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
   }
   
   void _generateZoneStats() {
-    // Generate statistics for each zone
     _zoneStats = {};
     
     for (var hotspot in _filteredHotspots) {
@@ -704,11 +855,9 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
       final visitorCount = hotspot.visitorCount;
       final intensity = hotspot.intensity;
       
-      // Find peak times
       final timeDistribution = hotspot.timeDistribution;
       final bestTime = _getBestTimeSlot(timeDistribution);
       
-      // Find best days
       final dayDistribution = hotspot.dayDistribution;
       final bestDay = _getBestDay(dayDistribution);
       
@@ -722,8 +871,6 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
   }
   
   Future<void> _loadZoneInsights() async {
-    // This would call an AI-powered API endpoint for detailed insights
-    // For now, we'll create some sample insights
     _zoneInsights = [
       {
         'title': 'Suggestions pour le quartier',
@@ -753,20 +900,13 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
   }
   
   double _getMarkerHue(double intensity) {
-    // Convert intensity (0-1) to hue (0-360, but BitmapDescriptor uses 0-360)
-    // Low intensity: red (0)
-    // Medium intensity: yellow (60)
-    // High intensity: green (120)
     return 120 * intensity;
   }
   
-  List<google_maps.WeightedLatLng> _getHeatmapPoints() {
+  List<WeightedLatLng> _getHeatmapPoints() {
     return _filteredHotspots.map((hotspot) {
-      // Créer une instance de WeightedLatLng de google_maps_flutter_platform_interface
-      return google_maps.WeightedLatLng(
-        LatLng(hotspot.latitude, hotspot.longitude),
-        weight: hotspot.intensity,
-      );
+      final intensity = (hotspot.intensity ?? 0.0).clamp(0.0, 1.0);
+      return WeightedLatLng(LatLng(hotspot.latitude, hotspot.longitude), weight: intensity);
     }).toList();
   }
 
@@ -793,10 +933,9 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
         ],
       ),
       body: Stack(
-                children: [
-          // Map with heatmap
-                GoogleMap(
-                  initialCameraPosition: _initialCameraPosition,
+        children: [
+          GoogleMap(
+            initialCameraPosition: _initialCameraPosition,
             onMapCreated: (controller) {
               setState(() {
                 _mapController = controller;
@@ -804,39 +943,37 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
               });
             },
             markers: Set<Marker>.of(_markers.values),
-                  myLocationButtonEnabled: true,
-                  myLocationEnabled: true,
-                  mapType: MapType.normal,
-                  buildingsEnabled: true,
-                  compassEnabled: true,
+            myLocationButtonEnabled: true,
+            myLocationEnabled: true,
+            mapType: MapType.normal,
+            buildingsEnabled: true,
+            compassEnabled: true,
             trafficEnabled: false,
             circles: _createHeatmapCircles(),
           ),
           
-          // Filter controls
           Positioned(
-      top: 16,
+            top: 16,
             left: 16,
-      right: 16,
-      child: Card(
-        elevation: 4,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
+            right: 16,
+            child: Card(
+              elevation: 4,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
                       'Filtres',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                ),
-              ),
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
                     const SizedBox(height: 12),
                     Row(
                       children: [
-                        // Time filter dropdown
                         Expanded(
                           child: DropdownButtonFormField<String>(
                             decoration: const InputDecoration(
@@ -860,7 +997,6 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
                           ),
                         ),
                         const SizedBox(width: 12),
-                        // Day filter dropdown
                         Expanded(
                           child: DropdownButtonFormField<String>(
                             decoration: const InputDecoration(
@@ -895,33 +1031,32 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
             ),
           ),
           
-          // Legend overlay (when enabled)
           if (_showLegend)
             Positioned(
               top: 140,
-      right: 16,
-      child: Card(
-        elevation: 4,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        child: Padding(
+              right: 16,
+              child: Card(
+                elevation: 4,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                child: Padding(
                   padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                       const Row(
-                children: [
+                        children: [
                           Icon(Icons.info_outline, size: 18),
                           SizedBox(width: 8),
-              Text(
+                          Text(
                             'Légende',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
-                ),
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                            ),
                           ),
                         ],
-              ),
-              const SizedBox(height: 8),
+                      ),
+                      const SizedBox(height: 8),
                       _buildLegendItem(
                         color: Colors.red,
                         label: 'Faible affluence',
@@ -931,21 +1066,20 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
                         label: 'Affluence moyenne',
                       ),
                       _buildLegendItem(
-                    color: Colors.green,
+                        color: Colors.green,
                         label: 'Forte affluence',
                       ),
                       const Divider(),
                       const Text(
                         'Cliquez sur les marqueurs\npour plus de détails',
                         style: TextStyle(fontSize: 12),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
-          ),
-        ),
-      ),
+            ),
           
-          // Bottom stats panel
           Positioned(
             left: 0,
             right: 0,
@@ -960,36 +1094,33 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
                 ),
               ),
               child: Container(
-      padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(16),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
-        children: [
-                    // Handle indicator
-          Container(
+                  children: [
+                    Container(
                       width: 40,
                       height: 4,
                       margin: const EdgeInsets.only(bottom: 16),
-            decoration: BoxDecoration(
+                      decoration: BoxDecoration(
                         color: Colors.grey[300],
                         borderRadius: BorderRadius.circular(2),
                       ),
                     ),
-                    // Heading
                     const Row(
-              children: [
+                      children: [
                         Icon(Icons.analytics_outlined, size: 20, color: Colors.deepPurple),
                         SizedBox(width: 8),
-                Text(
+                        Text(
                           'Statistiques des zones',
                           style: TextStyle(
-                    fontWeight: FontWeight.bold,
+                            fontWeight: FontWeight.bold,
                             fontSize: 16,
-                  ),
-                ),
-              ],
-            ),
+                          ),
+                        ),
+                      ],
+                    ),
                     const SizedBox(height: 12),
-                    // Zone stats
                     SizedBox(
                       height: 120,
                       child: _isLoading
@@ -1005,47 +1136,47 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
                                 
                                 return GestureDetector(
                                   onTap: () => _selectZone(hotspot.id),
-      child: Container(
+                                  child: Container(
                                     width: 160,
                                     margin: const EdgeInsets.only(right: 12),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
                                       color: Colors.white,
                                       borderRadius: BorderRadius.circular(12),
                                       border: Border.all(
                                         color: Colors.deepPurple.withOpacity(0.3),
                                       ),
-          boxShadow: [
-            BoxShadow(
+                                      boxShadow: [
+                                        BoxShadow(
                                           color: Colors.black.withOpacity(0.05),
                                           blurRadius: 4,
                                           offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
+                                        ),
+                                      ],
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
                                           hotspot.zoneName,
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
                                             fontSize: 14,
-              ),
+                                          ),
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(height: 8),
+                                        ),
+                                        const SizedBox(height: 8),
                                         Row(
                                           children: [
                                             const Icon(Icons.people, size: 14, color: Colors.blue),
                                             const SizedBox(width: 4),
-            Text(
+                                            Text(
                                               '${stats['visitorCount']} visiteurs',
                                               style: const TextStyle(fontSize: 12),
-            ),
-          ],
-        ),
+                                            ),
+                                          ],
+                                        ),
                                         const SizedBox(height: 4),
                                         Row(
                                           children: [
@@ -1054,12 +1185,12 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
                                             Text(
                                               'Pic: ${stats['bestTime']}',
                                               style: const TextStyle(fontSize: 12),
-            ),
-          ],
-        ),
+                                            ),
+                                          ],
+                                        ),
                                         const SizedBox(height: 4),
                                         Row(
-          children: [
+                                          children: [
                                             const Icon(Icons.event, size: 14, color: Colors.green),
                                             const SizedBox(width: 4),
                                             Text(
@@ -1067,32 +1198,31 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
                                               style: const TextStyle(fontSize: 12),
                                             ),
                                           ],
-            ),
-          ],
-        ),
-      ),
-    );
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
                               },
                             ),
                     ),
                     
-                    // AI insights section
                     const SizedBox(height: 12),
                     Row(
-              children: [
-                Container(
+                      children: [
+                        Container(
                           padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
+                          decoration: BoxDecoration(
                             color: Colors.amber.withOpacity(0.2),
                             shape: BoxShape.circle,
                           ),
                           child: const Icon(Icons.lightbulb_outline, size: 14, color: Colors.amber),
                         ),
                         const SizedBox(width: 8),
-                      const Text(
+                        const Text(
                           'Insights IA',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
                             fontSize: 14,
                           ),
                         ),
@@ -1109,24 +1239,24 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
                               itemBuilder: (context, index) {
                                 final insight = _zoneInsights[index];
                                 
-    return Container(
+                                return Container(
                                   width: 280,
                                   margin: const EdgeInsets.only(right: 12),
                                   padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
+                                  decoration: BoxDecoration(
                                     color: Colors.amber.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
+                                    borderRadius: BorderRadius.circular(12),
                                     border: Border.all(
                                       color: Colors.amber.withOpacity(0.3),
                                     ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
                                       Text(
                                         insight['title'] as String,
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
                                           fontSize: 14,
                                           color: Colors.amber[800],
                                         ),
@@ -1143,9 +1273,9 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
                                               padding: const EdgeInsets.only(bottom: 4),
                                               child: Row(
                                                 crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+                                                children: [
                                                   const Text('• ', style: TextStyle(fontSize: 12)),
-              Expanded(
+                                                  Expanded(
                                                     child: Text(
                                                       insightText,
                                                       style: const TextStyle(fontSize: 12),
@@ -1158,28 +1288,27 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
                                             );
                                           },
                                         ),
-          ),
-        ],
-      ),
-    );
+                                      ),
+                                    ],
+                                  ),
+                                );
                               },
                             ),
-          ),
-        ],
-      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
           
-          // Loading indicator
           if (_isLoading)
-                Container(
+            Container(
               color: Colors.black.withOpacity(0.3),
               child: const Center(
                 child: CircularProgressIndicator(),
-                  ),
-                ),
-              ],
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -1209,13 +1338,13 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
     required Color color,
   }) {
     return Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
         color: color.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(12),
-          ),
+        borderRadius: BorderRadius.circular(12),
+      ),
       child: Row(
-            children: [
+        children: [
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -1225,14 +1354,14 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
             child: Icon(icon, color: color),
           ),
           const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
                   title,
                   style: const TextStyle(
-                            fontSize: 14,
+                    fontSize: 14,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
@@ -1241,22 +1370,22 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
                   value,
                   style: const TextStyle(
                     fontSize: 24,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
                 const SizedBox(height: 4),
-                        Text(
+                Text(
                   subtitle,
-                          style: TextStyle(
+                  style: TextStyle(
                     fontSize: 12,
                     color: Colors.grey[700],
-                          ),
-                        ),
-                      ],
-                    ),
                   ),
-                ],
-              ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1273,7 +1402,7 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
         Circle(
           circleId: CircleId('heatmap_${hotspot.id}'),
           center: LatLng(hotspot.latitude, hotspot.longitude),
-          radius: 50 + (hotspot.intensity * 100), // Rayon variable selon l'intensité
+          radius: 50 + (hotspot.intensity * 100),
           fillColor: color.withOpacity(0.7),
           strokeWidth: 0,
         ),
@@ -1283,7 +1412,6 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
     return circles;
   }
   
-  // Méthode pour récupérer la couleur selon l'intensité
   Color _getColorForIntensity(double intensity) {
     if (intensity < 0.3) {
       return Colors.blue;
@@ -1293,4 +1421,200 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
       return Colors.red;
     }
   }
+
+  void _updatePlacesList() {
+    List<Place> newPlaces = [];
+
+    for (var hotspot in _filteredHotspots) {
+      newPlaces.add(Place(
+        id: hotspot.id,
+        name: hotspot.zoneName,
+        location: LatLng(hotspot.latitude, hotspot.longitude),
+        isZone: true,
+        visitorCount: hotspot.visitorCount,
+      ));
+    }
+
+    for (var activeUser in _activeUsers) {
+       newPlaces.add(Place(
+        id: 'active_${activeUser.userId}',
+        name: activeUser.name,
+        location: activeUser.location,
+        isZone: false,
+        liveTimestamp: activeUser.lastSeen,
+      ));
+    }
+
+    setState(() {
+       _places = newPlaces;
+       _clusterManager.setItems(_places);
+    });
+  }
+
+  void _initSocket() {
+    // Implementation of _initSocket method
+  }
+
+  void _handleUserNearby() {
+    // Implementation of _handleUserNearby method
+  }
+
+  void _handleUserSearchNearby() {
+    // Implementation of _handleUserSearchNearby method
+  }
+
+  void _parseLocation() {
+    // Implementation of _parseLocation method
+  }
+
+  void _scheduleLiveUserRemoval() {
+    // Implementation of _scheduleLiveUserRemoval method
+  }
+
+  void _startActiveUserPolling() {
+    // Implementation of _startActiveUserPolling method
+  }
+
+  void _cleanupSearchEvents() {
+    final now = DateTime.now();
+    setState(() {
+      _nearbySearchEvents.removeWhere((event) => now.difference(event.timestamp) > _searchEventTimeout);
+    });
+  }
+
+  void _onSendPushPressed() {
+    // Implementation of _onSendPushPressed method
+  }
+
+  void _showSendPushDialog() {
+    // Implementation of _showSendPushDialog method
+  }
+
+  Future<void> _fetchPublicUserInfo(String targetUserId) async {
+    // Implementation of _fetchPublicUserInfo method
+  }
+
+  void _updateMarkers(Set<Marker> markers) {
+    if (!mounted) return;
+    setState(() {
+      _clusterMarkers = markers;
+    });
+  }
+
+  Future<Marker> _markerBuilder(cluster_manager.Cluster<Place> cluster) async {
+    final markerIdStr = cluster.location.toString(); 
+    return Marker(
+      markerId: MarkerId(markerIdStr),
+      position: cluster.location,
+      onTap: () {
+        print('---- Tapped Cluster: ${markerIdStr}, Multiple: ${cluster.isMultiple}');
+        print(cluster.items);
+        _mapController?.animateCamera(CameraUpdate.newLatLngZoom(cluster.location, 15)); 
+        
+        if (!cluster.isMultiple) {
+           final place = cluster.items.first;
+           if (place.isZone) {
+             _selectZone(place.id); 
+           } else {
+             print("Tapped on single live user marker: ${place.name}");
+             _fetchPublicUserInfo(place.id.replaceFirst('active_', '')); 
+           }
+        }
+      },
+      icon: await _getMarkerBitmap(cluster.isMultiple ? 125 : 75, 
+          text: cluster.isMultiple ? cluster.count.toString() : null),
+    );
+  }
+
+  Future<BitmapDescriptor> _getMarkerBitmap(int size, {String? text}) async {
+    if (size <= 0) {
+      print("Error: Invalid size for marker bitmap ($size).");
+      return BitmapDescriptor.defaultMarker; 
+    }
+
+    final ui.PictureRecorder pictureRecorder = ui.PictureRecorder();
+    final Canvas canvas = Canvas(pictureRecorder);
+    final Paint paint1 = Paint()..color = Colors.deepPurple;
+    final Paint paint2 = Paint()..color = Colors.white;
+
+    canvas.drawCircle(Offset(size / 2, size / 2), size / 2.0, paint1);
+    canvas.drawCircle(Offset(size / 2, size / 2), size / 2.2, paint2);
+    canvas.drawCircle(Offset(size / 2, size / 2), size / 2.8, paint1);
+
+    if (text != null) {
+      TextPainter painter = TextPainter(textDirection: ui.TextDirection.ltr);
+      painter.text = TextSpan(
+        text: text,
+        style: TextStyle(
+            fontSize: size / 3,
+            color: Colors.white,
+            fontWeight: FontWeight.normal),
+      );
+      painter.layout();
+      painter.paint(
+        canvas,
+        Offset(size / 2 - painter.width / 2, size / 2 - painter.height / 2),
+      );
+    }
+
+    final img = await pictureRecorder.endRecording().toImage(size, size);
+    final data = await img.toByteData(format: ui.ImageByteFormat.png);
+
+    if (data == null) {
+      print("Error: Failed to get byte data from image for marker.");
+      return BitmapDescriptor.defaultMarker;
+    }
+
+    return BitmapDescriptor.fromBytes(data.buffer.asUint8List());
+  }
+
+  Widget _buildNearbySearchFeed() {
+    if (_nearbySearchEvents.isEmpty) {
+      return const Center(
+          child: Padding(
+              padding: EdgeInsets.all(16.0),
+              child: Text(
+                  'Aucune recherche récente détectée à proximité.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.grey)
+              )
+          )
+      );
+    }
+    return ListView.builder(
+      itemCount: _nearbySearchEvents.length,
+      itemBuilder: (context, index) {
+        final event = _nearbySearchEvents[index];
+        return Card(
+          margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+          child: ListTile(
+            leading: const Icon(Icons.search, color: Colors.blueAccent),
+            title: Text('"${event.query}"', style: const TextStyle(fontWeight: FontWeight.bold)),
+            subtitle: Text(
+              'Il y a ${timeago.format(event.timestamp, locale: 'fr')}',
+              style: const TextStyle(fontSize: 11)
+            ),
+            trailing: TextButton(
+              child: const Text('Voir', style: TextStyle(color: Colors.blueAccent)),
+              onPressed: () {
+                _fetchPublicUserInfo(event.userId);
+              },
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  cluster_manager.ClusterManager _initClusterManager() {
+    return cluster_manager.ClusterManager<Place>(
+      _places,
+      _updateMarkers,
+      markerBuilder: _markerBuilder,
+      levels: const [1, 4.25, 6.75, 8.25, 11.5, 14.5, 16.0, 16.5, 20.0],
+      extraPercent: 0.2,
+      stopClusteringZoom: 17.0,
+    );
+  }
 }
+

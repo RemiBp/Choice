@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
 import 'package:location/location.dart';
+import 'package:http/http.dart' as http;
 import '../models/map_selector.dart';
 import '../widgets/map_selector.dart' as widget_selector;
 import '../services/map_service.dart';
@@ -13,44 +14,24 @@ import 'map_leisure_screen.dart' as leisure_map;
 import 'map_friends_screen.dart' as friends_map;
 import '../utils/map_colors.dart';
 import '../main.dart';
-import 'package:http/http.dart' as http;
+import '../utils/constants.dart';
 
 // Utiliser des couleurs directement pour éviter le conflit
 final wellnessPrimaryColor = Color(0xFF5C6BC0);
 
-// Modèle pour les catégories de bien-être
-class WellnessCategoryModel {
-  final String name;
-  final List<String> subCategories;
-  final List<String> evaluationCriteria;
-  final bool hasAvailability;
-  
-  WellnessCategoryModel({
-    required this.name,
-    required this.subCategories,
-    required this.evaluationCriteria,
-    this.hasAvailability = false,
-  });
-  
-  factory WellnessCategoryModel.fromJson(Map<String, dynamic> json) {
-    return WellnessCategoryModel(
-      name: json['name'] ?? '',
-      subCategories: List<String>.from(json['sous_categories'] ?? []),
-      evaluationCriteria: List<String>.from(json['criteres_evaluation'] ?? []),
-      hasAvailability: json['horaires_disponibilite'] ?? false,
-    );
+// Fonction pour obtenir l'URL de base de l'API
+String getBaseUrl() {
+  // En production, utilisez le domaine réel
+  // En développement, utilisez l'IP du serveur local
+  const bool isProduction = false;
+  if (isProduction) {
+    return 'https://api.choice-app.com';  // URL de production
+  } else {
+    // URL de développement
+    // 10.0.2.2 pour l'émulateur Android (correspond à localhost sur la machine hôte)
+    // localhost ou 127.0.0.1 pour iOS et tests sur appareil
+    return 'http://10.0.2.2:3000';
   }
-}
-
-// Modèle pour les critères d'évaluation
-class CriteriaRating {
-  final String criteriaName;
-  double value;
-  
-  CriteriaRating({
-    required this.criteriaName,
-    this.value = 0.0,
-  });
 }
 
 class MapWellnessScreen extends StatefulWidget {
@@ -79,22 +60,11 @@ class _MapWellnessScreenState extends State<MapWellnessScreen> with AutomaticKee
   // Nouvel état pour contrôler l'affichage du panneau de filtres
   bool _showFilterPanel = false;
 
-  // Filtres basiques
+  // Filtres
   String? _searchQuery;
   List<String> _selectedSpecialties = [];
   double _minRating = 0.0;
   double _selectedRadius = 5000; // 5km par défaut
-  
-  // Filtres dynamiques basés sur les catégories de wellness.py
-  List<WellnessCategoryModel> _categories = [];
-  WellnessCategoryModel? _selectedCategory;
-  String? _selectedSubCategory;
-  List<CriteriaRating> _selectedCriteria = [];
-  int _currentFilterTab = 0; // 0: catégories, 1: critères, 2: disponibilité
-  bool _isLoadingCategories = false;
-  DateTime _selectedDate = DateTime.now();
-  String? _selectedTimeSlot;
-  List<String> _availableTimeSlots = [];
   
   // Variables manquantes pour la compatibilité avec MapScreen
   Map<String, dynamic>? _selectedPlace;
@@ -107,7 +77,6 @@ class _MapWellnessScreenState extends State<MapWellnessScreen> with AutomaticKee
     super.initState();
     _initialPosition = widget.initialPosition ?? const gmaps.LatLng(48.856614, 2.3522219);
     _checkLocationPermission();
-    _loadCategories(); // Chargement des catégories au démarrage
   }
   
   @override
@@ -194,59 +163,63 @@ class _MapWellnessScreenState extends State<MapWellnessScreen> with AutomaticKee
       // Préparer les filtres pour l'API
       Map<String, dynamic> filters = {};
       
-      // Filtres basiques
+      // Paramètres de base pour la requête API
+      final double latitude = _currentPosition?.latitude ?? _initialPosition.latitude;
+      final double longitude = _currentPosition?.longitude ?? _initialPosition.longitude;
+      
+      // Utiliser l'API beauty_places au lieu de producers/advanced-search
+      final uri = Uri.parse('${getBaseUrl()}/api/beauty_places/nearby');
+      
+      // Construire les paramètres de requête
+      final Map<String, String> queryParams = {
+        'lat': latitude.toString(),
+        'lng': longitude.toString(),
+        'radius': _selectedRadius.toString(),
+        'limit': '50', // Limiter le nombre de résultats
+      };
+      
+      // Ajouter les filtres
       if (_searchQuery != null && _searchQuery!.isNotEmpty) {
-        filters['search'] = _searchQuery;
+        queryParams['q'] = _searchQuery!;
       }
       
       if (_selectedSpecialties.isNotEmpty) {
-        filters['specialties'] = _selectedSpecialties;
+        queryParams['specialties'] = _selectedSpecialties.join(',');
       }
       
       if (_minRating > 0) {
-        filters['min_rating'] = _minRating;
+        queryParams['min_rating'] = _minRating.toString();
       }
       
-      // Filtres de catégorie
-      if (_selectedCategory != null) {
-        filters['category'] = _selectedCategory!.name;
-        
-        if (_selectedSubCategory != null) {
-          filters['sous_categorie'] = _selectedSubCategory;
-        }
-      }
+      // Faire la requête HTTP
+      print('🔍 Requête API: ${uri.toString()} avec params ${queryParams.toString()}');
       
-      // Filtres de critères d'évaluation
-      if (_selectedCriteria.isNotEmpty) {
-        Map<String, double> criteriaFilters = {};
-        
-        for (var criteria in _selectedCriteria) {
-          if (criteria.value > 0) {
-            // Convertir en format attendu par l'API
-            final key = 'min_${criteria.criteriaName.toLowerCase().replaceAll(' ', '_').replaceAll('/', '_')}';
-            criteriaFilters[key] = criteria.value;
-          }
-        }
-        
-        if (criteriaFilters.isNotEmpty) {
-          filters['criteria'] = criteriaFilters;
-        }
-      }
-      
-      // Filtres de disponibilité
-      if (_selectedCategory?.hasAvailability == true && _selectedTimeSlot != null) {
-        filters['date'] = "${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}";
-        filters['time_slot'] = _selectedTimeSlot;
-      }
-      
-      // Récupérer les établissements de bien-être
-      final places = await _mapService.getNearbyPlaces(
-        latitude: _initialPosition.latitude,
-        longitude: _initialPosition.longitude,
-        placeType: 'wellness',
-        radius: _selectedRadius,
-        filters: filters,
+      final response = await http.get(
+        Uri.parse('${uri.toString()}').replace(queryParameters: queryParams),
+        headers: {'Content-Type': 'application/json'},
       );
+      
+      if (response.statusCode != 200) {
+        throw Exception('Erreur API: ${response.statusCode} - ${response.body}');
+      }
+      
+      // Décoder les résultats
+      final data = json.decode(response.body);
+      List<Map<String, dynamic>> places = [];
+      
+      // Vérifier le format de la réponse
+      if (data is List) {
+        // Format liste simple
+        places = List<Map<String, dynamic>>.from(data);
+      } else if (data['results'] is List) {
+        // Format avec wrapper "results"
+        places = List<Map<String, dynamic>>.from(data['results']);
+      } else if (data['beautyPlaces'] is List) {
+        // Format avec wrapper "beautyPlaces"
+        places = List<Map<String, dynamic>>.from(data['beautyPlaces']);
+      } else {
+        throw Exception('Format de réponse non reconnu');
+      }
       
       if (!mounted) return;
         
@@ -452,124 +425,6 @@ class _MapWellnessScreenState extends State<MapWellnessScreen> with AutomaticKee
     _fetchWellnessPlaces();
   }
 
-  // Chargement des catégories depuis l'API
-  Future<void> _loadCategories() async {
-    if (_isLoadingCategories) return;
-    
-    setState(() {
-      _isLoadingCategories = true;
-    });
-    
-    try {
-      // Essayer de charger depuis l'API
-      final response = await http.get(Uri.parse('http://localhost:3000/api/beauty_places/criteria'));
-      
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        List<WellnessCategoryModel> categories = [];
-        
-        data.forEach((key, value) {
-          categories.add(WellnessCategoryModel(
-            name: key,
-            subCategories: List<String>.from(value['sous_categories'] ?? []),
-            evaluationCriteria: List<String>.from(value['criteres_evaluation'] ?? []),
-            hasAvailability: value['horaires_disponibilite'] ?? false,
-          ));
-        });
-        
-        setState(() {
-          _categories = categories;
-          if (categories.isNotEmpty) {
-            _selectedCategory = categories.first;
-          }
-          _isLoadingCategories = false;
-        });
-      } else {
-        // Fallback si l'API échoue
-        _setDefaultCategories();
-      }
-    } catch (e) {
-      print('❌ Erreur lors du chargement des catégories: $e');
-      _setDefaultCategories();
-    }
-  }
-  
-  // Définir des catégories par défaut si l'API échoue
-  void _setDefaultCategories() {
-    setState(() {
-      _categories = [
-        WellnessCategoryModel(
-          name: 'Soins esthétiques et bien-être',
-          subCategories: ['Institut de beauté', 'Spa', 'Salon de massage', 'Centre d\'épilation'],
-          evaluationCriteria: ['Qualité des soins', 'Propreté', 'Accueil', 'Rapport qualité/prix', 'Ambiance', 'Expertise du personnel'],
-          hasAvailability: true,
-        ),
-        WellnessCategoryModel(
-          name: 'Coiffure et soins capillaires',
-          subCategories: ['Salon de coiffure', 'Barbier'],
-          evaluationCriteria: ['Qualité de la coupe', 'Respect des attentes', 'Conseil', 'Produits utilisés', 'Tarifs', 'Ponctualité'],
-          hasAvailability: true,
-        ),
-        WellnessCategoryModel(
-          name: 'Onglerie et modifications corporelles',
-          subCategories: ['Salon de manucure', 'Salon de tatouage', 'Salon de piercing'],
-          evaluationCriteria: ['Précision', 'Hygiène', 'Créativité', 'Durabilité', 'Conseil', 'Douleur ressentie'],
-          hasAvailability: false,
-        ),
-      ];
-      
-      if (_categories.isNotEmpty) {
-        _selectedCategory = _categories.first;
-      }
-      
-      _isLoadingCategories = false;
-    });
-  }
-  
-  // Mettre à jour les critères lorsque la catégorie change
-  void _updateCriteria() {
-    if (_selectedCategory == null) return;
-    
-    setState(() {
-      _selectedCriteria = _selectedCategory!.evaluationCriteria
-          .map((criteria) => CriteriaRating(criteriaName: criteria))
-          .toList();
-    });
-  }
-  
-  // Charger les créneaux horaires disponibles
-  Future<void> _loadAvailableTimeSlots() async {
-    if (_selectedPlace == null) return;
-    
-    try {
-      final String placeId = _selectedPlace!['place_id'] ?? _selectedPlace!['_id'];
-      final dateStr = "${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}";
-      
-      final response = await http.get(
-        Uri.parse('http://localhost:3000/api/beauty_places/available-hours?placeId=$placeId&date=$dateStr')
-      );
-      
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        setState(() {
-          _availableTimeSlots = List<String>.from(data['available_hours'] ?? []);
-          _selectedTimeSlot = _availableTimeSlots.isNotEmpty ? _availableTimeSlots.first : null;
-        });
-      } else {
-        setState(() {
-          _availableTimeSlots = [];
-          _selectedTimeSlot = null;
-        });
-      }
-    } catch (e) {
-      print('❌ Erreur lors du chargement des créneaux horaires: $e');
-      setState(() {
-        _availableTimeSlots = [];
-        _selectedTimeSlot = null;
-      });
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     super.build(context);
@@ -754,49 +609,25 @@ class _MapWellnessScreenState extends State<MapWellnessScreen> with AutomaticKee
                         ],
                       ),
                       Divider(),
-                      
-                      // Onglets de filtres
-                      _buildFilterTabs(),
-                      SizedBox(height: 15),
-                      
-                      // Contenu de l'onglet actif
-                      Expanded(
-                        child: SingleChildScrollView(
-                          child: _currentFilterTab == 0
-                              ? _buildCategoryFilters()
-                              : _currentFilterTab == 1
-                                  ? _buildCriteriaFilters()
-                                  : _buildAvailabilityFilters(),
-                        ),
+                      Text(
+                        'Filtres à venir prochainement',
+                        style: TextStyle(fontSize: 16),
                       ),
-                      
                       SizedBox(height: 20),
-                      
-                      // Boutons
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children: [
-                          OutlinedButton(
-                            onPressed: _resetFilters,
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: wellnessPrimaryColor,
-                            ),
-                            child: Text('Réinitialiser'),
+                      Center(
+                        child: ElevatedButton(
+                          onPressed: () {
+                            setState(() {
+                              _showFilterPanel = false;
+                            });
+                            _fetchWellnessPlaces();
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: wellnessPrimaryColor,
+                            foregroundColor: Colors.white,
                           ),
-                          ElevatedButton(
-                            onPressed: () {
-                              setState(() {
-                                _showFilterPanel = false;
-                              });
-                              _fetchWellnessPlaces();
-                            },
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: wellnessPrimaryColor,
-                              foregroundColor: Colors.white,
-                            ),
-                            child: Text('Appliquer'),
-                          ),
-                        ],
+                          child: Text('Appliquer'),
+                        ),
                       ),
                     ],
                   ),
@@ -817,423 +648,6 @@ class _MapWellnessScreenState extends State<MapWellnessScreen> with AutomaticKee
         tooltip: 'Filtres',
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-    );
-  }
-  
-  // Méthode helper pour construire les cases à cocher des spécialités
-  Widget _buildSpecialtyCheckbox(String label, String value) {
-    return CheckboxListTile(
-      title: Text(label),
-      value: _selectedSpecialties.contains(value),
-      onChanged: (bool? selected) {
-        setState(() {
-          if (selected == true) {
-            if (!_selectedSpecialties.contains(value)) {
-              _selectedSpecialties.add(value);
-            }
-          } else {
-            _selectedSpecialties.removeWhere((specialty) => specialty == value);
-          }
-        });
-      },
-      activeColor: wellnessPrimaryColor,
-      dense: true,
-      controlAffinity: ListTileControlAffinity.leading,
-    );
-  }
-  
-  // Réinitialiser tous les filtres
-  void _resetFilters() {
-    setState(() {
-      _searchQuery = null;
-      _selectedRadius = 5000;
-      _minRating = 0.0;
-      _selectedSpecialties = [];
-      
-      if (_categories.isNotEmpty) {
-        _selectedCategory = _categories.first;
-      } else {
-        _selectedCategory = null;
-      }
-      
-      _selectedSubCategory = null;
-      _selectedCriteria = [];
-      _selectedDate = DateTime.now();
-      _selectedTimeSlot = null;
-    });
-    
-    // Mettre à jour les critères si une catégorie est sélectionnée
-    if (_selectedCategory != null) {
-      _updateCriteria();
-    }
-  }
-  
-  // Construire les onglets de filtres
-  Widget _buildFilterTabs() {
-    return Container(
-      height: 40,
-      decoration: BoxDecoration(
-        color: Colors.grey.shade200,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: GestureDetector(
-              onTap: () => setState(() => _currentFilterTab = 0),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: _currentFilterTab == 0 ? wellnessPrimaryColor : Colors.transparent,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  'Catégories',
-                  style: TextStyle(
-                    color: _currentFilterTab == 0 ? Colors.white : Colors.black,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ),
-          ),
-          Expanded(
-            child: GestureDetector(
-              onTap: () => setState(() => _currentFilterTab = 1),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: _currentFilterTab == 1 ? wellnessPrimaryColor : Colors.transparent,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  'Critères',
-                  style: TextStyle(
-                    color: _currentFilterTab == 1 ? Colors.white : Colors.black,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ),
-          ),
-          Expanded(
-            child: GestureDetector(
-              onTap: () => setState(() => _currentFilterTab = 2),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: _currentFilterTab == 2 ? wellnessPrimaryColor : Colors.transparent,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  'Disponibilité',
-                  style: TextStyle(
-                    color: _currentFilterTab == 2 ? Colors.white : Colors.black,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-  
-  // Construire les filtres de catégorie
-  Widget _buildCategoryFilters() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Recherche par mot-clé
-        TextField(
-          decoration: InputDecoration(
-            labelText: 'Rechercher par nom',
-            hintText: 'Ex: Yoga, Spa, Massage...',
-            prefixIcon: Icon(Icons.search),
-            border: OutlineInputBorder(),
-          ),
-          onChanged: (value) {
-            setState(() {
-              _searchQuery = value.trim().isEmpty ? null : value.trim();
-            });
-          },
-          controller: TextEditingController(text: _searchQuery ?? ''),
-        ),
-        SizedBox(height: 20),
-        
-        // Rayon de recherche (Slider)
-        Text('Rayon de recherche: ${(_selectedRadius/1000).toStringAsFixed(1)} km',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-        ),
-        Slider(
-          value: _selectedRadius,
-          min: 1000, // 1km
-          max: 50000, // 50km
-          divisions: 49,
-          label: '${(_selectedRadius/1000).toStringAsFixed(1)} km',
-          onChanged: (value) {
-            setState(() {
-              _selectedRadius = value;
-            });
-          },
-          activeColor: wellnessPrimaryColor,
-        ),
-        SizedBox(height: 15),
-        
-        // Note minimale
-        Text('Note minimale: ${_minRating.toStringAsFixed(1)}',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-        ),
-        Slider(
-          value: _minRating,
-          min: 0,
-          max: 5,
-          divisions: 10,
-          label: _minRating.toStringAsFixed(1),
-          onChanged: (value) {
-            setState(() {
-              _minRating = value;
-            });
-          },
-          activeColor: wellnessPrimaryColor,
-        ),
-        SizedBox(height: 20),
-        
-        // Catégories principales
-        Text(
-          'Catégories principales:',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-        ),
-        SizedBox(height: 10),
-        _isLoadingCategories 
-          ? Center(child: CircularProgressIndicator())
-          : Column(
-              children: _categories.map((category) {
-                return RadioListTile<WellnessCategoryModel>(
-                  title: Text(category.name),
-                  value: category,
-                  groupValue: _selectedCategory,
-                  onChanged: (WellnessCategoryModel? value) {
-                    setState(() {
-                      _selectedCategory = value;
-                      _selectedSubCategory = null;
-                      _updateCriteria();
-                    });
-                  },
-                  activeColor: wellnessPrimaryColor,
-                  dense: true,
-                );
-              }).toList(),
-            ),
-        SizedBox(height: 15),
-        
-        // Sous-catégories
-        if (_selectedCategory != null && _selectedCategory!.subCategories.isNotEmpty) ...[
-          Text(
-            'Sous-catégories:',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-          ),
-          SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            children: _selectedCategory!.subCategories.map((subCategory) {
-              final isSelected = subCategory == _selectedSubCategory;
-              return FilterChip(
-                label: Text(subCategory),
-                selected: isSelected,
-                onSelected: (bool selected) {
-                  setState(() {
-                    _selectedSubCategory = selected ? subCategory : null;
-                  });
-                },
-                selectedColor: wellnessPrimaryColor.withOpacity(0.3),
-                checkmarkColor: wellnessPrimaryColor,
-              );
-            }).toList(),
-          ),
-        ],
-      ],
-    );
-  }
-  
-  // Construire les filtres de critères
-  Widget _buildCriteriaFilters() {
-    if (_selectedCategory == null) {
-      return Center(
-        child: Text(
-          'Veuillez d\'abord sélectionner une catégorie',
-          style: TextStyle(fontSize: 16),
-        ),
-      );
-    }
-    
-    if (_selectedCriteria.isEmpty) {
-      _updateCriteria();
-      
-      if (_selectedCriteria.isEmpty) {
-        return Center(
-          child: Text(
-            'Aucun critère disponible pour cette catégorie',
-            style: TextStyle(fontSize: 16),
-          ),
-        );
-      }
-    }
-    
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Critères pour ${_selectedSubCategory ?? _selectedCategory!.name}:',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-        ),
-        SizedBox(height: 10),
-        Text(
-          'Définissez l\'importance de chaque critère (0 = non important, 10 = très important)',
-          style: TextStyle(fontSize: 14, fontStyle: FontStyle.italic),
-        ),
-        SizedBox(height: 20),
-        ..._selectedCriteria.map((criteria) {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '${criteria.criteriaName}: ${criteria.value.toInt()}',
-                style: TextStyle(fontSize: 15),
-              ),
-              Slider(
-                value: criteria.value,
-                min: 0,
-                max: 10,
-                divisions: 10,
-                label: criteria.value.toInt().toString(),
-                onChanged: (value) {
-                  setState(() {
-                    criteria.value = value;
-                  });
-                },
-                activeColor: wellnessPrimaryColor,
-              ),
-              SizedBox(height: 10),
-            ],
-          );
-        }).toList(),
-      ],
-    );
-  }
-  
-  // Construire les filtres de disponibilité
-  Widget _buildAvailabilityFilters() {
-    if (_selectedCategory == null) {
-      return Center(
-        child: Text(
-          'Veuillez d\'abord sélectionner une catégorie',
-          style: TextStyle(fontSize: 16),
-        ),
-      );
-    }
-    
-    if (_selectedCategory!.hasAvailability == false) {
-      return Center(
-        child: Text(
-          'La réservation n\'est pas disponible pour cette catégorie',
-          style: TextStyle(fontSize: 16),
-        ),
-      );
-    }
-    
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Disponibilité:',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-        ),
-        SizedBox(height: 15),
-        Text('Choisir une date:', style: TextStyle(fontSize: 15)),
-        SizedBox(height: 10),
-        Container(
-          decoration: BoxDecoration(
-            border: Border.all(color: Colors.grey),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                  child: Text(
-                    "${_selectedDate.day}/${_selectedDate.month}/${_selectedDate.year}",
-                    style: TextStyle(fontSize: 16),
-                  ),
-                ),
-              ),
-              IconButton(
-                icon: Icon(Icons.calendar_today),
-                onPressed: () async {
-                  final DateTime? pickedDate = await showDatePicker(
-                    context: context,
-                    initialDate: _selectedDate,
-                    firstDate: DateTime.now(),
-                    lastDate: DateTime.now().add(Duration(days: 30)),
-                  );
-                  
-                  if (pickedDate != null) {
-                    setState(() {
-                      _selectedDate = pickedDate;
-                    });
-                    
-                    // Charger les créneaux horaires pour cette date
-                    if (_selectedPlace != null) {
-                      _loadAvailableTimeSlots();
-                    }
-                  }
-                },
-              ),
-            ],
-          ),
-        ),
-        SizedBox(height: 20),
-        
-        if (_selectedPlace != null) ...[
-          Text('Créneaux disponibles:', style: TextStyle(fontSize: 15)),
-          SizedBox(height: 10),
-          _availableTimeSlots.isEmpty
-              ? Center(
-                  child: Text(
-                    'Aucun créneau disponible pour cette date',
-                    style: TextStyle(fontStyle: FontStyle.italic),
-                  ),
-                )
-              : Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: _availableTimeSlots.map((timeSlot) {
-                    final isSelected = timeSlot == _selectedTimeSlot;
-                    return ChoiceChip(
-                      label: Text(timeSlot),
-                      selected: isSelected,
-                      onSelected: (bool selected) {
-                        setState(() {
-                          _selectedTimeSlot = selected ? timeSlot : null;
-                        });
-                      },
-                      backgroundColor: Colors.grey.shade200,
-                      selectedColor: wellnessPrimaryColor.withOpacity(0.3),
-                    );
-                  }).toList(),
-                ),
-        ] else ...[
-          Center(
-            child: Text(
-              'Sélectionnez d\'abord un établissement sur la carte pour voir les disponibilités',
-              style: TextStyle(fontStyle: FontStyle.italic),
-              textAlign: TextAlign.center,
-            ),
-          ),
-        ],
-      ],
     );
   }
 } 

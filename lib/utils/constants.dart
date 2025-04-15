@@ -1,8 +1,9 @@
-import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
+import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform, kDebugMode;
 import 'package:flutter/widgets.dart';
 import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 // Configuration des URL serveur - NE PAS MODIFIER en production
 const bool useNgrok = false; // Désactivé
@@ -28,11 +29,12 @@ bool isProductionMode() {
 String getBaseUrl() {
   if (kIsWeb) {
     return 'https://api.choiceapp.fr';
-  } else if (isDebugMode) {
+  } else if (kDebugMode) {
     if (Platform.isAndroid) {
-      return 'http://10.0.2.2:3000';
+      // Pour appareil physique Android connecté en USB, utiliser l'adresse IP locale
+      return 'http://192.168.1.23:5000'; // Remplacez par l'adresse IP de votre ordinateur
     } else if (Platform.isIOS) {
-      return 'http://localhost:3000';
+      return 'http://localhost:5000';
     }
   }
   return 'https://api.choiceapp.fr';
@@ -71,6 +73,10 @@ bool isMobile() {
 
 // Modifier l'URL par défaut pour utiliser Dicebear (un service d'avatar par défaut)
 String getDefaultAvatarUrl(String userId) {
+  // Utiliser kDebugMode pour vérifier si on est en mode debug
+  if (kDebugMode) {
+    // Peut-être utiliser une URL différente pour le debug si nécessaire
+  }
   return 'https://api.dicebear.com/6.x/initials/png?seed=$userId';
 }
 
@@ -170,7 +176,8 @@ String? getToken() {
   return '';
 }
 
-// Remplacer kDebugMode par une vérification appropriée
-bool get isDebugMode {
-  return false; // À remplacer par la logique appropriée
+// ADDED: Function to get WebSocket URL
+String getWebSocketUrl() {
+  // Use dotenv or return a default value
+  return dotenv.env['WEBSOCKET_URL'] ?? 'http://localhost:5000'; // Adjust default if WS is on a different port/path
 }

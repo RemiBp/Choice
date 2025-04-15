@@ -541,78 +541,124 @@ class ConversationService {
   
   // Transformation des données brutes de conversations
   Future<List<Map<String, dynamic>>> _processConversations(List<dynamic> rawConversations, String currentUserId) async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('token') ?? '';
-    final baseUrl = getBaseUrl();
     final List<Map<String, dynamic>> processedConversations = [];
-    
-    for (var conv in rawConversations) {
-      final List<dynamic> participants = conv['participants'];
-      bool isGroup = participants.length > 2;
-      
+
+    for (var rawConv in rawConversations) {
+      if (rawConv is! Map<String, dynamic>) {
+        if (kDebugMode) {
+          print("⚠️ Skipping invalid conversation data: Not a Map. Data: $rawConv");
+        }
+        continue; // Skip if the item is not a map
+      }
+      // Use safe access for all fields from the primary conversation data
+      final Map<String, dynamic> conv = Map<String, dynamic>.from(rawConv);
+      final String convId = _safeGet<String>(conv, 'id', 'unknown_${DateTime.now().millisecondsSinceEpoch}');
+      final List<String> participants = _safeGet<List<String>>(conv, 'participants', []);
+      final String groupName = _safeGet<String>(conv, 'groupName', 'Groupe');
+      final String groupAvatar = _safeGet<String>(conv, 'groupAvatar', '');
+      final String lastMessageContent = _safeGet<String>(conv, 'lastMessage', '');
+      final String timeStr = _safeGet<String>(conv, 'time', DateTime.now().toIso8601String());
+      final int unreadCount = _safeGet<int>(conv, 'unreadCount', 0); // Get unread count safely
+      final bool isGroupFlag = _safeGet<bool>(conv, 'isGroup', false);
+      final bool isRestaurantFlag = _safeGet<bool>(conv, 'isRestaurant', false);
+      final bool isLeisureFlag = _safeGet<bool>(conv, 'isLeisure', false);
+
+      // Determine if group based on flag or participant count
+      bool isGroup = isGroupFlag || participants.length > 2;
+
       if (isGroup) {
         // Traitement pour une conversation de groupe
+        final String fallbackGroupName = groupName.isNotEmpty && groupName != 'Groupe' 
+            ? groupName 
+            : (convId.isNotEmpty ? convId.substring(0, min(convId.length, 2)) : '??');
+        final String finalGroupAvatar = (groupAvatar.isNotEmpty && groupAvatar.startsWith('http'))
+            ? groupAvatar 
+            : 'https://ui-avatars.com/api/?name=${Uri.encodeComponent(fallbackGroupName)}&background=random&size=128';
+
         processedConversations.add({
-          'id': conv['_id'],
-          'name': conv['groupName'] ?? 'Groupe',
-          'avatar': conv['groupAvatar'] ?? 'https://via.placeholder.com/150',
-          'lastMessage': conv['lastMessage'] ?? 'Conversation de groupe',
-          'time': conv['lastUpdated'] ?? DateTime.now().toIso8601String(),
-          'unreadCount': conv['unreadMessages'] ?? 0,
+          'id': convId,
+          'name': groupName,
+          'avatar': finalGroupAvatar, // Use final safe group avatar URL
+          'lastMessage': lastMessageContent,
+          'time': timeStr,
+          'unreadCount': unreadCount, // Use safe unread count
           'isGroup': true,
-          'isRestaurant': false,
-          'isLeisure': false,
+          'isRestaurant': false, // Explicitly false for groups
+          'isLeisure': false, // Explicitly false for groups
           'participants': participants,
         });
-        continue;
-      }
-      
-      // Trouver l'ID du destinataire (qui n'est pas l'utilisateur actuel)
-      String recipientId = '';
-      for (var participantId in participants) {
-        if (participantId != currentUserId) {
-          recipientId = participantId;
-          break;
+      } else {
+        // Traitement pour une conversation individuelle
+        // Use the flags directly from the processed data
+
+        // Extract name and avatar first, using potential nested structure
+        // Initialize with defaults
+        String processedName = _safeGet<String>(conv, 'name', 'Utilisateur');
+        String processedAvatar = _safeGet<String>(conv, 'avatar', '');
+
+        // Check for producerInfo (assuming backend adds this for producer convs)
+        final producerInfo = _safeGet<Map<String, dynamic>?>(conv, 'producerInfo', null);
+        if (producerInfo != null) {
+            processedName = _safeGet<String>(producerInfo, 'name', processedName);
+            processedAvatar = _safeGet<String>(producerInfo, 'photo', processedAvatar);
+        } else {
+            // Check for participantsInfo (assuming backend adds this for user convs)
+            final participantsInfo = _safeGet<List<dynamic>>(conv, 'participantsInfo', []);
+            if (participantsInfo.isNotEmpty && participantsInfo[0] is Map) {
+                final otherParticipantData = Map<String, dynamic>.from(participantsInfo[0]);
+                processedName = _safeGet<String>(otherParticipantData, 'name', 
+                                _safeGet<String>(otherParticipantData, 'username', processedName));
+                processedAvatar = _safeGet<String>(otherParticipantData, 'profilePicture', 
+                                _safeGet<String>(otherParticipantData, 'photo_url', processedAvatar));
+            }
         }
-      }
-      
-      if (recipientId.isEmpty) continue;
-      
-      // Récupérer les détails du participant (nom, photo, etc.)
-      try {
-        final userResponse = await http.get(
-          Uri.parse('$baseUrl/api/users/$recipientId'),
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer $token',
-          },
+
+        // Fallback avatar generation (now uses the potentially updated processedName)
+        final String fallbackAvatarName = processedName.isNotEmpty && processedName != 'Utilisateur' 
+            ? processedName 
+            : (convId.isNotEmpty ? convId.substring(0, min(convId.length, 2)) : '??');
+        final String finalAvatar = (processedAvatar.isNotEmpty && (processedAvatar.startsWith('http')))
+            ? processedAvatar 
+            : 'https://ui-avatars.com/api/?name=${Uri.encodeComponent(fallbackAvatarName)}&background=random&size=128';
+
+        // Find the other participant ID
+        final String otherParticipantId = participants.firstWhere(
+          (p) => p != currentUserId, 
+          orElse: () => ''
         );
-        
-        if (userResponse.statusCode == 200) {
-          final userData = json.decode(userResponse.body);
-          
-          // Déterminer si c'est un restaurant, loisir ou utilisateur standard
-          bool isRestaurant = userData['type'] == 'restaurant';
-          bool isLeisure = userData['type'] == 'leisure';
-          
-          processedConversations.add({
-            'id': conv['_id'],
-            'recipientId': recipientId,
-            'name': userData['name'] ?? userData['username'] ?? 'Utilisateur',
-            'avatar': userData['photo_url'] ?? userData['profilePicture'] ?? userData['avatar'] ?? 'https://via.placeholder.com/150',
-            'lastMessage': conv['lastMessage'] ?? 'Démarrer une conversation',
-            'time': conv['lastUpdated'] ?? DateTime.now().toIso8601String(),
-            'unreadCount': userData['unreadMessages'] ?? 0,
-            'isRestaurant': isRestaurant,
-            'isLeisure': isLeisure,
-            'isGroup': false,
-          });
+
+        // Determine participant type based on flags
+        String participantType = 'user'; // Default to user
+        if (isRestaurantFlag) {
+          participantType = 'restaurant';
+        } else if (isLeisureFlag) {
+          participantType = 'leisure';
+        } else if (_safeGet<bool>(conv, 'isWellness', false)) {
+           participantType = 'wellness';
+        } else if (_safeGet<bool>(conv, 'isBeauty', false)) {
+           participantType = 'beauty';
         }
-      } catch (e) {
-        print('Erreur lors de la récupération des détails du participant: $e');
+
+        processedConversations.add({
+          'id': convId,
+          'name': processedName, // Use the extracted/updated name
+          'avatar': finalAvatar, // Use the extracted/updated avatar
+          'lastMessage': lastMessageContent,
+          'time': timeStr,
+          'unreadCount': unreadCount, // Use safe unread count
+          'isGroup': false,
+          'isRestaurant': isRestaurantFlag, // Use safe flag
+          'isLeisure': isLeisureFlag, // Use safe flag
+          'participants': participants,
+          // Add other participant info needed for profile navigation
+          'otherParticipantId': otherParticipantId,
+          'participantType': participantType,
+          // Optionally keep producerInfo if provided
+          'producerInfo': _safeGet<Map<String, dynamic>?>(conv, 'producerInfo', null),
+        });
       }
     }
-    
+
     return processedConversations;
   }
 
@@ -1546,5 +1592,45 @@ class ConversationService {
       print('❌ Exception avec URL alternative: $e');
       throw Exception('Erreur lors de l\'envoi du message: $e');
     }
+  }
+
+  // Helper function to safely get values from a map
+  T _safeGet<T>(Map<String, dynamic> map, String key, T defaultValue) {
+    try {
+      final value = map[key];
+      if (value is T) {
+        return value;
+      }
+      // Attempt type conversion for common cases
+      if (T == int && value is num) {
+        return value.toInt() as T;
+      }
+      if (T == double && value is num) {
+        return value.toDouble() as T;
+      }
+      if (T == String && value != null) {
+        return value.toString() as T;
+      }
+      if (T == bool && value is int) {
+        return (value == 1) as T;
+      }
+      if (T == bool && value is String) {
+        return (value.toLowerCase() == 'true' || value == '1') as T;
+      }
+      // Handle List<String> conversion by checking type string representation
+      if (T.toString() == 'List<String>' && value is List) {
+        try {
+          return value.map((e) => e.toString()).toList() as T;
+        } catch (castError) {
+          // Handle potential cast error if elements aren't strings
+          print("⚠️ Error casting List elements to String for key '$key': $castError");
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print("⚠️ Error safely getting key '$key': $e. Using default: $defaultValue");
+      }
+    }
+    return defaultValue;
   }
 } 
