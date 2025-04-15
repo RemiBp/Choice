@@ -165,17 +165,17 @@ dependency_overrides:
     git:
       url: https://github.com/RemiBp/Choice.git
       path: plugin/flutter_local_notifications
-      ref: 4824d2b
+      ref: main
   flutter_app_badger:
     git:
       url: https://github.com/RemiBp/Choice.git
       path: plugin/flutter_app_badger
-      ref: 4824d2b
+      ref: main
   contacts_service:
     git:
       url: https://github.com/RemiBp/Choice.git
-      path: plugin/contacts_service
-      ref: 4824d2b
+      path: plugin
+      ref: main
   webrtc_interface: "1.1.1"  # Spécification explicite de la version pour éviter les conflits
   # google_maps_flutter_platform_interface: 2.4.1  # REMOVING this override
  

@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
+import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform, kDebugMode;
 import 'package:flutter/widgets.dart';
 import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
