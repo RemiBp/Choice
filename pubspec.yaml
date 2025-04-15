@@ -68,10 +68,7 @@ dependencies:
   permission_handler: ^11.2.0
   # Plugin contacts_service personnalisé depuis GitHub
   contacts_service:
-    git:
-      url: https://github.com/RemiBp/Choice.git
-      path: plugin
-      ref: main
+    path: ../plugin/contacts_service
 
   # Paiement et WebView
   flutter_stripe: ^11.4.0
@@ -101,13 +98,15 @@ dependencies:
   firebase_messaging: ^14.6.4
   firebase_analytics: ^10.8.0
   cloud_firestore: ^4.13.6  # Ajouté pour résoudre l'erreur
-  flutter_local_notifications: ^16.3.3
+  flutter_local_notifications:
+    path: ../plugin/flutter_local_notifications
   # Animation pour les messages envoyés et reçus
   flutter_chat_bubble: ^2.0.2
   # Pour des visuels plus attrayants
   flutter_staggered_animations: ^1.1.1
   # Pour les badges de notifications - version personnalisée depuis GitHub
-  flutter_app_badger: ^1.5.0
+  flutter_app_badger:
+    path: ../plugin/flutter_app_badger
   badges: ^3.1.2  # Pour les badges dans l'interface utilisateur
   # Pour les actions sur les notifications
   rxdart: ^0.27.7
@@ -162,20 +161,11 @@ flutter_badges: ^3.1.2
 # Forcer l'utilisation des versions personnalisées
 dependency_overrides:
   flutter_local_notifications:
-    git:
-      url: https://github.com/RemiBp/Choice.git
-      path: plugin/flutter_local_notifications
-      ref: main
+    path: ../plugin/flutter_local_notifications
   flutter_app_badger:
-    git:
-      url: https://github.com/RemiBp/Choice.git
-      path: plugin/flutter_app_badger
-      ref: main
+    path: ../plugin/flutter_app_badger
   contacts_service:
-    git:
-      url: https://github.com/RemiBp/Choice.git
-      path: plugin
-      ref: main
-  webrtc_interface: "1.1.1"  # Spécification explicite de la version pour éviter les conflits
-  # google_maps_flutter_platform_interface: 2.4.1  # REMOVING this override
+    path: ../plugin/contacts_service
+  webrtc_interface: "1.1.1"  # Keep version override
+  # google_maps_flutter_platform_interface: 2.4.1  # Keep commented out
  

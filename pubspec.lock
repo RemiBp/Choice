@@ -180,11 +180,9 @@ packages:
   contacts_service:
     dependency: "direct main"
     description:
-      path: plugin
-      ref: "4824d2b"
-      resolved-ref: "4824d2b2cca32586ffb201c254ae660bb20b5a6a"
-      url: "https://github.com/RemiBp/Choice.git"
-    source: git
+      path: "../plugin/contacts_service"
+      relative: true
+    source: path
     version: "1.0.0+1"
   cross_file:
     dependency: transitive
@@ -482,11 +480,9 @@ packages:
   flutter_app_badger:
     dependency: "direct main"
     description:
-      path: "plugin/flutter_app_badger"
-      ref: "4824d2b"
-      resolved-ref: "4824d2b2cca32586ffb201c254ae660bb20b5a6a"
-      url: "https://github.com/RemiBp/Choice.git"
-    source: git
+      path: "../plugin/flutter_app_badger"
+      relative: true
+    source: path
     version: "1.5.0+1"
   flutter_cache_manager:
     dependency: transitive
@@ -563,11 +559,9 @@ packages:
   flutter_local_notifications:
     dependency: "direct main"
     description:
-      path: "plugin/flutter_local_notifications"
-      ref: "4824d2b"
-      resolved-ref: "4824d2b2cca32586ffb201c254ae660bb20b5a6a"
-      url: "https://github.com/RemiBp/Choice.git"
-    source: git
+      path: "../plugin/flutter_local_notifications"
+      relative: true
+    source: path
     version: "14.1.4+2"
   flutter_local_notifications_linux:
     dependency: transitive
