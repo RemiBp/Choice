@@ -1,0 +1,1269 @@
+import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'package:image_picker/image_picker.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:provider/provider.dart';
+import 'producer_screen.dart'; // Pour les détails des restaurants
+import 'producerLeisure_screen.dart'; // Pour les producteurs de loisirs
+import 'eventLeisure_screen.dart'; // Pour les événements
+import 'messaging_screen.dart';
+import 'language_settings_screen.dart'; // Import pour les paramètres de langue
+import 'email_notifications_screen.dart'; // Import pour les notifications
+import '../utils/constants.dart' as constants; // Import constants directement
+import '../services/auth_service.dart'; // Import AuthService for logout
+import '../services/translation_service.dart'; // Import pour la traduction
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import '../models/post.dart'; // Import PostLocation class
+import '../models/user_model.dart'; // Import user model for profile data
+import 'package:easy_localization/easy_localization.dart'; // Pour la traduction
+
+/// Classe delegate pour TabBar persistant
+class _SliverAppBarDelegate extends SliverPersistentHeaderDelegate {
+  final TabBar _tabBar;
+
+  _SliverAppBarDelegate(this._tabBar);
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return Container(
+      color: Colors.white,
+      child: _tabBar,
+    );
+  }
+
+  @override
+  double get maxExtent => _tabBar.preferredSize.height;
+
+  @override
+  double get minExtent => _tabBar.preferredSize.height;
+
+  @override
+  bool shouldRebuild(covariant _SliverAppBarDelegate oldDelegate) {
+    return false;
+  }
+}
+
+class MyProfileScreen extends StatefulWidget {
+  final String userId;
+  final bool isCurrentUser;
+
+  const MyProfileScreen({Key? key, required this.userId, this.isCurrentUser = true}) : super(key: key);
+
+  @override
+  State<MyProfileScreen> createState() => _MyProfileScreenState();
+  
+  // Fonction statique pour naviguer vers l'écran de profil depuis n'importe où
+  static void navigateTo(BuildContext context, {String? userId, bool isCurrentUser = true}) {
+    if (userId == null) {
+      // Si aucun userId n'est fourni, récupérer celui de l'AuthService
+      final authService = Provider.of<AuthService>(context, listen: false);
+      userId = authService.userId;
+      
+      if (userId == null) {
+        // Si toujours null, afficher un message d'erreur
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Erreur: Utilisateur non connecté')),
+        );
+        return;
+      }
+    }
+    
+    // Utiliser rootNavigator pour éviter les problèmes de context
+    Navigator.of(context, rootNavigator: true).push(
+      MaterialPageRoute(
+        builder: (context) => MyProfileScreen(
+          userId: userId!,
+          isCurrentUser: isCurrentUser,
+        ),
+      ),
+    );
+  }
+}
+
+class _MyProfileScreenState extends State<MyProfileScreen> with AutomaticKeepAliveClientMixin, SingleTickerProviderStateMixin {
+  late Future<Map<String, dynamic>> _userFuture;
+  late Future<List<dynamic>> _postsFuture;
+  bool _isLoading = true;
+  String? _errorMessage;
+  late TabController _tabController; // Contrôleur pour les onglets
+
+  // Ajouter une variable pour la langue utilisateur
+  String userLanguage = 'fr';
+
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  void initState() {
+    super.initState();
+    
+    // Initialiser le TabController
+    _tabController = TabController(length: 2, vsync: this);
+    
+    // Initialiser _userFuture avec une valeur par défaut pour éviter l'erreur LateInitializationError
+    _userFuture = Future.value({
+      '_id': widget.userId,
+      'name': 'Utilisateur',
+      'bio': 'Informations non disponibles',
+      'profilePicture': '',
+      'followers': [],
+      'following': [],
+      'posts': []
+    });
+    
+    // Initialiser _postsFuture avec une liste vide
+    _postsFuture = Future.value([]);
+    
+    // Charger les données
+    _initializeProfile();
+    
+    // Charger la langue de l'utilisateur
+    _loadUserLanguage();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose(); // Ne pas oublier de disposer le contrôleur
+    super.dispose();
+  }
+
+  void _initializeProfile() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+    
+    try {
+      final userId = widget.userId;
+      
+      print('✅ Initialisation du profil pour userId: $userId');
+      
+      if (widget.isCurrentUser) {
+        // Si c'est le profil de l'utilisateur actuel, utiliser le UserModel
+        final userModel = Provider.of<UserModel>(context, listen: false);
+        
+        if (userModel.isLoggedIn) {
+          // Préparer les futures sans dépendre de l'authentification
+          _postsFuture = _fetchUserPosts(userId);
+          
+          if (mounted) {
+            setState(() {
+              _isLoading = false;
+            });
+          }
+        } else {
+          // Initialiser les futures pour charger les données
+          _userFuture = _fetchUserProfile(userId);
+          _postsFuture = _fetchUserPosts(userId);
+          
+          if (mounted) {
+            setState(() {
+              _isLoading = false;
+            });
+          }
+        }
+      } else {
+        // Si ce n'est pas le profil de l'utilisateur actuel
+        final userData = await _fetchUserProfile(userId);
+        
+        if (mounted) {
+          _userFuture = Future.value(userData);
+          _postsFuture = _fetchUserPosts(userId);
+          setState(() {
+            _isLoading = false;
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = "Erreur lors du chargement du profil";
+        });
+      }
+      
+      print('❌ Erreur lors de l\'initialisation du profil: $e');
+    }
+  }
+  
+  // Ajouter la méthode qui charge la langue de l'utilisateur
+  Future<void> _loadUserLanguage() async {
+    try {
+      final lang = await TranslationService.getUserPreferredLanguage();
+      if (mounted) {
+        setState(() {
+          userLanguage = lang;
+        });
+      }
+    } catch (e) {
+      print('Erreur lors du chargement de la langue: $e');
+    }
+  }
+  
+  Future<void> _loadUserData() async {
+    // Vérifier si le widget est toujours monté avant de mettre à jour l'état
+    if (!mounted) return;
+    
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+    
+    try {
+      final userModel = Provider.of<UserModel>(context, listen: false);
+      final authService = Provider.of<AuthService>(context, listen: false);
+      
+      // Charger les données utilisateur via le modèle
+      await userModel.fetchUserData();
+      
+      // Obtenir l'ID de l'utilisateur pour charger les posts
+      final userId = authService.userId;
+      
+      if (userId == null || userId.isEmpty) {
+        throw Exception('ID utilisateur non disponible');
+      }
+      
+      // Charger les posts avec l'ID utilisateur
+      _postsFuture = _fetchUserPosts(userId);
+      
+      // Vérifier à nouveau si le widget est monté avant setState
+      if (!mounted) return;
+      
+      setState(() {
+        _isLoading = false;
+      });
+    } catch (e) {
+      // Vérifier à nouveau si le widget est monté avant setState
+      if (!mounted) return;
+      
+      setState(() {
+        _isLoading = false;
+        _errorMessage = 'Erreur lors du chargement des données: $e';
+      });
+      print('❌ Erreur lors du chargement des données utilisateur: $e');
+    }
+  }
+
+  /// Récupère le profil utilisateur
+  Future<Map<String, dynamic>> _fetchUserProfile(String userId) async {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    
+    try {
+      // Essayer d'obtenir un token, mais continuer même s'il n'y en a pas
+      final token = await authService.getTokenInstance(forceRefresh: false);
+      final baseUrl = constants.getBaseUrl();
+      
+      // Construire les en-têtes en fonction de la disponibilité du token
+      final headers = {
+        'Content-Type': 'application/json',
+      };
+      
+      // Ajouter le token seulement s'il existe
+      if (token != null && token.isNotEmpty) {
+        headers['Authorization'] = 'Bearer $token';
+      }
+      
+      // Faire la requête avec ou sans token
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/users/$userId'),
+        headers: headers,
+      );
+
+      if (response.statusCode == 200) {
+        try {
+          Map<String, dynamic> userData = json.decode(response.body);
+          print('✅ Données utilisateur récupérées avec succès');
+          
+          // Ensure critical fields exist to prevent null errors
+          if (!userData.containsKey('followers')) {
+            userData['followers'] = [];
+          }
+          if (!userData.containsKey('following')) {
+            userData['following'] = [];
+          }
+          if (!userData.containsKey('posts')) {
+            userData['posts'] = [];
+          }
+          
+          // Convertir les listes dynamiques en listes de type spécifique pour Flutter
+          if (userData['followers'] is List) {
+            userData['followers'] = (userData['followers'] as List).map((item) => item.toString()).toList();
+          }
+          if (userData['following'] is List) {
+            userData['following'] = (userData['following'] as List).map((item) => item.toString()).toList();
+          }
+          if (userData['posts'] is List) {
+            userData['posts'] = (userData['posts'] as List).map((item) => item.toString()).toList();
+          }
+          if (userData['liked_tags'] is List) {
+            userData['liked_tags'] = (userData['liked_tags'] as List).map((item) => item.toString()).toList();
+          }
+          if (userData['interests'] is List) {
+            userData['interests'] = (userData['interests'] as List).map((item) => item.toString()).toList();
+          }
+          if (userData['conversations'] is List) {
+            userData['conversations'] = (userData['conversations'] as List).map((item) => item.toString()).toList();
+          }
+          
+          return userData;
+        } catch (e) {
+          print('❌ Erreur de parsing JSON: ${response.body}');
+          return _getDefaultUserData(userId);
+        }
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        // En cas d'erreur d'authentification, retourner des données par défaut
+        print('⚠️ Erreur d\'authentification pour le profil - Utilisation des données par défaut');
+        return _getDefaultUserData(userId);
+      } else {
+        print('❌ Erreur de récupération utilisateur (${response.statusCode}): ${response.body}');
+        return _getDefaultUserData(userId);
+      }
+    } catch (e) {
+      print('❌ Exception lors de la récupération du profil: $e');
+      // Retourner des données par défaut pour éviter les erreurs d'UI
+      return _getDefaultUserData(userId);
+    }
+  }
+
+  // Helper function to provide default user data
+  Map<String, dynamic> _getDefaultUserData(String userId) {
+    return {
+      '_id': userId,
+      'name': 'Utilisateur',
+      'bio': 'Informations non disponibles',
+      'profilePicture': '',
+      'followers': <String>[],
+      'following': <String>[],
+      'posts': <String>[],
+      'interests': <String>[],
+      'liked_tags': <String>[],
+      'conversations': <String>[]
+    };
+  }
+
+  /// Récupère les posts associés à l'utilisateur
+  Future<List<dynamic>> _fetchUserPosts(String userId) async {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    
+    try {
+      // Valider le token avant de faire l'appel API
+      final token = await authService.getTokenInstance();
+      if (token == null || token.isEmpty) {
+        print('❌ Token manquant pour _fetchUserPosts');
+        return [];
+      }
+      
+      final baseUrl = constants.getBaseUrl();
+      final headers = {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json'
+      };
+      
+      print('🔍 Récupération des posts pour userId: $userId');
+      
+      // Utiliser la route API correcte /api/users/:id/posts
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/users/$userId/posts'),
+        headers: headers,
+      ).timeout(const Duration(seconds: 10));  // Timeout augmenté à 10 secondes
+  
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        
+        // Vérifier le format de la réponse (basé sur le code backend)
+        if (data is Map<String, dynamic> && data.containsKey('posts')) {
+            final posts = data['posts'];
+            if (posts is List) {
+            print('✅ Posts utilisateur récupérés avec succès: ${posts.length} posts');
+            
+            // Convertir les éléments de la liste si nécessaire
+            final processedPosts = (posts as List).map((post) {
+              if (post is Map<String, dynamic>) {
+                // S'assurer que _id et id sont en String
+                if (post.containsKey('_id')) post['_id'] = post['_id'].toString();
+                if (post.containsKey('id')) post['id'] = post['id'].toString();
+                
+                // Convertir les listes dynamiques en listes typées
+                if (post.containsKey('likes') && post['likes'] is List) {
+                  post['likes'] = (post['likes'] as List).map((item) => item.toString()).toList();
+                }
+                if (post.containsKey('comments') && post['comments'] is List) {
+                  post['comments'] = (post['comments'] as List).map((item) {
+                    if (item is Map<String, dynamic>) return item;
+                    return {'text': item.toString()};
+                  }).toList();
+                }
+              }
+              return post;
+            }).toList();
+            
+            return processedPosts;
+          }
+        } else if (data is List) {
+          // Si les données sont déjà une liste, les utiliser directement
+          print('✅ Posts utilisateur récupérés avec succès: ${data.length} posts');
+          
+          // Appliquer le même traitement de conversion
+          final processedPosts = (data as List).map((post) {
+            if (post is Map<String, dynamic>) {
+              if (post.containsKey('_id')) post['_id'] = post['_id'].toString();
+              if (post.containsKey('id')) post['id'] = post['id'].toString();
+              
+              if (post.containsKey('likes') && post['likes'] is List) {
+                post['likes'] = (post['likes'] as List).map((like) => like.toString()).toList();
+              }
+              if (post.containsKey('comments') && post['comments'] is List) {
+                post['comments'] = (post['comments'] as List).map((comment) {
+                  if (comment is Map<String, dynamic>) return comment;
+                  return {'text': comment.toString()};
+                }).toList();
+              }
+            }
+            return post;
+          }).toList();
+          
+          return processedPosts;
+        }
+        
+        // Si aucun format reconnu, renvoyer une liste vide
+        print('⚠️ Format de réponse non reconnu pour les posts');
+              return [];
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        // En cas d'erreur d'authentification
+        print('⚠️ Erreur d\'authentification (${response.statusCode}) lors de la récupération des posts');
+            
+            // Si session expirée, déconnecter l'utilisateur
+              authService.logout();
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Session expirée. Veuillez vous reconnecter.'))
+                );
+            }
+            
+            return [];
+      } else {
+        print('❌ Erreur (${response.statusCode}) lors de la récupération des posts: ${response.body}');
+        
+        // Message d'erreur approprié selon le code d'erreur
+        if (response.statusCode == 404) {
+          print('⚠️ Aucun post trouvé pour cet utilisateur (404)');
+        } else if (response.statusCode >= 500) {
+          print('⚠️ Erreur serveur lors de la récupération des posts (${response.statusCode})');
+        }
+        
+        return [];
+      }
+    } catch (e) {
+      print('❌ Exception lors de la récupération des posts: $e');
+      
+      // Vérifier si c'est une erreur de timeout
+      if (e.toString().contains('timeout')) {
+        print('⚠️ Timeout lors de la récupération des posts');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Délai d\'attente dépassé. Veuillez réessayer.'))
+          );
+        }
+      }
+      
+      return [];
+    }
+  }
+
+  /// Navigation vers les détails d'un producteur ou événement
+  Future<void> _navigateToDetails(String id, String type) async {
+    print('🔍 Navigation vers l\'ID : $id (Type : $type)');
+
+    try {
+      final String endpoint;
+      switch (type) {
+        case 'restaurant':
+          endpoint = 'producers';
+          break;
+        case 'leisureProducer':
+          endpoint = 'leisureProducers';
+          break;
+        case 'event':
+          endpoint = 'events';
+          break;
+        default:
+          throw Exception("Type non reconnu pour l'ID : $id");
+      }
+
+      final url = Uri.parse('${constants.getBaseUrl()}/api/$endpoint/$id');
+      final response = await http.get(url);
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+
+        if (type == 'restaurant') {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => ProducerScreen(producerId: id),
+            ),
+          );
+        } else if (type == 'leisureProducer') {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => ProducerLeisureScreen(producerData: data),
+            ),
+          );
+        } else if (type == 'event') {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => EventLeisureScreen(eventData: data),
+            ),
+          );
+        }
+      } else {
+        print("Erreur lors de la récupération des détails : ${response.body}");
+      }
+    } catch (e) {
+      print("Erreur réseau : $e");
+    }
+  }
+
+  Future<void> _startConversation(String recipientId) async {
+    // Vérifier si l'ID de l'utilisateur est le même que celui du destinataire
+    if (widget.userId == recipientId) {
+      print('Les IDs sont identiques ! Impossible de commencer une conversation.');
+      return; // Retourner si l'ID de l'utilisateur et du destinataire sont identiques
+    }
+
+    try {
+      // Récupérer le token d'authentification et l'ID utilisateur via Provider
+      final authService = Provider.of<AuthService>(context, listen: false);
+      
+      // Vérifier directement si l'ID utilisateur est disponible plutôt que d'utiliser isAuthenticated
+      final hasUserId = authService.userId != null && authService.userId!.isNotEmpty;
+      if (!hasUserId) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Vous devez être connecté pour démarrer une conversation')),
+        );
+        return;
+      }
+      
+      final token = await authService.getTokenInstance();
+      final currentUserId = authService.userId;
+      
+      if (token == null || token.isEmpty) {
+        print('⚠️ Token manquant pour _startConversation');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Erreur d\'authentification. Veuillez vous reconnecter.')),
+        );
+        return;
+      }
+      
+      if (currentUserId == null || currentUserId.isEmpty) {
+        print('⚠️ ID utilisateur manquant pour _startConversation');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Erreur d\'identification. Veuillez vous reconnecter.')),
+        );
+        return;
+      }
+      
+      print('🔄 Démarrage d\'une conversation avec $recipientId');
+      
+      // Utiliser la nouvelle route d'API pour créer une conversation et envoyer un message
+      final baseUrl = constants.getBaseUrl();
+      final url = Uri.parse('$baseUrl/api/users/conversations/new-message');
+      final response = await http.post(
+        url,
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json'
+        },
+        body: json.encode({
+          'senderId': currentUserId,
+          'recipientIds': [recipientId],
+          'content': 'Bonjour, je souhaite entrer en contact avec vous.' // Message initial
+        }),
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final data = json.decode(response.body);
+        print('✅ Conversation créée avec succès: ${data['conversationId'] ?? "ID non disponible"}');
+        
+        // Naviguer vers la conversation
+        if (!mounted) return;
+        
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => MessagingScreen(
+              userId: currentUserId,
+              selectedConversationId: data['conversationId'],
+            ),
+          ),
+        );
+      } else {
+        print('❌ Erreur lors de la création de la conversation: ${response.statusCode} - ${response.body}');
+        
+        if (!mounted) return;
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur lors de la création de la conversation: ${response.statusCode}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      print('❌ Erreur lors de la création de la conversation: $e');
+      
+      if (!mounted) return;
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erreur: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.isCurrentUser ? 'profile.my_profile'.tr() : 'profile.user_profile'.tr()),
+        actions: [
+          if (widget.isCurrentUser)
+            IconButton(
+              icon: const Icon(Icons.settings),
+              onPressed: () {
+                _showSettingsBottomSheet(context);
+              },
+            ),
+        ],
+      ),
+      body: _errorMessage != null && _errorMessage!.isNotEmpty
+        ? _buildAuthErrorView()
+        : widget.isCurrentUser && Provider.of<UserModel>(context).isLoggedIn
+          ? _buildProfileWithUserModel(context)
+          : _buildProfileWithFuture(context),
+    );
+  }
+
+  // Méthode pour afficher les paramètres
+  void _showSettingsBottomSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16.0)),
+      ),
+      builder: (BuildContext context) {
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 24.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Titre
+              const Padding(
+                padding: EdgeInsets.only(bottom: 16.0),
+                child: Text(
+                  'Paramètres',
+                  style: TextStyle(
+                    fontSize: 18.0,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              
+              // Options de paramètres
+              ListTile(
+                leading: const Icon(Icons.language),
+                title: const Text('Langue'),
+                subtitle: Text('Actuellement: ${userLanguage == 'fr' ? 'Français' : userLanguage == 'en' ? 'English' : userLanguage}'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const LanguageSettingsScreen(),
+                    ),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.notifications),
+                title: const Text('Notifications'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => EmailNotificationsScreen(
+                        userId: widget.userId,
+                      ),
+                    ),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.logout),
+                title: const Text('Déconnexion'),
+                onTap: () async {
+                  Navigator.pop(context);
+                  
+                  // Confirmer la déconnexion
+                  bool confirmLogout = await showDialog(
+                    context: context,
+                    builder: (BuildContext context) {
+                      return AlertDialog(
+                        title: const Text('Déconnexion'),
+                        content: const Text('Êtes-vous sûr de vouloir vous déconnecter ?'),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(context, false),
+                            child: const Text('Annuler'),
+                          ),
+                          TextButton(
+                            onPressed: () => Navigator.pop(context, true),
+                            child: const Text('Déconnecter', style: TextStyle(color: Colors.red)),
+                          ),
+                        ],
+                      );
+                    },
+                  ) ?? false;
+                  
+                  if (confirmLogout) {
+                    final authService = Provider.of<AuthService>(context, listen: false);
+                    await authService.logout();
+                    
+                    if (!mounted) return;
+                    
+                    // Rediriger vers la page d'accueil
+                    Navigator.of(context, rootNavigator: true).pushReplacementNamed('/');
+                  }
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // Widget pour afficher une erreur d'authentification
+  Widget _buildAuthErrorView() {
+    // Déterminer si l'erreur est une erreur d'authentification ou autre
+    final bool isAuthError = _errorMessage != null && 
+        (_errorMessage!.contains('authentifi') || 
+         _errorMessage!.contains('token') || 
+         _errorMessage!.contains('connecté'));
+         
+    final String title = isAuthError 
+        ? 'Erreur d\'authentification' 
+        : 'Une erreur est survenue';
+        
+    final String message = _errorMessage ?? 
+        (isAuthError 
+            ? 'Votre session a expiré ou vous n\'êtes pas connecté. Veuillez vous reconnecter pour accéder à votre profil.' 
+            : 'Une erreur inattendue s\'est produite. Veuillez réessayer plus tard.');
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              isAuthError ? Icons.lock : Icons.error_outline,
+              size: 64,
+              color: isAuthError ? Colors.orange : Colors.red,
+            ),
+            const SizedBox(height: 20),
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 16,
+                color: Colors.grey,
+              ),
+            ),
+            const SizedBox(height: 30),
+            if (isAuthError)
+              Column(
+                children: [
+                  ElevatedButton(
+                    onPressed: () async {
+                      // Se déconnecter pour forcer la reconnexion
+                      final authService = Provider.of<AuthService>(context, listen: false);
+                      await authService.logout();
+                      
+                      // Rediriger vers la page d'accueil/login
+                      if (!mounted) return;
+                      Navigator.of(context, rootNavigator: true).pushReplacementNamed('/');
+                    },
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+                      backgroundColor: Colors.blue,
+                    ),
+                    child: const Text('Se reconnecter', style: TextStyle(color: Colors.white)),
+                  ),
+                  const SizedBox(height: 10),
+                  OutlinedButton(
+                    onPressed: _initializeProfile,
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+                    ),
+                    child: const Text('Réessayer sans se reconnecter'),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    "Si le problème persiste, essayez de fermer et relancer l'application.",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 14, color: Colors.grey),
+                  )
+                ],
+              )
+            else
+              ElevatedButton(
+                  onPressed: _initializeProfile,
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+                  ),
+                  child: const Text('Réessayer'),
+                ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Utilise le UserModel pour afficher le profil
+  Widget _buildProfileWithUserModel(BuildContext context) {
+    final userModel = Provider.of<UserModel>(context);
+    
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    
+    if (_errorMessage != null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.error_outline, size: 48, color: Colors.red),
+            const SizedBox(height: 16),
+            Text(
+              'Une erreur est survenue',
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _errorMessage!,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.grey),
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: _loadUserData,
+              child: const Text('Réessayer'),
+            ),
+          ],
+        ),
+      );
+    }
+    
+    // Utilisez les données du UserModel pour construire l'interface
+    return _buildUserProfileContent(
+      name: userModel.name ?? "Utilisateur",
+      bio: userModel.bio,
+      photoUrl: userModel.photoUrl,
+      followers: userModel.followers?.length ?? 0,
+      following: userModel.following?.length ?? 0,
+      posts: _postsFuture,
+    );
+  }
+
+  // Utilise Future pour afficher le profil d'un autre utilisateur
+  Widget _buildProfileWithFuture(BuildContext context) {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    
+    // S'assurer que _userFuture est initialisé, sinon utiliser une valeur par défaut
+    Future<Map<String, dynamic>> userFuture;
+    try {
+      userFuture = _userFuture;
+    } catch (e) {
+      // Si _userFuture n'est pas initialisé, créer une Future avec des données par défaut
+      userFuture = Future.value({
+        '_id': widget.userId,
+        'name': 'Utilisateur',
+        'bio': 'Informations non disponibles',
+        'profilePicture': '',
+        'followers': [],
+        'following': [],
+        'posts': []
+      });
+    }
+    
+    return FutureBuilder<Map<String, dynamic>>(
+      future: userFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        
+        if (snapshot.hasError) {
+          // En cas d'erreur, utiliser des données par défaut au lieu d'afficher l'erreur
+          print('⚠️ Erreur dans FutureBuilder pour le profil: ${snapshot.error}');
+          final userData = {
+            '_id': widget.userId,
+            'name': 'Utilisateur',
+            'bio': 'Informations non disponibles',
+            'profilePicture': '',
+            'followers': [],
+            'following': [],
+            'posts': []
+          };
+          
+          return _buildUserProfileContent(
+            name: userData['name'] as String,
+            bio: userData['bio'] as String?,
+            photoUrl: userData['profilePicture'] as String?,
+            followers: (userData['followers'] as List?)?.length ?? 0,
+            following: (userData['following'] as List?)?.length ?? 0,
+            posts: _postsFuture,
+          );
+        }
+        
+        if (!snapshot.hasData || snapshot.data == null) {
+          // Utiliser des données par défaut si aucune donnée n'est disponible
+          final userData = {
+            '_id': widget.userId,
+            'name': 'Utilisateur',
+            'bio': 'Informations non disponibles',
+            'profilePicture': '',
+            'followers': [],
+            'following': [],
+            'posts': []
+          };
+          
+          return _buildUserProfileContent(
+            name: userData['name'] as String,
+            bio: userData['bio'] as String?,
+            photoUrl: userData['profilePicture'] as String?,
+            followers: (userData['followers'] as List?)?.length ?? 0,
+            following: (userData['following'] as List?)?.length ?? 0,
+            posts: _postsFuture,
+          );
+        }
+        
+        final userData = snapshot.data!;
+        
+        // Corriger les problèmes de typage en convertissant correctement les types
+        String name = userData['name'] is String ? userData['name'] as String : (userData['name']?.toString() ?? 'Utilisateur');
+        String? bio = userData['bio'] is String ? userData['bio'] as String : userData['bio']?.toString();
+        String? photoUrl = (userData['photo_url'] is String ? userData['photo_url'] as String : userData['photo_url']?.toString()) 
+                        ?? (userData['profilePicture'] is String ? userData['profilePicture'] as String : userData['profilePicture']?.toString());
+        
+        int followers = 0;
+        if (userData['followers'] is List) {
+          followers = (userData['followers'] as List).length;
+        }
+        
+        int following = 0;
+        if (userData['following'] is List) {
+          following = (userData['following'] as List).length;
+        }
+        
+        return _buildUserProfileContent(
+          name: name,
+          bio: bio,
+          photoUrl: photoUrl,
+          followers: followers,
+          following: following,
+          posts: _postsFuture,
+        );
+      },
+    );
+  }
+
+  Widget _buildUserProfileContent({
+    required String name,
+    required String? bio,
+    required String? photoUrl,
+    required int followers,
+    required int following,
+    required Future<List<dynamic>> posts,
+  }) {
+    return NestedScrollView(
+      headerSliverBuilder: (context, innerBoxIsScrolled) {
+        return [
+          // AppBar avec profil et actions
+          SliverAppBar(
+            expandedHeight: 200.0,
+            floating: false,
+            pinned: true,
+            backgroundColor: Colors.teal,
+            flexibleSpace: FlexibleSpaceBar(
+              background: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.teal.shade800,
+                      Colors.teal.shade500,
+                    ],
+                  ),
+                ),
+                child: Stack(
+                  children: [
+                    // Background effet with local fallback
+                    Positioned.fill(
+                      child: Opacity(
+                        opacity: 0.1,
+                        child: photoUrl != null && photoUrl.isNotEmpty
+                          ? Image.network(
+                              photoUrl,
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, error, stackTrace) => Container(
+                                color: Colors.teal.shade200,
+                              ),
+                            )
+                          : Container(
+                              color: Colors.teal.shade200,
+                            ),
+                      ),
+                    ),
+                    // Contenu du header
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 70, 20, 20),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          // Photo de profil
+                          Container(
+                            width: 80,
+                            height: 80,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white, width: 3),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.2),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 3),
+                                ),
+                              ],
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(40),
+                              child: photoUrl != null && photoUrl.isNotEmpty
+                                ? CachedNetworkImage(
+                                    imageUrl: photoUrl,
+                                    fit: BoxFit.cover,
+                                    placeholder: (context, url) => Container(
+                                      color: Colors.grey[300],
+                                      child: const Center(child: CircularProgressIndicator()),
+                                    ),
+                                    errorWidget: (context, url, error) => Container(
+                                      color: Colors.grey[300],
+                                      child: const Icon(Icons.person, size: 40, color: Colors.white),
+                                    ),
+                                  )
+                                : Container(
+                                    color: Colors.grey[300],
+                                    child: const Icon(Icons.person, size: 40, color: Colors.white),
+                                  ),
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          // Informations de l'utilisateur
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  name,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.bold,
+                                    shadows: [
+                                      Shadow(
+                                        blurRadius: 3.0,
+                                        color: Colors.black26,
+                                        offset: Offset(0, 1),
+                                      ),
+                                    ],
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                if (bio != null && bio.isNotEmpty)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 4.0),
+                                    child: Text(
+                                      bio,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 14,
+                                      ),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          // TabBar pour les sections (Posts, Suivis, etc.)
+          SliverPersistentHeader(
+            delegate: _SliverAppBarDelegate(
+              TabBar(
+                tabs: [
+                  Tab(text: 'Posts ($followers)'),
+                  Tab(text: 'Abonnements ($following)'),
+                ],
+                controller: _tabController,
+                labelColor: Colors.teal,
+                unselectedLabelColor: Colors.grey,
+                indicatorColor: Colors.teal,
+              ),
+            ),
+            pinned: true,
+          ),
+        ];
+      },
+      body: TabBarView(
+        controller: _tabController,
+        children: [
+          // Tab pour les posts
+          FutureBuilder<List<dynamic>>(
+            future: posts,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              
+              if (snapshot.hasError) {
+                return Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.error_outline, size: 48, color: Colors.red),
+                      const SizedBox(height: 16),
+                      const Text('Erreur de chargement des posts'),
+                      const SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: _initializeProfile,
+                        child: const Text('Réessayer'),
+                      ),
+                    ],
+                  ),
+                );
+              }
+              
+              final postsList = snapshot.data ?? [];
+              
+              if (postsList.isEmpty) {
+                return Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.post_add, size: 64, color: Colors.grey),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Aucun post pour le moment',
+                        style: TextStyle(fontSize: 18, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                );
+              }
+              
+              // Afficher la liste des posts
+              return ListView.builder(
+                padding: const EdgeInsets.all(8),
+                itemCount: postsList.length,
+                itemBuilder: (context, index) {
+                  final post = postsList[index];
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 16),
+                    elevation: 2,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            post['content'] ?? 'Contenu non disponible',
+                            style: const TextStyle(fontSize: 16),
+                          ),
+                          const SizedBox(height: 8),
+                          if (post['image'] != null && post['image'].toString().isNotEmpty)
+                            Container(
+                              height: 200,
+                              width: double.infinity,
+                              margin: const EdgeInsets.symmetric(vertical: 8),
+                              child: CachedNetworkImage(
+                                imageUrl: post['image'],
+                                fit: BoxFit.cover,
+                                placeholder: (context, url) => const Center(child: CircularProgressIndicator()),
+                                errorWidget: (context, url, error) => const Icon(Icons.error),
+                              ),
+                            ),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                post['createdAt'] != null
+                                    ? 'Posté le: ${post['createdAt'].toString().substring(0, 10)}'
+                                    : 'Date inconnue',
+                                style: const TextStyle(color: Colors.grey),
+                              ),
+                              Row(
+                                children: [
+                                  Icon(Icons.favorite, color: Colors.red[300], size: 16),
+                                  const SizedBox(width: 4),
+                                  Text(post['likes'] != null ? post['likes'].length.toString() : '0'),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+          // Tab pour les abonnements
+          Center(
+            child: Text('Abonnements: $following'),
+          ),
+        ],
+      ),
+    );
+  }
+}

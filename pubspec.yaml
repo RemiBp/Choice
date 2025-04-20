@@ -1,0 +1,230 @@
+name: choice_app
+description: "Une application Flutter pour explorer des lieux en fonction de critères personnalisés."
+
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.5.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_web_plugins:
+    sdk: flutter
+  # Location tracking
+  location: ^5.0.3  # Package fiable pour la localisation avec suivi en temps réel
+  google_maps_flutter: ^2.5.3
+  # Force version 3.0.0 to avoid conflicts with google_maps_flutter_platform_interface
+  google_maps_cluster_manager:
+    git:
+      url: https://github.com/RemiBp/flutter_app_badger_fork.git
+      path: google_maps_cluster_manager # Assumed path in the fork
+      ref: "e3450f7" # Force latest commit
+  flutter_plugin_android_lifecycle: ^2.0.17
+  flutter_secure_storage: ^9.0.0
+  geocoding: ^2.1.1
+  # background_location: ^0.13.0  # Commenté car problème de compatibilité
+  
+  # Core
+  intl: ^0.19.0
+  cupertino_icons: ^1.0.8
+  http: ^1.1.0
+  provider: ^6.1.1
+  dio: ^5.4.0
+  flutter_dotenv: ^5.1.0
+  flutter_riverpod: ^2.3.6 # Ajouté pour résoudre l'erreur
+  
+  # UI et Charts
+  fl_chart: ^0.70.0
+  syncfusion_flutter_charts: ^28.2.7
+  flutter_svg: ^2.0.10
+  photo_view: ^0.14.0
+  cached_network_image: ^3.3.0
+  visibility_detector: ^0.4.0+2
+  carousel_slider: ^4.2.1
+  font_awesome_flutter: ^10.6.0
+  shimmer: ^3.0.0
+  lottie: ^3.0.0
+  animations: ^2.0.11
+  google_fonts: ^6.1.0
+  flutter_animate: ^4.5.0  # Pour les animations et transitions fluides
+  percent_indicator: ^4.2.3  # Pour les indicateurs de pourcentage circulaires et linéaires
+
+  # Média et Vidéo
+  video_player: ^2.7.2
+  video_player_platform_interface: ^6.2.2
+  video_player_web: ^2.1.1
+  image_picker: ^1.1.2
+  expandable_text: ^2.3.0
+  
+  # Chat et UI
+  flutter_chat_ui: ^1.6.12
+  flutter_chat_types: ^3.6.2
+  socket_io_client: ^2.0.3+1  # Pour les connexions en temps réel
+  flutter_webrtc: ^0.9.48+hotfix.1  # Mise à jour pour résoudre le problème avec videoValue
+  emoji_picker_flutter: 1.6.4  # Utiliser le plugin standard mais il sera remplacé par l'override
+  
+  # Storage et Sécurité
+  shared_preferences: ^2.2.0
+  
+  # Autorisations et Contacts
+  # Ces plugins sont temporairement désactivés en raison de problèmes de compilation
+  permission_handler: ^11.2.0
+  # Plugin contacts_service personnalisé depuis GitHub
+  contacts_service:
+    git:
+      url: https://github.com/RemiBp/flutter_app_badger_fork.git
+      path: contacts_service
+      ref: "7cf150a" # Mis à jour avec le dernier commit
+
+  # Paiement et WebView
+  flutter_stripe: ^11.4.0
+  webview_flutter: ^4.4.3
+  
+  # Calendrier
+  add_2_calendar: ^3.0.1
+  table_calendar: ^3.0.9  # Ajout pour la gestion des événements
+  
+  # Icônes et Assets
+  flutter_launcher_icons: ^0.13.1
+
+  # Maps pour le Web
+  flutter_map: ^7.0.0
+  flutter_map_marker_cluster: ^1.4.0
+  flutter_map_marker_popup: ^7.0.0
+  latlong2: ^0.9.0
+  geolocator: ^13.0.4
+  flutter_rating_bar: ^4.0.1
+  
+  # Support Web (commenté pour éviter les conflits)
+  # webview_flutter_web: ^0.2.2
+  # js: ^0.6.7
+
+  # Notifications et Firebase Cloud Messaging
+  firebase_core: ^2.32.0 # Using recommended version
+  firebase_messaging: ^14.7.10
+  firebase_analytics: 10.7.2
+  cloud_firestore: 4.13.1
+  #flutter_local_notifications: ^16.3.3 # Laissez celui-ci en override git
+  flutter_local_notifications:
+    git:
+      url: https://github.com/RemiBp/flutter_app_badger_fork.git
+      path: flutter_local_notifications
+      ref: "7cf150a" # Mis à jour avec le dernier commit
+  # Animation pour les messages envoyés et reçus
+  flutter_chat_bubble: ^2.0.2
+  # Pour des visuels plus attrayants
+  flutter_staggered_animations: ^1.1.1
+  # Pour les badges de notifications - version personnalisée depuis GitHub
+  # flutter_app_badger: ^1.5.0 # Commenté pour utiliser l'override Git systématiquement
+  flutter_app_badger:
+    git:
+      url: https://github.com/RemiBp/flutter_app_badger_fork.git
+      path: flutter_app_badger
+      ref: "7cf150a" # Mis à jour avec le dernier commit
+  badges: ^3.1.2  # Pour les badges dans l'interface utilisateur
+  # Pour les actions sur les notifications
+  rxdart: ^0.27.7
+
+  # Authentification Google et contacts
+  google_sign_in: ^6.1.0
+  firebase_auth: 4.12.0 # Décommenté avec la version spécifique
+  googleapis: # Laisser sans version pour l'instant, pub get trouvera une compatible
+  googleapis_auth: ^1.4.0
+  flutter_spinkit: ^5.2.1
+
+  # Recherche avancée
+  # algolia: ^1.1.1  # Décommenter quand décidé d'utiliser Algolia
+  # meilisearch: ^0.15.0  # Décommenter quand décidé d'utiliser MeiliSearch
+
+  # Reconnaissance vocale
+  speech_to_text: ^6.5.1
+
+  # Localization
+  easy_localization: ^3.0.1
+
+  # Timezones
+  timezone: ^0.9.2
+  timeago: ^3.7.0
+  share_plus: ^10.1.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.1
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/app_icon.png
+    - assets/images/custom_marker.svg
+    - assets/images/google_logo.png
+    - assets/translations/
+    - .env
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/images/app_icon.png"
+
+# Analytics
+firebase_crashlytics: 3.4.8
+
+# Badges
+flutter_badges: ^3.1.2
+
+# Forcer l'utilisation des versions personnalisées
+dependency_overrides:
+  firebase_core:
+    git:
+      url: https://github.com/RemiBp/flutter_app_badger_fork.git
+      path: firebase_core_custom
+      ref: "7cf150a"  # Mis à jour avec le dernier commit
+  cloud_firestore:
+    git:
+      url: https://github.com/RemiBp/flutter_app_badger_fork.git
+      path: cloud_firestore_custom
+      ref: "7cf150a"  # Mis à jour avec le dernier commit
+  firebase_messaging:
+    git:
+      url: https://github.com/RemiBp/flutter_app_badger_fork.git
+      path: firebase_messaging_custom
+      ref: "7cf150a"  # Nouveau plugin personnalisé
+  firebase_analytics:
+    git:
+      url: https://github.com/RemiBp/flutter_app_badger_fork.git
+      path: firebase_analytics_custom
+      ref: "7cf150a"  # Nouveau plugin personnalisé
+  firebase_auth:
+    git:
+      url: https://github.com/RemiBp/flutter_app_badger_fork.git
+      path: firebase_auth_custom
+      ref: "7cf150a"  # Nouveau plugin personnalisé
+  flutter_webrtc:
+    git:
+      url: https://github.com/RemiBp/flutter_app_badger_fork.git
+      path: flutter_webrtc_custom
+      ref: "7cf150a"  # Nouveau plugin personnalisé
+  flutter_local_notifications:
+    git:
+      url: https://github.com/RemiBp/flutter_app_badger_fork.git
+      path: flutter_local_notifications
+      ref: "7cf150a" # Mis à jour avec le dernier commit
+  flutter_app_badger:
+    git:
+      url: https://github.com/RemiBp/flutter_app_badger_fork.git
+      path: flutter_app_badger
+      ref: "7cf150a" # Mis à jour avec le dernier commit
+  contacts_service:
+    git:
+      url: https://github.com/RemiBp/flutter_app_badger_fork.git
+      path: contacts_service
+      ref: "7cf150a" # Mis à jour avec le dernier commit
+  emoji_picker_flutter:
+    git:
+      url: https://github.com/RemiBp/flutter_app_badger_fork.git
+      path: emoji_picker_flutter_custom/emoji_picker_flutter-master
+      ref: "72ddd21" # Version avec nom correct dans pubspec.yaml
+  webrtc_interface: "1.1.1"  # Spécification explicite de la version pour éviter les conflits
+  # google_maps_flutter_platform_interface: 2.4.1  # REMOVING this override
+ 
