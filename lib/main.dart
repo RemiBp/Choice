@@ -112,9 +112,34 @@ Future<void> main() async {
     print("⚠️ Erreur lors du chargement du fichier .env: $e");
     print("💡 Utilisation des valeurs par défaut");
     
-    // Configurer manuellement les variables d'environnement si le fichier n'est pas trouvé
-    dotenv.env['GOOGLE_MAPS_API_KEY'] = 'AIzaSyDRvEPM8JZ1Wpn_J6ku4c3r5LQIocFmzOE';
-    // Ajouter d'autres variables critiques au besoin
+    // Définir des valeurs par défaut pour les variables critiques
+    Map<String, String> defaultEnvValues = {
+      'GOOGLE_MAPS_API_KEY': 'AIzaSyDRvEPM8JZ1Wpn_J6ku4c3r5LQIocFmzOE',
+      'API_BASE_URL': 'https://api.choiceapp.fr',
+      'WEBSOCKET_URL': 'wss://api.choiceapp.fr',
+      'MONGO_URI': '', // Vide car utilisé uniquement côté serveur
+      'JWT_SECRET': '', // Vide car utilisé uniquement côté serveur
+      'STRIPE_SECRET_KEY': '', // Vide car utilisé uniquement côté serveur
+      'OPENAI_API_KEY': '', // Vide car utilisé uniquement côté serveur
+    };
+    
+    // Ajouter toutes les valeurs par défaut à l'environnement
+    defaultEnvValues.forEach((key, value) {
+      dotenv.env[key] = value;
+      print("📍 Défini $key avec une valeur par défaut");
+    });
+    
+    print("✅ Variables d'environnement par défaut configurées");
+  }
+  
+  // Vérifier que les variables essentielles sont présentes
+  var envVars = ['GOOGLE_MAPS_API_KEY', 'API_BASE_URL', 'WEBSOCKET_URL'];
+  for (var varName in envVars) {
+    if (dotenv.env[varName] == null || dotenv.env[varName]!.isEmpty) {
+      print("❌ ERREUR: Variable d'environnement $varName manquante ou vide!");
+    } else {
+      print("✓ Variable d'environnement $varName présente");
+    }
   }
   
   // Définir l'orientation du portrait

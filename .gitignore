@@ -43,3 +43,16 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Fichiers d'environnement et secrets
+.env
+.env.local
+.env.development
+.env.production
+*.p8
+*.key
+.fvm/flutter_sdk
+key.properties
+google-services.json
+GoogleService-Info.plist
+/ios/build/
