@@ -21,6 +21,7 @@ import 'package:choice_app/screens/producer_screen.dart';
 import 'package:choice_app/screens/producerLeisure_screen.dart';
 import 'package:choice_app/screens/wellness_producer_profile_screen.dart';
 import '../utils/api_config.dart';
+import '../utils/constants.dart' as constants;
 
 class MessagingScreen extends StatefulWidget {
   final String userId;

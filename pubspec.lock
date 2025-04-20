@@ -1513,10 +1513,10 @@ packages:
     dependency: "direct main"
     description:
       name: speech_to_text
-      sha256: "6cf8f284997490ebef1d68f8707bef57dcf083f43c0f915cc285428520bfe6be"
+      sha256: a5eb3b402dc2a91e40c42ef79d607c5628710aa9c7da67e6114a0aeecc0f6c4a
       url: "https://pub.dev"
     source: hosted
-    version: "7.0.0"
+    version: "7.1.0-beta.3"
   speech_to_text_platform_interface:
     dependency: transitive
     description:
