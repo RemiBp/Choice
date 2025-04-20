@@ -845,11 +845,150 @@ class _MessagingScreenState extends State<MessagingScreen>
   }
 
   void _showNewMessageOptions() {
-    // TODO: implement new message options UI
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: _isDarkMode ? const Color(0xFF1E1E1E) : Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.person_add, color: Colors.blue),
+                  title: Text(
+                    'Nouveau message',
+                    style: TextStyle(
+                      color: _isDarkMode ? Colors.white : Colors.black,
+                    ),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _searchFollowers('');
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.group_add, color: Colors.green),
+                  title: Text(
+                    'Créer un groupe',
+                    style: TextStyle(
+                      color: _isDarkMode ? Colors.white : Colors.black,
+                    ),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => GroupCreationScreen(
+                          userId: widget.userId,
+                          producerType: 'user', // Valeur par défaut pour le type de producteur
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   void _startConversationWithUser(Map<String, dynamic> user) {
-    // TODO: implement direct conversation start
+    final String userId = user['id'] ?? user['_id'] ?? '';
+    if (userId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Erreur: ID utilisateur invalide')),
+      );
+      return;
+    }
+    
+    // Afficher un indicateur de chargement
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return Dialog(
+          backgroundColor: _isDarkMode ? Colors.grey[900] : Colors.white,
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    _isDarkMode ? Colors.purple[200]! : Colors.deepPurple
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Création de la conversation...',
+                  style: TextStyle(
+                    color: _isDarkMode ? Colors.white : Colors.black,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    
+    // Créer ou récupérer la conversation via le service Conversation
+    _conversationService.createOrGetConversation(
+      widget.userId,
+      userId,
+      producerType: user['type'],
+    ).then((conversationResponse) {
+      // Fermer le dialogue de chargement
+      Navigator.pop(context);
+      
+      if (conversationResponse == null || 
+          (conversationResponse['conversationId'] == null && 
+           conversationResponse['_id'] == null && 
+           conversationResponse['id'] == null)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Erreur: Impossible de créer la conversation')),
+        );
+        return;
+      }
+      
+      // Extraire l'ID de conversation quelle que soit la clé utilisée
+      final String conversationId = conversationResponse['conversationId'] ?? 
+                                   conversationResponse['_id'] ?? 
+                                   conversationResponse['id'] ?? '';
+      
+      // Naviguer vers la nouvelle conversation
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ConversationDetailScreen(
+            userId: widget.userId,
+            conversationId: conversationId,
+            recipientName: user['name'] ?? 'Conversation',
+            recipientAvatar: user['avatar'] ?? '',
+            isProducer: user['type'] == 'restaurant' || user['type'] == 'producer',
+            isGroup: false,
+          ),
+        ),
+      ).then((_) {
+        // Rafraîchir les conversations au retour
+        _fetchConversations();
+      });
+    }).catchError((error) {
+      // Fermer le dialogue de chargement en cas d'erreur
+      Navigator.pop(context);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erreur: ${error.toString()}')),
+      );
+    });
   }
 
   T _safeGet<T>(Map<String, dynamic> map, String key, T defaultValue) {
@@ -880,11 +1019,85 @@ class _MessagingScreenState extends State<MessagingScreen>
   }
 
   void _navigateToProfile(String id, String type) {
-    // TODO: navigate to profile screen
+    if (id.isEmpty) return;
+    
+    // Choisir l'écran approprié en fonction du type de producteur/utilisateur
+    Widget profileScreen;
+    
+    switch (type.toLowerCase()) {
+      case 'restaurant':
+      case 'producer':
+        profileScreen = ProducerScreen(
+          producerId: id, 
+          userId: widget.userId,
+        );
+        break;
+      case 'leisure':
+      case 'leisureproducer':
+        profileScreen = ProducerLeisureScreen(
+          producerId: id,
+          userId: widget.userId,
+        );
+        break;
+      case 'wellness':
+      case 'wellnessproducer':
+        profileScreen = WellnessProducerProfileScreen(
+          producerId: id,
+          userId: widget.userId,
+        );
+        break;
+      case 'user':
+      default:
+        profileScreen = ProfileScreen(
+          userId: id,
+          viewMode: id == widget.userId ? 'private' : 'public', 
+        );
+        break;
+    }
+    
+    // Naviguer vers l'écran de profil
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => profileScreen),
+    );
   }
 
-  void _navigateToConversationDetail(Map<String, dynamic> conv) {
-    // TODO: navigate to ConversationDetailScreen
+  void _navigateToConversationDetail(Map<String, dynamic> conversation) {
+    final conversationId = _safeGet<String>(conversation, 'id', '');
+    if (conversationId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Erreur: ID de conversation invalide')),
+      );
+      return;
+    }
+    
+    // Marquer comme lu localement (optimistic update)
+    setState(() {
+      final index = _conversations.indexWhere((c) => c['id'] == conversationId);
+      if (index != -1) {
+        _conversations[index]['unreadCount'] = 0;
+        _filterConversationsByTab();
+      }
+    });
+    
+    // Naviguer vers l'écran de détail
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ConversationDetailScreen(
+          userId: widget.userId,
+          conversationId: conversationId,
+          recipientName: _safeGet<String>(conversation, 'name', 'Conversation'),
+          recipientAvatar: _safeGet<String>(conversation, 'avatar', ''),
+          isProducer: _safeGet<bool>(conversation, 'isProducer', false),
+          isGroup: _safeGet<bool>(conversation, 'isGroup', false),
+          participants: _safeGet<List<dynamic>>(conversation, 'participants', []),
+        ),
+      ),
+    ).then((_) {
+      // Rafraîchir les conversations au retour
+      _fetchConversations();
+    });
   }
 
   Future<void> _deleteConversation(String id) async {
