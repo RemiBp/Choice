@@ -1021,45 +1021,138 @@ class _MessagingScreenState extends State<MessagingScreen>
   void _navigateToProfile(String id, String type) {
     if (id.isEmpty) return;
     
-    // Choisir l'écran approprié en fonction du type de producteur/utilisateur
-    Widget profileScreen;
+    // Afficher un indicateur de chargement pendant la récupération des données
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return Dialog(
+          backgroundColor: _isDarkMode ? Colors.grey[900] : Colors.white,
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    _isDarkMode ? Colors.purple[200]! : Colors.deepPurple
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Chargement du profil...',
+                  style: TextStyle(
+                    color: _isDarkMode ? Colors.white : Colors.black,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
     
+    // Choisir l'écran approprié en fonction du type de producteur/utilisateur
     switch (type.toLowerCase()) {
       case 'restaurant':
       case 'producer':
-        profileScreen = ProducerScreen(
-          producerId: id, 
-          userId: widget.userId,
+        // Fermer le dialogue de chargement
+        Navigator.pop(context);
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ProducerScreen(
+              producerId: id, 
+              userId: widget.userId,
+            ),
+          ),
         );
         break;
+        
       case 'leisure':
       case 'leisureproducer':
-        profileScreen = ProducerLeisureScreen(
-          producerId: id,
-          userId: widget.userId,
-        );
+        // Récupérer les données du producteur de loisirs
+        _fetchProducerData(id, 'api/leisureProducers').then((data) {
+          // Fermer le dialogue de chargement
+          Navigator.pop(context);
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => ProducerLeisureScreen(
+                userId: widget.userId,
+                producerId: id,
+              ),
+            ),
+          );
+        }).catchError((error) {
+          // Fermer le dialogue de chargement en cas d'erreur
+          Navigator.pop(context);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Erreur: Impossible de charger le profil')),
+          );
+        });
         break;
+        
       case 'wellness':
       case 'wellnessproducer':
-        profileScreen = WellnessProducerProfileScreen(
-          producerId: id,
-          userId: widget.userId,
-        );
+        // Récupérer les données du producteur wellness
+        _fetchProducerData(id, 'api/unified').then((data) {
+          // Fermer le dialogue de chargement
+          Navigator.pop(context);
+          if (data != null) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => WellnessProducerProfileScreen(
+                  producerData: data,
+                ),
+              ),
+            );
+          } else {
+            throw Exception('Données non disponibles');
+          }
+        }).catchError((error) {
+          // Fermer le dialogue de chargement en cas d'erreur
+          Navigator.pop(context);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Erreur: Impossible de charger le profil')),
+          );
+        });
         break;
+        
       case 'user':
       default:
-        profileScreen = ProfileScreen(
-          userId: id,
-          viewMode: id == widget.userId ? 'private' : 'public', 
+        // Fermer le dialogue de chargement
+        Navigator.pop(context);
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ProfileScreen(
+              userId: id,
+              viewMode: id == widget.userId ? 'private' : 'public', 
+            ),
+          ),
         );
         break;
     }
-    
-    // Naviguer vers l'écran de profil
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => profileScreen),
-    );
+  }
+  
+  // Méthode d'assistance pour récupérer les données d'un producteur
+  Future<Map<String, dynamic>?> _fetchProducerData(String id, String endpoint) async {
+    try {
+      final baseUrl = constants.getBaseUrlSync();
+      final response = await http.get(Uri.parse('$baseUrl/$endpoint/$id'));
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return data is Map<String, dynamic> ? data : null;
+      } else {
+        throw Exception('Erreur ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Erreur lors de la récupération des données du producteur: $e');
+      throw e;
+    }
   }
 
   void _navigateToConversationDetail(Map<String, dynamic> conversation) {
