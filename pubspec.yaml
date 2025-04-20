@@ -138,7 +138,7 @@ dependencies:
   # meilisearch: ^0.15.0  # Décommenter quand décidé d'utiliser MeiliSearch
 
   # Reconnaissance vocale
-  speech_to_text: ^7.0.1
+  speech_to_text: ^7.0.0
 
   # Localization
   easy_localization: ^3.0.1
