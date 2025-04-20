@@ -447,8 +447,8 @@ class MapRestaurantScreenState extends State<MapRestaurantScreen> with Automatic
         final String? currentUserId = getCurrentUserId(context);
         final double latitude = _currentLocation?.latitude ?? _initialPosition.latitude;
         final double longitude = _currentLocation?.longitude ?? _initialPosition.longitude;
-        final Map<String, String> queryParams = {
-          'page': '1',
+            final Map<String, String> queryParams = {
+              'page': '1',
           'limit': '75',
           'lat': latitude.toString(),
           'lng': longitude.toString(),
@@ -479,29 +479,29 @@ class MapRestaurantScreenState extends State<MapRestaurantScreen> with Automatic
         if (responseData['success'] == true) {
           List<dynamic> restaurants = responseData['results'] ?? [];
           print('✅ Received [32m${restaurants.length}[0m restaurants from backend.');
-          if (restaurants.isNotEmpty) {
-            _addRestaurantMarkers(restaurants);
+              if (restaurants.isNotEmpty) {
+                _addRestaurantMarkers(restaurants);
           } else {
             _markers.clear();
             _addUserLocationMarker();
-            _errorMessage = 'Aucun restaurant trouvé avec ces critères.';
-          }
+                  _errorMessage = 'Aucun restaurant trouvé avec ces critères.';
+              }
           setState(() { _isLoading = false; });
         } else {
           _markers.clear();
           _addUserLocationMarker();
-          setState(() {
-            _isLoading = false;
+              setState(() {
+                _isLoading = false;
             _errorMessage = responseData['message'] ?? 'Erreur lors de la récupération des restaurants';
-          });
-        }
-      } catch (e) {
+              });
+            }
+          } catch (e) {
         print('❌ Error fetching restaurants: $e');
         _markers.clear();
         _addUserLocationMarker();
-        if (mounted) {
-          setState(() {
-            _isLoading = false;
+            if (mounted) {
+              setState(() {
+                _isLoading = false;
             _errorMessage = 'Erreur de connexion: ${e.toString()}';
           });
         }
@@ -774,14 +774,14 @@ class MapRestaurantScreenState extends State<MapRestaurantScreen> with Automatic
                                 final imageProvider = _getImageProvider(imageSource);
                                 
                                 return Container(
-                                  width: 80,
-                                  height: 80,
+                                    width: 80,
+                                    height: 80,
                                   color: Colors.grey[300], // Background placeholder
                                   child: imageProvider != null 
                                     ? Image(
                                         image: imageProvider,
-                                        width: 80,
-                                        height: 80,
+                                      width: 80,
+                                      height: 80,
                                         fit: BoxFit.cover,
                                         errorBuilder: (context, error, stackTrace) {
                                           print("❌ Error loading image in details card: $error");
@@ -854,86 +854,86 @@ class MapRestaurantScreenState extends State<MapRestaurantScreen> with Automatic
                                 ),
                                 SizedBox(height: 8),
                                 _buildSocialStatsRow(_selectedRestaurant!),
-                                SizedBox(height: 12),
-                                SizedBox(
-                                  width: double.infinity,
-                                  child: ElevatedButton.icon(
-                                    onPressed: _navigateToRestaurantDetail,
-                                    icon: Icon(Icons.info_outline, size: 20),
-                                    label: Text('Voir détails'),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: mapcolors.MapColors.restaurantPrimary,
-                                      foregroundColor: Colors.white,
-                                      padding: EdgeInsets.symmetric(vertical: 10),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      textStyle: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
-                                    ),
-                                  ),
-                                ),
-                                if (_matchingDishes.isNotEmpty)
-                                  Padding(
-                                    padding: const EdgeInsets.only(top: 12.0),
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          'Plats contenant "${_itemKeywords ?? 'N/A'}":',
-                                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: mapcolors.MapColors.restaurantPrimary),
-                                        ),
-                                        SizedBox(height: 8),
-                                        Container(
-                                          height: 90, // Slightly taller for image
-                                          child: ListView.builder(
-                                            scrollDirection: Axis.horizontal,
-                                            itemCount: _matchingDishes.length,
-                                            itemBuilder: (context, index) {
-                                              final dish = _matchingDishes[index];
-                                              final price = dish['prix'] != null ? '${dish['prix']} €' : 'N/A';
-                                              final note = dish['note']?.toString() ?? '-';
-                                              final imageUrl = dish['photo'] ?? dish['image'] ?? null;
+                      SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: _navigateToRestaurantDetail,
+                          icon: Icon(Icons.info_outline, size: 20),
+                          label: Text('Voir détails'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: mapcolors.MapColors.restaurantPrimary,
+                            foregroundColor: Colors.white,
+                            padding: EdgeInsets.symmetric(vertical: 10),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            textStyle: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ),
+                      if (_matchingDishes.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 12.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Plats contenant "${_itemKeywords ?? 'N/A'}":',
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: mapcolors.MapColors.restaurantPrimary),
+                              ),
+                              SizedBox(height: 8),
+                              Container(
+                                height: 90, // Slightly taller for image
+                                child: ListView.builder(
+                                  scrollDirection: Axis.horizontal,
+                                  itemCount: _matchingDishes.length,
+                                  itemBuilder: (context, index) {
+                                    final dish = _matchingDishes[index];
+                                    final price = dish['prix'] != null ? '${dish['prix']} €' : 'N/A';
+                                    final note = dish['note']?.toString() ?? '-';
+                                    final imageUrl = dish['photo'] ?? dish['image'] ?? null;
 
-                                              return InkWell(
-                                                onTap: () {
-                                                  // Ouvre ProducerScreen avec focus sur le plat
-                                                  Navigator.of(context).push(
-                                                    MaterialPageRoute(
-                                                      builder: (context) => ProducerScreen(
-                                                        producerId: _selectedRestaurant!['_id']?.toString() ?? _selectedRestaurant!['id']?.toString() ?? '',
-                                                        userId: null, // ou passer l'ID utilisateur si dispo
-                                                      ),
-                                                    ),
-                                                  );
-                                                },
-                                                child: Card(
-                                                  margin: EdgeInsets.only(right: 8),
-                                                  elevation: 1.0,
-                                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                                                  child: Container(
-                                                    width: 130, // Fixed width for each card
-                                                    padding: EdgeInsets.all(8),
-                                                    child: Column(
-                                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                                      mainAxisAlignment: MainAxisAlignment.center,
-                                                      children: [
-                                                        // Image du plat si dispo
-                                                        if (imageUrl != null)
-                                                          ClipRRect(
-                                                            borderRadius: BorderRadius.circular(6),
+                                    return InkWell(
+                                      onTap: () {
+                                        // Ouvre ProducerScreen avec focus sur le plat
+                                        Navigator.of(context).push(
+                                          MaterialPageRoute(
+                                            builder: (context) => ProducerScreen(
+                                              producerId: _selectedRestaurant!['_id']?.toString() ?? _selectedRestaurant!['id']?.toString() ?? '',
+                                              userId: null, // ou passer l'ID utilisateur si dispo
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                      child: Card(
+                                        margin: EdgeInsets.only(right: 8),
+                                        elevation: 1.0,
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                                        child: Container(
+                                          width: 130, // Fixed width for each card
+                                          padding: EdgeInsets.all(8),
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            mainAxisAlignment: MainAxisAlignment.center,
+                                            children: [
+                                              // Image du plat si dispo
+                                              if (imageUrl != null)
+                                                ClipRRect(
+                                                  borderRadius: BorderRadius.circular(6),
                                                             // Use the same helper for dish images
                                                             child: Builder(
                                                               builder: (context) {
                                                                 final dishImageProvider = _getImageProvider(imageUrl);
                                                                 return Container(
-                                                                  width: 40,
-                                                                  height: 40,
+                                                    width: 40,
+                                                    height: 40,
                                                                   color: Colors.grey[200], // Background placeholder
                                                                   child: dishImageProvider != null
                                                                     ? Image(
                                                                         image: dishImageProvider,
-                                                                        width: 40,
-                                                                        height: 40,
+                                                      width: 40,
+                                                      height: 40,
                                                                         fit: BoxFit.cover,
                                                                         errorBuilder: (context, error, stackTrace) {
                                                                           print("❌ Error loading dish image: $error");
@@ -943,57 +943,57 @@ class MapRestaurantScreenState extends State<MapRestaurantScreen> with Automatic
                                                                     : Icon(Icons.restaurant_menu, size: 20, color: Colors.grey[500]), // Icon if no image
                                                                 );
                                                               }
-                                                            ),
-                                                          )
-                                                        else
-                                                          Container(
-                                                            width: 40,
-                                                            height: 40,
-                                                            decoration: BoxDecoration(
-                                                              color: Colors.grey[200],
-                                                              borderRadius: BorderRadius.circular(6),
-                                                            ),
-                                                            child: Icon(Icons.restaurant_menu, size: 20, color: Colors.grey[500]),
-                                                          ),
-                                                        SizedBox(height: 4),
-                                                        Text(
-                                                          dish['nom'] ?? 'Inconnu',
-                                                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-                                                          maxLines: 2,
-                                                          overflow: TextOverflow.ellipsis,
-                                                        ),
-                                                        SizedBox(height: 4),
-                                                        Row(
-                                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                                          children: [
-                                                            Text(
-                                                              price,
-                                                              style: TextStyle(fontSize: 12, color: Colors.green[700]),
-                                                            ),
-                                                            if (note != '-')
-                                                              Row(
-                                                                children: [
-                                                                  Icon(Icons.star, size: 14, color: Colors.amber),
-                                                                  SizedBox(width: 2),
-                                                                  Text(note, style: TextStyle(fontSize: 12)),
-                                                                ],
-                                                              ),
-                                                          ],
-                                                        ),
+                                                  ),
+                                                )
+                                              else
+                                                Container(
+                                                  width: 40,
+                                                  height: 40,
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.grey[200],
+                                                    borderRadius: BorderRadius.circular(6),
+                                                  ),
+                                                  child: Icon(Icons.restaurant_menu, size: 20, color: Colors.grey[500]),
+                                                ),
+                                              SizedBox(height: 4),
+                                              Text(
+                                                dish['nom'] ?? 'Inconnu',
+                                                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                                                maxLines: 2,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                              SizedBox(height: 4),
+                                              Row(
+                                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                children: [
+                                                  Text(
+                                                    price,
+                                                    style: TextStyle(fontSize: 12, color: Colors.green[700]),
+                                                  ),
+                                                  if (note != '-')
+                                                    Row(
+                                                      children: [
+                                                        Icon(Icons.star, size: 14, color: Colors.amber),
+                                                        SizedBox(width: 2),
+                                                        Text(note, style: TextStyle(fontSize: 12)),
                                                       ],
                                                     ),
-                                                  ),
-                                                ),
-                                              );
-                                            },
+                                                ],
+                                              ),
+                                            ],
                                           ),
                                         ),
-                                      ],
-                                    ),
-                                  ),
-                              ],
-                            ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                            ],
                           ),
+                        ),
+                    ],
+                  ),
+                ),
                         ],
                       ),
                     ],
@@ -1531,9 +1531,9 @@ class MapRestaurantScreenState extends State<MapRestaurantScreen> with Automatic
     }
     final restaurantPosition = gmaps.LatLng(coords.latitude, coords.longitude);
     final restaurantId = restaurant['_id']?.toString() ??
-                         restaurant['id']?.toString() ??
+                        restaurant['id']?.toString() ?? 
                          restaurant['place_id']?.toString() ??
-                         'restaurant_${restaurant['name']}_${DateTime.now().millisecondsSinceEpoch}';
+                        'restaurant_${restaurant['name']}_${DateTime.now().millisecondsSinceEpoch}';
     final double hue = _getHueFromScore(score);
     final gmaps.BitmapDescriptor markerIcon = gmaps.BitmapDescriptor.defaultMarkerWithHue(hue);
     final String snippet = _buildSnippet(restaurant);
@@ -2084,7 +2084,7 @@ class MapRestaurantScreenState extends State<MapRestaurantScreen> with Automatic
         if (targetSet != null) {
           targetSet.add(userMarker);
         } else {
-          _markers.add(userMarker);
+        _markers.add(userMarker);
         }
       });
     }
@@ -2289,4 +2289,4 @@ gmaps.LatLng? getProducerCoords(Map<String, dynamic> producer) {
     return gmaps.LatLng(lat, lng);
   }
   return null;
-}
+} 

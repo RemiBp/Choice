@@ -138,7 +138,7 @@ dependencies:
   # meilisearch: ^0.15.0  # Décommenter quand décidé d'utiliser MeiliSearch
 
   # Reconnaissance vocale
-  speech_to_text: ^6.5.1
+  speech_to_text: ^7.0.0
 
   # Localization
   easy_localization: ^3.0.1
@@ -227,4 +227,5 @@ dependency_overrides:
       ref: "72ddd21" # Version avec nom correct dans pubspec.yaml
   webrtc_interface: "1.1.1"  # Spécification explicite de la version pour éviter les conflits
   # google_maps_flutter_platform_interface: 2.4.1  # REMOVING this override
+  speech_to_text: ^7.0.0
  

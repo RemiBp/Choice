@@ -36,17 +36,17 @@ class PostMedia extends StatelessWidget {
       if (imageProvider != null) {
         Widget imageWidget = Image(
           image: imageProvider,
-          fit: fit,
+        fit: fit,
+      );
+
+      if (enableZoom) {
+        return GestureDetector(
+          onTap: () => _showFullScreenImage(context),
+          child: imageWidget,
         );
+      }
 
-        if (enableZoom) {
-          return GestureDetector(
-            onTap: () => _showFullScreenImage(context),
-            child: imageWidget,
-          );
-        }
-
-        return imageWidget;
+      return imageWidget;
       } else {
         return const Icon(Icons.error);
       }
