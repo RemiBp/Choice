@@ -502,16 +502,16 @@ workflows:
       flutter: stable
       xcode: latest
       cocoapods: latest
+      certificates:
+        - certificate: CM_CERTIFICATE
+          password: $CM_CERTIFICATE_PASSWORD
       ios_signing:
-        distribution_type: ad-hoc  # Vous pouvez changer à 'app-store' pour les builds de production
+        distribution_type: ad-hoc
         bundle_identifier: fr.choiceapp.app
+        team_id: $CM_APP_STORE_CONNECT_TEAM_ID
+        provisioning_profiles:
+          - fr.choiceapp.app: CM_PROVISIONING_PROFILE
     scripts:
-      - name: Install Provisioning Profile
-        script: |
-          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          echo $CM_PROVISIONING_PROFILE | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/Remi.mobileprovision
-          echo "✅ Provisioning profile installé"
-
       - name: Clean Flutter project
         script: |
           flutter clean
