@@ -29,6 +29,7 @@ import 'widgets/filtered_items_list.dart';
 import 'widgets/global_menus_list.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/services.dart';
+import 'widgets/post_card.dart'; // Import for PostCard
 
 class MyProducerProfileScreen extends StatefulWidget {
   final String producerId;
@@ -762,12 +763,12 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
     return Scaffold(
       appBar: AppBar(
         title: const Text(
-          'Tableau de Bord', // Titre plus générique
+          'Tableau de Bord',
           style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
         ),
-        backgroundColor: Colors.orange.shade700, // Couleur plus profonde
+        backgroundColor: Colors.orange.shade700,
         elevation: 2,
-        flexibleSpace: Container( // Ajout d'un dégradé subtil
+        flexibleSpace: Container(
           decoration: BoxDecoration(
             gradient: LinearGradient(
               colors: [Colors.orange.shade700, Colors.orangeAccent],
@@ -1007,75 +1008,206 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
               );
             }
             final producer = snapshot.data!;
-            return ListView(
-              padding: EdgeInsets.zero,
-              children: [
-                if (_hasActivePromotion) _buildPromotionBanner(),
-                ProfileHeader(
-                  data: producer,
-                  hasActivePromotion: _hasActivePromotion,
-                  promotionDiscount: _promotionDiscount,
-                  onEdit: () => _showEditProfileDialog(producer),
-                  onPromotion: () {
-                    if (_hasActivePromotion) {
-                      // Afficher la boîte de dialogue pour désactiver la promotion
-                      showDialog(
-                        context: context,
-                        builder: (context) => AlertDialog(
-                          title: const Text('Promotion active'),
-                          content: _promotionEndDate != null
-                              ? Text(
-                                  'Une promotion de $_promotionDiscount% est active jusqu\'au ${DateFormat('dd/MM/yyyy').format(_promotionEndDate!)}. Voulez-vous la désactiver?')
-                              : const Text('Une promotion est active. Voulez-vous la désactiver?'),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.pop(context),
-                              child: const Text('Annuler'),
-                            ),
-                            ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.red,
+            return DefaultTabController(
+              length: 3,
+              child: ListView(
+                padding: EdgeInsets.zero,
+                children: [
+                  if (_hasActivePromotion) _buildPromotionBanner(),
+                  ProfileHeader(
+                    data: producer,
+                    hasActivePromotion: _hasActivePromotion,
+                    promotionDiscount: _promotionDiscount,
+                    onEdit: () => _showEditProfileDialog(producer),
+                    onPromotion: () {
+                      if (_hasActivePromotion) {
+                        showDialog(
+                          context: context,
+                          builder: (context) => AlertDialog(
+                            title: const Text('Promotion active'),
+                            content: _promotionEndDate != null
+                                ? Text(
+                                    'Une promotion de $_promotionDiscount% est active jusqu\'au ${DateFormat('dd/MM/yyyy').format(_promotionEndDate!)}. Voulez-vous la désactiver?')
+                                : const Text('Une promotion est active. Voulez-vous la désactiver?'),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(context),
+                                child: const Text('Annuler'),
                               ),
-                              onPressed: () {
-                                Navigator.pop(context);
-                                _deactivatePromotion();
-                              },
-                              child: const Text('Désactiver'),
+                              ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.red,
+                                ),
+                                onPressed: () {
+                                  Navigator.pop(context);
+                                  _deactivatePromotion();
+                                },
+                                child: const Text('Désactiver'),
+                              ),
+                            ],
+                          ),
+                        );
+                      } else {
+                        _showPromotionDialog();
+                      }
+                    },
+                  ),
+                  // Followers/Following/Interested/Choices stylisé sous le header
+                  Card(
+                    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    elevation: 2,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          _buildProfileActionTile(
+                            context,
+                            icon: Icons.people,
+                            label: 'Followers',
+                            count: (producer['followers']?['count'] ?? 0),
+                            onTap: () => _navigateToRelationDetails('Followers', _getUserIds(producer['followers'])),
+                          ),
+                          _buildProfileActionTile(
+                            context,
+                            icon: Icons.person_add,
+                            label: 'Following',
+                            count: (producer['following']?['count'] ?? 0),
+                            onTap: () => _navigateToRelationDetails('Following', _getUserIds(producer['following'])),
+                          ),
+                          _buildProfileActionTile(
+                            context,
+                            icon: Icons.emoji_objects,
+                            label: 'Interested',
+                            count: (producer['interestedUsers']?['count'] ?? 0),
+                            onTap: () => _navigateToRelationDetails('Interested', _getUserIds(producer['interestedUsers'])),
+                          ),
+                          _buildProfileActionTile(
+                            context,
+                            icon: Icons.check_circle,
+                            label: 'Choices',
+                            count: (producer['choiceUsers']?['count'] ?? 0),
+                            onTap: () => _navigateToRelationDetails('Choices', _getUserIds(producer['choiceUsers'])),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  // Onglets déroulants
+                  Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: const TabBar(
+                      labelColor: Colors.orangeAccent,
+                      unselectedLabelColor: Colors.grey,
+                      indicatorColor: Colors.orangeAccent,
+                      tabs: [
+                        Tab(text: 'Menu'),
+                        Tab(text: 'Posts'),
+                        Tab(text: 'Photos'),
+                      ],
+                    ),
+                  ),
+                  SizedBox(
+                    height: 700, // Ajuster selon le contenu
+                    child: TabBarView(
+                      children: [
+                        // Onglet Menu (menus globaux + items indépendants)
+                        Column(
+                          children: [
+                            FilteredItemsList(
+                              producer: producer,
+                              selectedCarbon: _selectedCarbon,
+                              selectedNutriScore: _selectedNutriScore,
+                              selectedMaxCalories: _selectedMaxCalories,
+                              hasActivePromotion: _hasActivePromotion,
+                              promotionDiscount: _promotionDiscount,
+                            ),
+                            const SizedBox(height: 16),
+                            GlobalMenusList(
+                              producer: producer,
+                              hasActivePromotion: _hasActivePromotion,
+                              promotionDiscount: _promotionDiscount,
                             ),
                           ],
                         ),
-                      );
-                    } else {
-                      _showPromotionDialog();
-                    }
-                  },
-                ),
-                const Divider(height: 10, thickness: 10, color: Color(0xFFF5F5F5)),
-                _buildFrequencyGraph(producer),
-                const Divider(height: 10, thickness: 10, color: Color(0xFFF5F5F5)),
-                _buildFilterOptions(),
-                const Divider(height: 10, thickness: 10, color: Color(0xFFF5F5F5)),
-                FilteredItemsList(
-                  producer: producer,
-                  selectedCarbon: _selectedCarbon,
-                  selectedNutriScore: _selectedNutriScore,
-                  selectedMaxCalories: _selectedMaxCalories,
-                  hasActivePromotion: _hasActivePromotion,
-                  promotionDiscount: _promotionDiscount,
-                ),
-                const Divider(height: 10, thickness: 10, color: Color(0xFFF5F5F5)),
-                // _buildHeatmapSection(producer), // <-- Méthode non définie, à commenter ou implémenter
-                const Divider(height: 10, thickness: 10, color: Color(0xFFF5F5F5)),
-                _buildContactDetails(producer),
-                const SizedBox(height: 20),
-                _buildProfileActions(producer),
-                const SizedBox(height: 10),
-              ],
+                        // Onglet Posts
+                        _buildPostsSection(),
+                        // Onglet Photos
+                        _buildPhotosSection(producer['photos'] ?? []),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  _buildContactDetails(producer),
+                  const SizedBox(height: 10),
+                ],
+              ),
             );
           },
         ),
       ),
     );
+  }
+
+  // Widget stylisé pour les actions profil (followers, etc.)
+  Widget _buildProfileActionTile(BuildContext context, {required IconData icon, required String label, required int count, required VoidCallback onTap}) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Column(
+        children: [
+          Icon(icon, color: Colors.orangeAccent, size: 28),
+          const SizedBox(height: 4),
+          Text('$count', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+        ],
+      ),
+    );
+  }
+
+  // Helper pour extraire les IDs utilisateurs
+  List<String> _getUserIds(dynamic field) {
+    if (field is List) return field.whereType<String>().toList();
+    if (field is Map && field['users'] is List) return (field['users'] as List).whereType<String>().toList();
+    return [];
+  }
+
+  // Navigation vers la liste détaillée des profils
+  void _navigateToRelationDetails(String title, List<String> ids) async {
+    if (ids.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Aucun profil à afficher.')),
+      );
+      return;
+    }
+    final validProfiles = await _validateProfiles(ids);
+    if (validProfiles.isNotEmpty && mounted) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => RelationDetailsScreen(
+            title: title,
+            profiles: validProfiles,
+          ),
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Aucun profil valide trouvé.')),
+      );
+    }
   }
   
   // Bannière de promotion active
@@ -3018,159 +3150,20 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
           itemCount: posts.length,
           itemBuilder: (context, index) {
             final post = posts[index];
-            return _buildPostCard(post);
+            // Utiliser PostCard factorisé
+            return PostCard(
+              post: post,
+              onLike: (p) => _handleLike(p),
+              onInterested: (p) => _markInterested(p.id),
+              onChoice: (p) => _markChoice(p.id),
+              onCommentTap: (p) => _openComments(p),
+              onUserTap: () => _navigateToPostDetail(post),
+              onShare: (p) {}, // À implémenter si besoin
+              onSave: (p) {}, // À implémenter si besoin
+            );
           },
         );
       },
-    );
-  }
-
-
-  Widget _buildPostCard(Map<String, dynamic> post) {
-    // Helper function to safely get counts for post interactions
-    int getCount(dynamic field) {
-      if (field is int) {
-        return field;
-      } else if (field is List) {
-        return field.length;
-      } else {
-        return 0;
-      }
-    }
-
-    final mediaUrls = post['media'] as List<dynamic>? ?? [];
-    final producerId = post['producer_id']; // ID du producer
-    final isProducerPost = producerId != null; // Vérification si c'est un producer
-    final interestedCount = getCount(post['interested']); // Utiliser getCount
-    final choicesCount = getCount(post['choices']); // Utiliser getCount
-
-    return GestureDetector(
-      onTap: () => _navigateToPostDetail(post),
-      child: Card(
-        margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 15),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-        elevation: 5,
-        child: Padding(
-          padding: const EdgeInsets.all(12.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Header
-              Row(
-                children: [
-                  CircleAvatar(
-                    backgroundImage: NetworkImage(
-                      post['user_photo'] ?? 'https://via.placeholder.com/150',
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    post['author_name'] ?? 'Nom non spécifié',
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-
-              // Title
-              Text(
-                post['title'] ?? 'Titre non spécifié',
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 10),
-
-              // Content
-              Text(post['content'] ?? 'Contenu non disponible'),
-              const SizedBox(height: 10),
-
-              // Media
-              if (mediaUrls.isNotEmpty)
-                SizedBox(
-                  height: 200,
-                  child: PageView(
-                    children: mediaUrls.map((url) {
-                      return Image.network(url, fit: BoxFit.cover, width: double.infinity);
-                    }).toList(),
-                  ),
-                ),
-              const SizedBox(height: 10),
-
-              // Actions (Like, Interested, Choice, Share)
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  // Like Button (Placeholder)
-                  Column(
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.favorite, color: Colors.red),
-                        onPressed: () {
-                          print('Like functionality not yet implemented');
-                        },
-                      ),
-                      const Text('Like'), // Placeholder text
-                    ],
-                  ),
-
-                  // Interested Button (🤔)
-                  if (isProducerPost)
-                    Column(
-                      children: [
-                        _isMarkingInterested
-                            ? const SizedBox(width: 48, height: 48, child: Center(child: SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)))) // Show loader aligned with IconButton
-                            : IconButton(
-                                icon: Icon(
-                                  post['interested']?.contains(widget.producerId) ?? false
-                                      ? Icons.emoji_objects
-                                      : Icons.emoji_objects_outlined,
-                                  color: post['interested']?.contains(widget.producerId) ?? false
-                                      ? Colors.orange
-                                      : Colors.grey,
-                                ),
-                                onPressed: () => _markInterested(producerId!), // Passez `post`
-                              ),
-                        Padding(padding: EdgeInsets.only(top: _isMarkingInterested ? 0 : 0), child: Text('$interestedCount Interested')),
-                      ],
-                    ),
-
-                  // Choice Button (✅)
-                  if (isProducerPost)
-                    Column(
-                      children: [
-                        _isMarkingChoice
-                            ? const SizedBox(width: 48, height: 48, child: Center(child: SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)))) // Show loader
-                            : IconButton(
-                                icon: Icon(
-                                  post['choices']?.contains(widget.producerId) ?? false
-                                      ? Icons.check_circle
-                                      : Icons.check_circle_outline,
-                                  color: post['choices']?.contains(widget.producerId) ?? false
-                                      ? Colors.green
-                                      : Colors.grey,
-                                ),
-                                onPressed: () {
-                                  if (producerId != null) {
-                                    _markChoice(producerId);
-                                  }
-                                },
-                              ),
-                        Padding(padding: EdgeInsets.only(top: _isMarkingChoice ? 0: 0), child: Text('$choicesCount Choices')),
-                      ],
-                    ),
-
-                  // Share Button
-                  IconButton(
-                    icon: const Icon(Icons.share),
-                    onPressed: () {
-                      print('Share functionality triggered');
-                    },
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 

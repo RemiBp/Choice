@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@class/com.stripe.android.pushProvisioning.PushProvisioningActivity$g,
+               @class/com.stripe.android.pushProvisioning.PushProvisioningActivityStarter$Args,
+               @class/com.stripe.android.pushProvisioning.PushProvisioningActivityStarter$Error,
+               @class/com.stripe.android.pushProvisioning.PushProvisioningActivityStarter,
+               @class/com.stripe.android.pushProvisioning.PushProvisioningEphemeralKeyProvider" /> 

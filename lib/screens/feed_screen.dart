@@ -2021,25 +2021,32 @@ class _FeedScreenState extends State<FeedScreen> with SingleTickerProviderStateM
                     width: double.infinity,
                     child: firstMediaIsVideo
                         ? _buildVideoPlayer(post.id, videoUrl!)
-                        : CachedNetworkImage(
-                            imageUrl: post.media.first.url,
-                            fit: BoxFit.cover,
-                            placeholder: (context, url) => Shimmer.fromColors(
-                              baseColor: Colors.grey[300]!,
-                              highlightColor: Colors.grey[100]!,
-                              child: Container(
-                                color: Colors.white,
+                        : (() {
+                            final imageProvider = getImageProvider(post.media.first.url);
+                            if (imageProvider != null) {
+                              return Image(
+                                image: imageProvider,
+                                fit: BoxFit.cover,
                                 height: 300,
-                              ),
-                            ),
-                            errorWidget: (context, url, error) => Container(
-                              color: Colors.grey[200],
-                              height: 300,
-                              child: const Center(
-                                child: Icon(Icons.error, color: Colors.grey),
-                              ),
-                            ),
-                          ),
+                                width: double.infinity,
+                                errorBuilder: (context, error, stackTrace) => Container(
+                                  color: Colors.grey[200],
+                                  height: 300,
+                                  child: const Center(
+                                    child: Icon(Icons.error, color: Colors.grey),
+                                  ),
+                                ),
+                              );
+                            } else {
+                              return Container(
+                                color: Colors.grey[200],
+                                height: 300,
+                                child: const Center(
+                                  child: Icon(Icons.broken_image, color: Colors.grey),
+                                ),
+                              );
+                            }
+                          })(),
                   ),
                 ),
               ] else ...[
@@ -2069,14 +2076,18 @@ class _FeedScreenState extends State<FeedScreen> with SingleTickerProviderStateM
                         color: Colors.black,
                         child: isVideo
                             ? _buildVideoPlayer('${post.id}-$index', media.url)
-                            : CachedNetworkImage(
-                                imageUrl: media.url,
-                                fit: BoxFit.contain,
-                                placeholder: (context, url) => 
-                                    const Center(child: CircularProgressIndicator()),
-                                errorWidget: (context, url, error) => 
-                                    const Center(child: Icon(Icons.error)),
-                              ),
+                            : (() {
+                                final imageProvider = getImageProvider(media.url);
+                                if (imageProvider != null) {
+                                  return Image(
+                                    image: imageProvider,
+                                    fit: BoxFit.contain,
+                                    errorBuilder: (context, error, stackTrace) => const Center(child: Icon(Icons.error)),
+                                  );
+                                } else {
+                                  return const Center(child: Icon(Icons.broken_image));
+                                }
+                              })(),
                       ),
                     );
                   },
@@ -2542,25 +2553,32 @@ class _FeedScreenState extends State<FeedScreen> with SingleTickerProviderStateM
                     width: double.infinity,
                     child: mediaItems.first['type'] == 'video'
                         ? _buildVideoPlayer(postId, mediaItems.first['url'])
-                        : CachedNetworkImage(
-                            imageUrl: mediaItems.first['url'],
-                            fit: BoxFit.cover,
-                            placeholder: (context, url) => Shimmer.fromColors(
-                              baseColor: Colors.grey[300]!,
-                              highlightColor: Colors.grey[100]!,
-                              child: Container(
-                                color: Colors.white,
+                        : (() {
+                            final imageProvider = getImageProvider(mediaItems.first['url']);
+                            if (imageProvider != null) {
+                              return Image(
+                                image: imageProvider,
+                                fit: BoxFit.cover,
                                 height: 300,
-                              ),
-                            ),
-                            errorWidget: (context, url, error) => Container(
-                              color: Colors.grey[200],
-                              height: 300,
-                              child: const Center(
-                                child: Icon(Icons.error, color: Colors.grey),
-                              ),
-                            ),
-                          ),
+                                width: double.infinity,
+                                errorBuilder: (context, error, stackTrace) => Container(
+                                  color: Colors.grey[200],
+                                  height: 300,
+                                  child: const Center(
+                                    child: Icon(Icons.error, color: Colors.grey),
+                                  ),
+                                ),
+                              );
+                            } else {
+                              return Container(
+                                color: Colors.grey[200],
+                                height: 300,
+                                child: const Center(
+                                  child: Icon(Icons.broken_image, color: Colors.grey),
+                                ),
+                              );
+                            }
+                          })(),
                   ),
                 ),
               ] else ...[
@@ -2590,14 +2608,18 @@ class _FeedScreenState extends State<FeedScreen> with SingleTickerProviderStateM
                         color: Colors.black,
                         child: isVideo
                             ? _buildVideoPlayer('$postId-$index', media['url'])
-                            : CachedNetworkImage(
-                                imageUrl: media['url'],
-                                fit: BoxFit.contain,
-                                placeholder: (context, url) => 
-                                    const Center(child: CircularProgressIndicator()),
-                                errorWidget: (context, url, error) => 
-                                    const Center(child: Icon(Icons.error)),
-                              ),
+                            : (() {
+                                final imageProvider = getImageProvider(media['url']);
+                                if (imageProvider != null) {
+                                  return Image(
+                                    image: imageProvider,
+                                    fit: BoxFit.contain,
+                                    errorBuilder: (context, error, stackTrace) => const Center(child: Icon(Icons.error)),
+                                  );
+                                } else {
+                                  return const Center(child: Icon(Icons.broken_image));
+                                }
+                              })(),
                       ),
                     );
                   },

@@ -720,7 +720,7 @@ class _MapFriendsScreenState extends State<MapFriendsScreen> {
                         topRight: Radius.circular(12),
                       ),
                       image: DecorationImage(
-                        image: NetworkImage(imageUrl),
+                        image: getImageProvider(imageUrl),
                         fit: BoxFit.cover,
                       ),
                     ),
@@ -798,12 +798,11 @@ class _MapFriendsScreenState extends State<MapFriendsScreen> {
                       children: [
                         CircleAvatar(
                           radius: 16,
-                          backgroundImage: activity['friendAvatar'] != null 
-                              ? NetworkImage(activity['friendAvatar'])
-                              : null,
-                          child: activity['friendAvatar'] == null 
-                              ? Text(friendName[0] ?? '?')
-                              : null,
+                          backgroundImage: getImageProvider(activity['friendAvatar']),
+                          backgroundColor: Colors.grey[200],
+                          child: getImageProvider(activity['friendAvatar']) == null
+                            ? Icon(Icons.person, color: Colors.grey[400])
+                            : null,
                         ),
                         const SizedBox(width: 8),
                         Expanded(
@@ -1336,18 +1335,9 @@ class _MapFriendsScreenState extends State<MapFriendsScreen> {
                     CircleAvatar(
                       radius: 30,
                       backgroundColor: mapcolors.MapColors.friendsSecondary,
-                      backgroundImage: friend['avatar'] != null
-                          ? NetworkImage(friend['avatar'])
-                          : null,
-                      child: friend['avatar'] == null
-                          ? Text(
-                              friend['name']?.substring(0, 1) ?? '?',
-                              style: const TextStyle(
-                                fontSize: 24,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                              ),
-                            )
+                      backgroundImage: getImageProvider(friend['avatar']),
+                      child: getImageProvider(friend['avatar']) == null
+                          ? Icon(Icons.person, color: Colors.grey[400])
                           : null,
                     ),
                     const SizedBox(width: 16),

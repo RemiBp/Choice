@@ -2538,7 +2538,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                 backgroundColor: Colors.grey[300],
                 child: post['user_photo'] != null && post['user_photo'].toString().isNotEmpty
                   ? CircleAvatar(
-                      backgroundImage: NetworkImage(post['user_photo']),
+                      backgroundImage: getImageProvider(post['user_photo']),
                       onBackgroundImageError: (exception, stackTrace) {
                         // Error handling for background image
                       },
@@ -2581,7 +2581,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                       ),
                       errorWidget: (context, url, error) => Container(
                         color: Colors.grey[200],
-                        child: const Center(child: Icon(Icons.broken_image, size: 50)),
+                        child: const Icon(Icons.broken_image, size: 50),
                       ),
                     );
                   }).toList(),
