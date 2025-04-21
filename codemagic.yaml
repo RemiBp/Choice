@@ -168,36 +168,6 @@ workflows:
             sed -i '/<uses-permission/a \    <uses-permission android:name="android.permission.INTERNET" />' "$MANIFEST_FILE"
             echo "✓ Permission internet ajoutée"
           fi
-          
-          # Configurer ProGuard pour Stripe
-          PROGUARD_FILE="android/app/proguard-rules.pro"
-          if [ ! -f "$PROGUARD_FILE" ]; then
-            echo "# Keep Stripe push provisioning classes" > "$PROGUARD_FILE"
-            echo "-keep class com.stripe.android.pushProvisioning.** { *; }" >> "$PROGUARD_FILE"
-            echo "-keep class com.reactnativestripesdk.pushprovisioning.** { *; }" >> "$PROGUARD_FILE"
-            echo >> "$PROGUARD_FILE"
-            echo "# Keep general Stripe classes" >> "$PROGUARD_FILE"
-            echo "-keep class com.stripe.android.** { *; }" >> "$PROGUARD_FILE"
-            echo >> "$PROGUARD_FILE"
-            echo "# Keep Flutter Stripe SDK classes" >> "$PROGUARD_FILE"
-            echo "-keep class com.reactnativestripesdk.** { *; }" >> "$PROGUARD_FILE"
-            echo >> "$PROGUARD_FILE"
-            echo "# Keep Flutter WebRTC classes" >> "$PROGUARD_FILE"
-            echo "-keep class org.webrtc.** { *; }" >> "$PROGUARD_FILE"
-            echo "-keep class com.cloudwebrtc.webrtc.** { *; }" >> "$PROGUARD_FILE"
-            echo "-keep class io.flutter.plugins.webviewflutter.** { *; }" >> "$PROGUARD_FILE"
-            echo >> "$PROGUARD_FILE"
-            echo "# Keep Firebase classes" >> "$PROGUARD_FILE"
-            echo "-keep class io.flutter.plugins.firebase.** { *; }" >> "$PROGUARD_FILE"
-            echo "✓ Fichier ProGuard configuré pour Stripe et autres dépendances"
-          fi
-          
-          # S'assurer que le build.gradle est configuré pour utiliser ProGuard
-          if ! grep -q "proguardFiles" "$GRADLE_FILE"; then
-            # Ajouter la configuration ProGuard dans le bloc release
-            sed -i '/release {/a \            minifyEnabled true\n            shrinkResources true\n            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"' "$GRADLE_FILE"
-            echo "✓ Configuration ProGuard ajoutée dans build.gradle"
-          fi
 
       - name: Vérification de Compatibilité Web
         script: |
@@ -220,26 +190,7 @@ workflows:
       - name: Build Android Bundle
         script: |
           # Construire le bundle Android
-          flutter build appbundle --release || {
-            echo "Premier essai de build échoué, vérification des règles manquantes"
-            
-            # Vérifier si le fichier missing_rules.txt a été généré
-            MISSING_RULES_FILE="build/app/outputs/mapping/release/missing_rules.txt"
-            if [ -f "$MISSING_RULES_FILE" ]; then
-              echo "⚠️ Fichier de règles manquantes trouvé, application des règles additionnelles"
-              
-              # Ajouter les règles manquantes au fichier ProGuard
-              cat "$MISSING_RULES_FILE" >> "android/app/proguard-rules.pro"
-              echo "✓ Règles manquantes ajoutées à proguard-rules.pro"
-              
-              # Réessayer la construction
-              echo "Deuxième tentative de build avec les règles additionnelles"
-              flutter build appbundle --release
-            else
-              echo "❌ Fichier de règles manquantes non trouvé"
-              exit 1
-            fi
-          }
+          flutter build appbundle --release
           
           # Vérifier si le build a réussi
           if [ -f "build/app/outputs/bundle/release/app-release.aab" ]; then
@@ -544,59 +495,34 @@ workflows:
 
   # Version avec signature de code complète
   ios-release:
-    name: iOS Release Build
+    name: iOS Release Build (Signed)
     instance_type: mac_mini_m1
     max_build_duration: 120
     environment:
       flutter: stable
       xcode: latest
       cocoapods: latest
-      groups:
-        - ios_credentials
-        - choice_app_env
-      vars:
-        BUNDLE_ID: "fr.choiceapp.app"
+      ios_signing:
+        distribution_type: ad-hoc  # Vous pouvez changer à 'app-store' pour les builds de production
+        bundle_identifier: fr.choiceapp.app
     scripts:
-      - name: Configurer le fichier .env pour le build
+      - name: Set up code signing
         script: |
-          echo "Génération du fichier .env pour l'environnement de build..."
-          cat > .env << EOL
-          # Configuration du serveur
-          PORT=5000
-          NODE_ENV=production
+          echo "Configuration de la signature du code..."
           
-          # Configuration de MongoDB
-          MONGO_URI=$CM_MONGO_URI
+          # Créer le répertoire pour les profils de provisionnement
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           
-          # Configuration JWT
-          JWT_SECRET=$CM_JWT_SECRET
+          # Décodage du certificat et création du keychain
+          echo $CM_CERTIFICATE | base64 --decode > /tmp/certificate.p12
+          keychain initialize
+          keychain add-certificates --certificate /tmp/certificate.p12 --password ""
           
-          # Configuration des uploads
-          UPLOAD_DIR=uploads
-          MAX_FILE_SIZE=5242880
+          # Décodage et installation du profil de provisionnement
+          echo $CM_PROVISIONING_PROFILE | base64 --decode > /tmp/profile.mobileprovision
+          cp /tmp/profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
           
-          # Configuration des APIs externes
-          GOOGLE_MAPS_API_KEY=$CM_GOOGLE_MAPS_API_KEY
-          STRIPE_SECRET_KEY=$CM_STRIPE_SECRET_KEY
-          STRIPE_WEBHOOK_SECRET=$CM_STRIPE_WEBHOOK_SECRET
-          OPENAI_API_KEY=$CM_OPENAI_API_KEY
-          
-          # Base URL pour l'API
-          API_BASE_URL=https://api.choiceapp.fr
-          WEBSOCKET_URL=wss://api.choiceapp.fr
-          EOL
-          
-          echo "✅ Fichier .env créé avec succès pour l'environnement de build"
-          
-          # Vérifier que le fichier existe
-          if [ -f ".env" ]; then
-            echo "🔍 Le fichier .env a été créé correctement"
-            # Afficher uniquement les noms des variables (pas les valeurs)
-            grep -o "^[A-Z_]*=" .env | sort
-          else
-            echo "❌ Erreur: Le fichier .env n'a pas été créé"
-            exit 1
-          fi
+          echo "✅ Signature de code configurée avec succès"
 
       - name: Clean Flutter project
         script: |
@@ -810,10 +736,37 @@ EOL
           
           xcode-project use-profiles
 
-      - name: Build iOS IPA
+      - name: Build iOS IPA with Proper Signing
         script: |
-          cd $CM_BUILD_DIR
-          flutter build ipa --release --export-options-plist=/Users/builder/export_options.plist
+          # Cette méthode utilise votre profil de provisionnement mis à jour
+          # Créons un fichier d'options d'export pour le build
+          cat > ios/exportOptions.plist << EOL
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>ad-hoc</string>
+              <key>teamID</key>
+              <string>${CM_APP_STORE_CONNECT_TEAM_ID}</string>
+              <key>compileBitcode</key>
+              <false/>
+          </dict>
+          </plist>
+          EOL
+          
+          # Construire l'IPA avec les options d'export
+          flutter build ipa --release --export-options-plist=ios/exportOptions.plist
+          
+          echo "✅ Build iOS avec signature terminé"
+          
+          # Vérifier si l'IPA a été généré
+          if [ -f "build/ios/ipa/app-release.ipa" ]; then
+            echo "🎉 IPA signé généré avec succès"
+          else
+            echo "🔍 Recherche d'autres IPAs générés..."
+            find build -name "*.ipa"
+          fi
 
     artifacts:
       - build/ios/ipa/*.ipa

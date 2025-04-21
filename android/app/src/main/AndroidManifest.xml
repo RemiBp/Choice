@@ -6,7 +6,7 @@
         <meta-data android:name="com.google.android.geo.API_KEY"
                    android:value="AIzaSyDRvEPM8JZ1Wpn_J6ku4c3r5LQIocFmzOE"/>
         <activity
-            android:name=".MainActivity"
+            android:name="com.example.choice_app_new.MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
             android:taskAffinity=""
