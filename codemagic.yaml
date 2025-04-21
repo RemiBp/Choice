@@ -493,7 +493,7 @@ workflows:
         recipients:
           - "remi.barbier@hec.edu"
 
-  # Version avec signature de code complète
+  # Version avec signature de code (avec les certificats et profils mis à jour)
   ios-release:
     name: iOS Release Build (Signed)
     instance_type: mac_mini_m1
@@ -506,23 +506,11 @@ workflows:
         distribution_type: ad-hoc  # Vous pouvez changer à 'app-store' pour les builds de production
         bundle_identifier: fr.choiceapp.app
     scripts:
-      - name: Set up code signing
+      - name: Install Provisioning Profile
         script: |
-          echo "Configuration de la signature du code..."
-          
-          # Créer le répertoire pour les profils de provisionnement
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          
-          # Décodage du certificat et création du keychain
-          echo $CM_CERTIFICATE | base64 --decode > /tmp/certificate.p12
-          keychain initialize
-          keychain add-certificates --certificate /tmp/certificate.p12 --password ""
-          
-          # Décodage et installation du profil de provisionnement
-          echo $CM_PROVISIONING_PROFILE | base64 --decode > /tmp/profile.mobileprovision
-          cp /tmp/profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
-          
-          echo "✅ Signature de code configurée avec succès"
+          echo $CM_PROVISIONING_PROFILE | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/Remi.mobileprovision
+          echo "✅ Provisioning profile installé"
 
       - name: Clean Flutter project
         script: |
@@ -530,233 +518,75 @@ workflows:
           flutter pub get
           flutter pub cache repair
 
-      - name: Verify Flutter Setup
+      - name: Verify Flutter dependencies
         script: |
-          mkdir -p ios/Flutter
-          # Créer les fichiers xcconfig s'ils n'existent pas déjà
-          touch ios/Flutter/Release.xcconfig
-          touch ios/Flutter/Debug.xcconfig
-          
-          # Vérifier et mettre à jour leur contenu correctement
-          echo '#include "Generated.xcconfig"' > ios/Flutter/Release.xcconfig
-          echo '#include "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"' >> ios/Flutter/Release.xcconfig
-          
-          echo '#include "Generated.xcconfig"' > ios/Flutter/Debug.xcconfig
-          echo '#include "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"' >> ios/Flutter/Debug.xcconfig
-          
-          echo "✅ Fichiers Debug.xcconfig et Release.xcconfig créés"
+          if ! grep -q "add_2_calendar" pubspec.yaml; then
+            echo "⚠️  La dépendance add_2_calendar semble manquante dans pubspec.yaml."
+            exit 1
+          fi
 
-      - name: Setup Podfile Correctly
+      - name: Ensure iOS deployment target is 14.0+ in Podfile
         script: |
           cd ios
           
-          # Vérifier si nous avons un Podfile.rb au lieu d'un Podfile
-          if [ -f "Podfile.rb" ] && [ ! -f "Podfile" ]; then
-            mv Podfile.rb Podfile
-            echo "✅ Podfile.rb renommé en Podfile"
-          fi
-          
-          # Vérifier et corriger le contenu du Podfile si nécessaire
-          if ! grep -q "platform :ios, '14.0'" Podfile; then
-            # Sauvegarder l'ancien Podfile
-            cp Podfile Podfile.bak
-            
-            # Créer un nouveau Podfile avec les bonnes configurations
-            cat > Podfile << EOL
-# Uncomment this line to define a global platform for your project
-platform :ios, '14.0'
-
-# CocoaPods analytics sends network stats synchronously affecting flutter build latency.
-ENV['COCOAPODS_DISABLE_STATS'] = 'true'
-
-project 'Runner', {
-  'Debug' => :debug,
-  'Profile' => :release,
-  'Release' => :release,
-}
-
-def flutter_root
-  generated_xcode_build_settings_path = File.expand_path(File.join('..', 'Flutter', 'Generated.xcconfig'), __FILE__)
-  unless File.exist?(generated_xcode_build_settings_path)
-    raise "#{generated_xcode_build_settings_path} must exist. If you're running pod install manually, make sure flutter pub get is executed first"
-  end
-
-  File.foreach(generated_xcode_build_settings_path) do |line|
-    matches = line.match(/FLUTTER_ROOT\=(.*)/)
-    return matches[1].strip if matches
-  end
-  raise "FLUTTER_ROOT not found in #{generated_xcode_build_settings_path}. Try deleting Generated.xcconfig, then run flutter pub get"
-end
-
-require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
-
-flutter_ios_podfile_setup
-
-target 'Runner' do
-  use_frameworks! :linkage => :dynamic
-  use_modular_headers!
-
-  flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
-end
-
-post_install do |installer|
-  installer.pods_project.targets.each do |target|
-    flutter_additional_ios_build_settings(target)
-    
-    target.build_configurations.each do |config|
-      # Désactiver Bitcode car Flutter ne l'utilise pas
-      config.build_settings['ENABLE_BITCODE'] = 'NO'
-      
-      # Exclure l'architecture arm64 pour éviter les erreurs de compilation sur simulateur
-      config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'arm64'
-
-      # Assurer que l'application cible bien iOS 14.0+
-      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
-    end
-  end
-end
-EOL
-            echo "✅ Podfile recréé avec les bonnes configurations"
+          if [ -f "Podfile" ]; then
+            sed -i '' 's/platform :ios, .*/platform :ios, "14.0"/' Podfile
+          else
+            echo "🚨 Podfile non trouvé ! Assure-toi que ton projet Flutter iOS est bien configuré."
+            exit 1
           fi
 
-      - name: Create Missing Files and Directories
-        script: |
-          cd ios
-          
-          # Créer le dossier Flutter si nécessaire
-          mkdir -p Flutter
-          
-          # Créer les fichiers xcconfig
-          echo '#include "Generated.xcconfig"' > Flutter/Release.xcconfig
-          echo '#include "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"' >> Flutter/Release.xcconfig
-          echo '#include "Generated.xcconfig"' > Flutter/Debug.xcconfig
-          echo '#include "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"' >> Flutter/Debug.xcconfig
-          
-          # Créer le dossier Target Support Files et ses fichiers
-          mkdir -p "Pods/Target Support Files/Pods-Runner"
-          
-          # Créer les fichiers xcfilelist qui manquent
-          touch "Pods/Target Support Files/Pods-Runner/Pods-Runner-frameworks-Release-input-files.xcfilelist"
-          touch "Pods/Target Support Files/Pods-Runner/Pods-Runner-frameworks-Release-output-files.xcfilelist"
-          touch "Pods/Target Support Files/Pods-Runner/Pods-Runner-resources-Release-input-files.xcfilelist"
-          touch "Pods/Target Support Files/Pods-Runner/Pods-Runner-resources-Release-output-files.xcfilelist"
-          
-          # Créer les fichiers xcconfig pour les pods
-          if [ ! -f "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig" ]; then
-            mkdir -p "Pods/Target Support Files/Pods-Runner"
-            cat > "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig" << EOL
-ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES
-EXCLUDED_ARCHS[sdk=iphonesimulator*] = arm64
-FRAMEWORK_SEARCH_PATHS = \$(inherited)
-GCC_PREPROCESSOR_DEFINITIONS = \$(inherited)
-HEADER_SEARCH_PATHS = \$(inherited)
-LD_RUNPATH_SEARCH_PATHS = \$(inherited) '@executable_path/Frameworks' '@loader_path/Frameworks'
-LIBRARY_SEARCH_PATHS = \$(inherited)
-OTHER_CFLAGS = \$(inherited)
-OTHER_LDFLAGS = \$(inherited)
-OTHER_SWIFT_FLAGS = \$(inherited)
-PODS_BUILD_DIR = \${BUILD_DIR}
-PODS_CONFIGURATION_BUILD_DIR = \${PODS_BUILD_DIR}/\$(CONFIGURATION)\$(EFFECTIVE_PLATFORM_NAME)
-PODS_PODFILE_DIR_PATH = \${SRCROOT}/.
-PODS_ROOT = \${SRCROOT}/Pods
-SWIFT_VERSION = 5.0
-USE_RECURSIVE_SCRIPT_INPUTS_IN_SCRIPT_PHASES = YES
-EOL
-          fi
-          
-          if [ ! -f "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig" ]; then
-            mkdir -p "Pods/Target Support Files/Pods-Runner"
-            cat > "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig" << EOL
-ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES
-EXCLUDED_ARCHS[sdk=iphonesimulator*] = arm64
-FRAMEWORK_SEARCH_PATHS = \$(inherited)
-GCC_PREPROCESSOR_DEFINITIONS = \$(inherited)
-HEADER_SEARCH_PATHS = \$(inherited)
-LD_RUNPATH_SEARCH_PATHS = \$(inherited) '@executable_path/Frameworks' '@loader_path/Frameworks'
-LIBRARY_SEARCH_PATHS = \$(inherited)
-OTHER_CFLAGS = \$(inherited)
-OTHER_LDFLAGS = \$(inherited)
-OTHER_SWIFT_FLAGS = \$(inherited)
-PODS_BUILD_DIR = \${BUILD_DIR}
-PODS_CONFIGURATION_BUILD_DIR = \${PODS_BUILD_DIR}/\$(CONFIGURATION)\$(EFFECTIVE_PLATFORM_NAME)
-PODS_PODFILE_DIR_PATH = \${SRCROOT}/.
-PODS_ROOT = \${SRCROOT}/Pods
-SWIFT_VERSION = 5.0
-USE_RECURSIVE_SCRIPT_INPUTS_IN_SCRIPT_PHASES = YES
-EOL
-          fi
-          
-          # Créer le fichier profile.xcconfig
-          if [ ! -f "Flutter/Profile.xcconfig" ]; then
-            echo '#include "Generated.xcconfig"' > Flutter/Profile.xcconfig
-            echo '#include "Pods/Target Support Files/Pods-Runner/Pods-Runner.profile.xcconfig"' >> Flutter/Profile.xcconfig
-            
-            # Créer aussi le fichier profile pour pods
-            cat > "Pods/Target Support Files/Pods-Runner/Pods-Runner.profile.xcconfig" << EOL
-ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES
-EXCLUDED_ARCHS[sdk=iphonesimulator*] = arm64
-FRAMEWORK_SEARCH_PATHS = \$(inherited)
-GCC_PREPROCESSOR_DEFINITIONS = \$(inherited)
-HEADER_SEARCH_PATHS = \$(inherited)
-LD_RUNPATH_SEARCH_PATHS = \$(inherited) '@executable_path/Frameworks' '@loader_path/Frameworks'
-LIBRARY_SEARCH_PATHS = \$(inherited)
-OTHER_CFLAGS = \$(inherited)
-OTHER_LDFLAGS = \$(inherited)
-OTHER_SWIFT_FLAGS = \$(inherited)
-PODS_BUILD_DIR = \${BUILD_DIR}
-PODS_CONFIGURATION_BUILD_DIR = \${PODS_BUILD_DIR}/\$(CONFIGURATION)\$(EFFECTIVE_PLATFORM_NAME)
-PODS_PODFILE_DIR_PATH = \${SRCROOT}/.
-PODS_ROOT = \${SRCROOT}/Pods
-SWIFT_VERSION = 5.0
-USE_RECURSIVE_SCRIPT_INPUTS_IN_SCRIPT_PHASES = YES
-EOL
-          fi
-          
-          echo "✅ Tous les fichiers et dossiers nécessaires ont été créés"
-
-      - name: Update CocoaPods Repository
+      - name: Update CocoaPods
         script: |
           sudo gem install cocoapods --pre
           pod repo update
 
-      - name: Install Pod Dependencies
+      - name: Remove and reinstall CocoaPods dependencies
         script: |
           cd ios
           rm -rf Pods Podfile.lock
+          pod deintegrate
           pod install --repo-update --verbose
 
-      - name: Set up code signing settings
+      - name: Verify Apple Pay Merchant ID in Entitlements
         script: |
-          # Mettre à jour l'équipe de développement et le provisioning profile
-          APP_STORE_CONNECT_PRIVATE_KEY_BASE64="${APP_STORE_CONNECT_PRIVATE_KEY}"
-          if [ -n "$APP_STORE_CONNECT_PRIVATE_KEY_BASE64" ]; then
-            echo $APP_STORE_CONNECT_PRIVATE_KEY_BASE64 | base64 --decode > /tmp/api_key.p8
-            echo "✅ Clé API App Store Connect décodée"
+          cd ios
+          # Créer le fichier d'entitlements s'il n'existe pas
+          if [ ! -f "Runner/Runner.entitlements" ]; then
+            cat > Runner/Runner.entitlements << EOL
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>com.apple.developer.in-app-payments</key>
+    <array>
+        <string>merchant.fr.choiceapp.app</string>
+    </array>
+</dict>
+</plist>
+EOL
+            echo "✅ Fichier d'entitlements Apple Pay créé"
+          else
+            echo "✅ Fichier d'entitlements existant"
           fi
           
-          xcode-project use-profiles
+          # Vérifier que le merchant ID est correctement configuré dans Info.plist
+          if ! grep -q "merchant.fr.choiceapp.app" Runner/Info.plist; then
+            # Ajouter la configuration Apple Pay si manquante
+            plutil -insert 'com.apple.developer.in-app-payments' -xml '<array><string>merchant.fr.choiceapp.app</string></array>' Runner/Info.plist || true
+            echo "✅ Merchant ID ajouté à Info.plist"
+          fi
+
+      - name: Apply iOS 14.0 Deployment Fix in Xcode Info.plist
+        script: |
+          cd ios
+          plutil -replace MinimumOSVersion -string "14.0" Runner/Info.plist
+          plutil -replace LSRequiresIPhoneOS -bool YES Runner/Info.plist
 
       - name: Build iOS IPA with Proper Signing
         script: |
           # Cette méthode utilise votre profil de provisionnement mis à jour
-          # Créons un fichier d'options d'export pour le build
-          cat > ios/exportOptions.plist << EOL
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>method</key>
-              <string>ad-hoc</string>
-              <key>teamID</key>
-              <string>${CM_APP_STORE_CONNECT_TEAM_ID}</string>
-              <key>compileBitcode</key>
-              <false/>
-          </dict>
-          </plist>
-          EOL
-          
-          # Construire l'IPA avec les options d'export
-          flutter build ipa --release --export-options-plist=ios/exportOptions.plist
+          flutter build ipa --release
           
           echo "✅ Build iOS avec signature terminé"
           
@@ -770,10 +600,8 @@ EOL
 
     artifacts:
       - build/ios/ipa/*.ipa
-      - /tmp/xcodebuild_logs/*.log
-      - flutter_drive.log
 
     publishing:
       email:
         recipients:
-          - remi.barbier@hec.edu
+          - "remi.barbier@hec.edu"
