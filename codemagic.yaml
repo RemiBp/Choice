@@ -502,9 +502,6 @@ workflows:
       flutter: stable
       xcode: latest
       cocoapods: latest
-      certificates:
-        - certificate: CM_CERTIFICATE
-          password: $CM_CERTIFICATE_PASSWORD
       ios_signing:
         distribution_type: ad-hoc
         bundle_identifier: fr.choiceapp.app
@@ -528,7 +525,6 @@ workflows:
       - name: Ensure iOS deployment target is 14.0+ in Podfile
         script: |
           cd ios
-          
           if [ -f "Podfile" ]; then
             sed -i '' 's/platform :ios, .*/platform :ios, "14.0"/' Podfile
           else
@@ -551,7 +547,6 @@ workflows:
       - name: Verify Apple Pay Merchant ID in Entitlements
         script: |
           cd ios
-          # Créer le fichier d'entitlements s'il n'existe pas
           if [ ! -f "Runner/Runner.entitlements" ]; then
             cat > Runner/Runner.entitlements << EOL
 <?xml version="1.0" encoding="UTF-8"?>
@@ -569,10 +564,7 @@ EOL
           else
             echo "✅ Fichier d'entitlements existant"
           fi
-          
-          # Vérifier que le merchant ID est correctement configuré dans Info.plist
           if ! grep -q "merchant.fr.choiceapp.app" Runner/Info.plist; then
-            # Ajouter la configuration Apple Pay si manquante
             plutil -insert 'com.apple.developer.in-app-payments' -xml '<array><string>merchant.fr.choiceapp.app</string></array>' Runner/Info.plist || true
             echo "✅ Merchant ID ajouté à Info.plist"
           fi
@@ -593,14 +585,19 @@ EOL
           security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
           echo "✅ Certificat installé dans le keychain"
 
+      - name: Debug keychain and provisioning
+        script: |
+          echo "== Profils de provisionnement =="
+          ls -l ~/Library/MobileDevice/Provisioning\ Profiles/
+          echo "== Certificats dans le keychain =="
+          security find-identity -v -p codesigning
+          echo "== Team ID utilisé =="
+          echo $CM_APP_STORE_CONNECT_TEAM_ID
+
       - name: Build iOS IPA with Proper Signing
         script: |
-          # Cette méthode utilise votre profil de provisionnement mis à jour
           flutter build ipa --release
-          
           echo "✅ Build iOS avec signature terminé"
-          
-          # Vérifier si l'IPA a été généré
           if [ -f "build/ios/ipa/app-release.ipa" ]; then
             echo "🎉 IPA signé généré avec succès"
           else
