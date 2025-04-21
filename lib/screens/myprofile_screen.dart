@@ -82,7 +82,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> with AutomaticKeepAli
     super.initState();
     _userFuture = _fetchUserProfile(widget.userId);
     _userFuture.then((user) {
-      _postsFuture = _fetchUserPosts(user['posts'] ?? []);
+      _postsFuture = _fetchUserPosts(widget.userId);
     });
   }
 

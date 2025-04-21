@@ -106,39 +106,63 @@ Future<void> main() async {
   
   // Essayer de charger les variables d'environnement avec traitement d'erreur
   try {
-    await dotenv.load(fileName: ".env");
-    print("✅ Fichier .env chargé avec succès");
-  } catch (e) {
-    print("⚠️ Erreur lors du chargement du fichier .env: $e");
-    print("💡 Tentative de chargement du fichier d'environnement par défaut...");
+    // Essayer d'abord les fichiers dans assets/env
+    bool envLoaded = false;
     
+    // 1. Essayer d'abord le fichier production.env
     try {
-      // Essayer de charger le fichier par défaut
-      await dotenv.load(fileName: "assets/env/default.env");
-      print("✅ Fichier d'environnement par défaut chargé avec succès");
-    } catch (fallbackError) {
-      print("⚠️ Erreur lors du chargement du fichier d'environnement par défaut: $fallbackError");
-      print("💡 Utilisation des valeurs codées en dur");
+      await dotenv.load(fileName: "assets/env/production.env");
+      print("✅ Fichier d'environnement de production chargé avec succès");
+      envLoaded = true;
+    } catch (prodError) {
+      print("⚠️ Le fichier production.env n'a pas pu être chargé: $prodError");
       
-      // Définir des valeurs par défaut pour les variables critiques
-      Map<String, String> defaultEnvValues = {
-        'GOOGLE_MAPS_API_KEY': 'AIzaSyDRvEPM8JZ1Wpn_J6ku4c3r5LQIocFmzOE',
-        'API_BASE_URL': 'https://api.choiceapp.fr',
-        'WEBSOCKET_URL': 'wss://api.choiceapp.fr',
-        'MONGO_URI': '', // Vide car utilisé uniquement côté serveur
-        'JWT_SECRET': '', // Vide car utilisé uniquement côté serveur
-        'STRIPE_SECRET_KEY': '', // Vide car utilisé uniquement côté serveur
-        'OPENAI_API_KEY': '', // Vide car utilisé uniquement côté serveur
-      };
-      
-      // Ajouter toutes les valeurs par défaut à l'environnement
-      defaultEnvValues.forEach((key, value) {
-        dotenv.env[key] = value;
-        print("📍 Défini $key avec une valeur par défaut");
-      });
+      // 2. Puis essayer default.env
+      try {
+        await dotenv.load(fileName: "assets/env/default.env");
+        print("✅ Fichier d'environnement par défaut chargé avec succès");
+        envLoaded = true;
+      } catch (defaultError) {
+        print("⚠️ Le fichier default.env n'a pas pu être chargé: $defaultError");
+        
+        // 3. Puis essayer le .env à la racine en dernier recours
+        try {
+          await dotenv.load(fileName: ".env");
+          print("✅ Fichier .env chargé avec succès");
+          envLoaded = true;
+        } catch (rootError) {
+          print("⚠️ Le fichier .env à la racine n'a pas pu être chargé: $rootError");
+          // Aucun fichier trouvé, continuer vers les valeurs par défaut
+        }
+      }
     }
     
-    print("✅ Variables d'environnement configurées");
+    // Si aucun fichier d'environnement n'a été chargé, lancer une exception
+    if (!envLoaded) {
+      throw Exception("Aucun fichier d'environnement n'a pu être chargé");
+    }
+  } catch (e) {
+    print("⚠️ Erreur lors du chargement des fichiers d'environnement: $e");
+    print("💡 Utilisation des valeurs codées en dur");
+    
+    // Définir des valeurs par défaut pour les variables critiques
+    Map<String, String> defaultEnvValues = {
+      'GOOGLE_MAPS_API_KEY': 'AIzaSyDRvEPM8JZ1Wpn_J6ku4c3r5LQIocFmzOE',
+      'API_BASE_URL': 'https://api.choiceapp.fr',
+      'WEBSOCKET_URL': 'wss://api.choiceapp.fr',
+      'MONGO_URI': '', // Vide car utilisé uniquement côté serveur
+      'JWT_SECRET': '', // Vide car utilisé uniquement côté serveur
+      'STRIPE_SECRET_KEY': '', // Vide car utilisé uniquement côté serveur
+      'OPENAI_API_KEY': '', // Vide car utilisé uniquement côté serveur
+    };
+    
+    // Ajouter toutes les valeurs par défaut à l'environnement
+    defaultEnvValues.forEach((key, value) {
+      dotenv.env[key] = value;
+      print("📍 Défini $key avec une valeur par défaut");
+    });
+    
+    print("✅ Variables d'environnement configurées avec valeurs par défaut");
   }
   
   // Vérifier que les variables essentielles sont présentes

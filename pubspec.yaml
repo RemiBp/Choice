@@ -161,7 +161,6 @@ flutter:
     - assets/images/google_logo.png
     - assets/translations/
     - assets/env/
-    - .env
 
 flutter_launcher_icons:
   android: true

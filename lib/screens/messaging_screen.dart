@@ -52,6 +52,12 @@ class _MessagingScreenState extends State<MessagingScreen>
   // Nouvelle propriété pour suivre les messages en cours de frappe
   Map<String, bool> _typingStatus = {};
   
+  // --- Producer Search State ---
+  List<Map<String, dynamic>> _producerSearchResults = [];
+  bool _isSearchingProducer = false;
+  String _currentProducerType = 'restaurant';
+  // --- End Producer Search State ---
+  
   @override
   void initState() {
     super.initState();
@@ -893,6 +899,45 @@ class _MessagingScreenState extends State<MessagingScreen>
                     );
                   },
                 ),
+                ListTile(
+                  leading: const Icon(Icons.store_mall_directory, color: Colors.orange),
+                  title: Text(
+                    'Contacter un restaurateur',
+                    style: TextStyle(
+                      color: _isDarkMode ? Colors.white : Colors.black,
+                    ),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _showProducerSearchModal('restaurant');
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.sports_esports, color: Colors.teal),
+                  title: Text(
+                    'Contacter un lieu de loisir',
+                    style: TextStyle(
+                      color: _isDarkMode ? Colors.white : Colors.black,
+                    ),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _showProducerSearchModal('leisure');
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.spa, color: Colors.pinkAccent),
+                  title: Text(
+                    'Contacter un lieu de bien‑être',
+                    style: TextStyle(
+                      color: _isDarkMode ? Colors.white : Colors.black,
+                    ),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _showProducerSearchModal('wellness');
+                  },
+                ),
               ],
             ),
           ),
@@ -902,14 +947,35 @@ class _MessagingScreenState extends State<MessagingScreen>
   }
 
   void _startConversationWithUser(Map<String, dynamic> user) {
-    final String userId = user['id'] ?? user['_id'] ?? '';
+    final String userId = (user['id'] ?? user['_id'] ?? '').toString();
     if (userId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Erreur: ID utilisateur invalide')),
       );
       return;
     }
-    
+
+    // Map the type to backend producerType when needed
+    String selectedType = (user['type'] ?? 'user').toString().toLowerCase();
+    String? producerType;
+    switch (selectedType) {
+      case 'restaurant':
+      case 'producer':
+        producerType = 'restaurant';
+        break;
+      case 'leisure':
+      case 'leisureproducer':
+        producerType = 'leisure';
+        break;
+      case 'wellness':
+      case 'wellnessproducer':
+      case 'beauty':
+        producerType = 'wellness';
+        break;
+      default:
+        producerType = null; // user conversation
+    }
+
     // Afficher un indicateur de chargement
     showDialog(
       context: context,
@@ -924,48 +990,33 @@ class _MessagingScreenState extends State<MessagingScreen>
               children: [
                 CircularProgressIndicator(
                   valueColor: AlwaysStoppedAnimation<Color>(
-                    _isDarkMode ? Colors.purple[200]! : Colors.deepPurple
+                    _isDarkMode ? Colors.purple[200]! : Colors.deepPurple,
                   ),
                 ),
                 const SizedBox(height: 16),
-                Text(
-                  'Création de la conversation...',
-                  style: TextStyle(
-                    color: _isDarkMode ? Colors.white : Colors.black,
-                  ),
-                ),
+                const Text('Création de la conversation...'),
               ],
             ),
           ),
         );
       },
     );
-    
-    // Créer ou récupérer la conversation via le service Conversation
-    _conversationService.createOrGetConversation(
-      widget.userId,
-      userId,
-      producerType: user['type'],
-    ).then((conversationResponse) {
-      // Fermer le dialogue de chargement
-      Navigator.pop(context);
-      
-      if (conversationResponse == null || 
-          (conversationResponse['conversationId'] == null && 
-           conversationResponse['_id'] == null && 
-           conversationResponse['id'] == null)) {
+
+    _conversationService
+        .createOrGetConversation(widget.userId, userId, producerType: producerType)
+        .then((conversationResponse) {
+      Navigator.pop(context); // close dialog
+      if (conversationResponse == null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Erreur: Impossible de créer la conversation')),
         );
         return;
       }
-      
-      // Extraire l'ID de conversation quelle que soit la clé utilisée
-      final String conversationId = conversationResponse['conversationId'] ?? 
-                                   conversationResponse['_id'] ?? 
-                                   conversationResponse['id'] ?? '';
-      
-      // Naviguer vers la nouvelle conversation
+      final String conversationId = (conversationResponse['conversationId'] ??
+              conversationResponse['_id'] ??
+              conversationResponse['id'] ??
+              '')
+          .toString();
       Navigator.push(
         context,
         MaterialPageRoute(
@@ -974,21 +1025,15 @@ class _MessagingScreenState extends State<MessagingScreen>
             conversationId: conversationId,
             recipientName: user['name'] ?? 'Conversation',
             recipientAvatar: user['avatar'] ?? '',
-            isProducer: user['type'] == 'restaurant' || user['type'] == 'producer',
+            isProducer: producerType != null,
             isGroup: false,
           ),
         ),
-      ).then((_) {
-        // Rafraîchir les conversations au retour
-        _fetchConversations();
-      });
+      ).then((_) => _fetchConversations());
     }).catchError((error) {
-      // Fermer le dialogue de chargement en cas d'erreur
       Navigator.pop(context);
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur: ${error.toString()}')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Erreur: $error')));
     });
   }
 
@@ -1196,6 +1241,121 @@ class _MessagingScreenState extends State<MessagingScreen>
 
   Future<void> _deleteConversation(String id) async {
     // TODO: delete conversation logic
+  }
+
+  void _showProducerSearchModal(String type) {
+    setState(() {
+      _producerSearchResults = [];
+      _isSearchingProducer = false;
+      _currentProducerType = type;
+    });
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: _isDarkMode ? const Color(0xFF1E1E1E) : Colors.white,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) {
+        final TextEditingController _producerSearchController = TextEditingController();
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            Future<void> _onSearchChanged(String query) async {
+              if (query.length < 2) {
+                setModalState(() {
+                  _producerSearchResults = [];
+                  _isSearchingProducer = false;
+                });
+                return;
+              }
+              setModalState(() {
+                _isSearchingProducer = true;
+              });
+              try {
+                final results = await _conversationService.searchUsers(query);
+                final filtered = results.where((r) {
+                  final t = (r['type'] ?? '').toString().toLowerCase();
+                  if (type == 'restaurant') return t == 'restaurant' || t == 'producer';
+                  if (type == 'leisure') return t == 'leisure' || t == 'leisureproducer';
+                  if (type == 'wellness') return t == 'wellnessproducer' || t == 'wellness' || t == 'beauty';
+                  return false;
+                }).toList();
+                setModalState(() {
+                  _producerSearchResults = filtered;
+                  _isSearchingProducer = false;
+                });
+              } catch (_) {
+                setModalState(() {
+                  _producerSearchResults = [];
+                  _isSearchingProducer = false;
+                });
+              }
+            }
+
+            return Padding(
+              padding: MediaQuery.of(context).viewInsets, // Handle keyboard
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: TextField(
+                      controller: _producerSearchController,
+                      autofocus: true,
+                      decoration: InputDecoration(
+                        hintText: 'Rechercher un $type...',
+                        prefixIcon: const Icon(Icons.search),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                        filled: true,
+                        fillColor: _isDarkMode ? const Color(0xFF2A2A2A) : Colors.grey[100],
+                      ),
+                      onChanged: (q) => _onSearchChanged(q),
+                    ),
+                  ),
+                  if (_isSearchingProducer)
+                    const Padding(
+                      padding: EdgeInsets.all(16.0),
+                      child: CircularProgressIndicator(),
+                    )
+                  else if (_producerSearchResults.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Text(
+                        'Aucun résultat',
+                        style: TextStyle(color: _isDarkMode ? Colors.white70 : Colors.black54),
+                      ),
+                    )
+                  else
+                    SizedBox(
+                      height: 300,
+                      child: ListView.builder(
+                        itemCount: _producerSearchResults.length,
+                        itemBuilder: (context, index) {
+                          final item = _producerSearchResults[index];
+                          return ListTile(
+                            leading: CircleAvatar(
+                              backgroundImage: NetworkImage(item['avatar'] ?? 'https://via.placeholder.com/150'),
+                            ),
+                            title: Text(item['name'] ?? ''),
+                            onTap: () {
+                              Navigator.pop(context); // close modal
+                              _startConversationWithUser(item);
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 }
 

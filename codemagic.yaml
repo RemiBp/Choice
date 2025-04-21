@@ -32,9 +32,9 @@ workflows:
           # S'assurer que le répertoire assets/env existe
           mkdir -p "$FRONTEND_DIR/assets/env"
           
-          # Créer le fichier .env à l'emplacement approprié
-          echo "Création du fichier .env dans: $FRONTEND_DIR"
-          cat > "$FRONTEND_DIR/.env" << EOL
+          # Créer directement le fichier dans assets/env/
+          echo "Création du fichier d'environnement dans: $FRONTEND_DIR/assets/env"
+          cat > "$FRONTEND_DIR/assets/env/production.env" << EOL
           # Configuration du serveur
           PORT=5000
           NODE_ENV=production
@@ -60,29 +60,29 @@ workflows:
           WEBSOCKET_URL=wss://api.choiceapp.fr
           EOL
           
-          # Copier également dans assets/env pour la redondance
-          cp "$FRONTEND_DIR/.env" "$FRONTEND_DIR/assets/env/production.env"
+          # Copier aussi dans default.env pour être sûr
+          cp "$FRONTEND_DIR/assets/env/production.env" "$FRONTEND_DIR/assets/env/default.env"
           
-          echo "✅ Fichiers .env créés avec succès pour l'environnement de build"
+          echo "✅ Fichiers d'environnement créés avec succès pour l'environnement de build"
           
-          # Vérifier que le fichier existe et afficher sa taille
-          if [ -f "$FRONTEND_DIR/.env" ]; then
-            echo "🔍 Le fichier .env a été créé correctement à: $FRONTEND_DIR/.env"
-            ls -la "$FRONTEND_DIR/.env"
+          # Vérifier que les fichiers existent et afficher leur taille
+          if [ -f "$FRONTEND_DIR/assets/env/default.env" ] && [ -f "$FRONTEND_DIR/assets/env/production.env" ]; then
+            echo "🔍 Les fichiers d'environnement ont été créés correctement:"
+            ls -la "$FRONTEND_DIR/assets/env/"
             # Afficher uniquement les noms des variables (pas les valeurs)
-            grep -o "^[A-Z_]*=" "$FRONTEND_DIR/.env" | sort
+            grep -o "^[A-Z_]*=" "$FRONTEND_DIR/assets/env/default.env" | sort
             
-            # Vérifier que le fichier est accessible
-            if [ -r "$FRONTEND_DIR/.env" ]; then
-              echo "✅ Le fichier .env est lisible"
+            # Vérifier que les fichiers sont accessibles
+            if [ -r "$FRONTEND_DIR/assets/env/default.env" ]; then
+              echo "✅ Les fichiers d'environnement sont lisibles"
             else
-              echo "⚠️ Le fichier .env n'est pas lisible"
+              echo "⚠️ Les fichiers d'environnement ne sont pas lisibles"
             fi
             
             # Retourner au répertoire du projet
             cd "$PROJECT_DIR"
           else
-            echo "❌ Erreur: Le fichier .env n'a pas été créé à: $FRONTEND_DIR/.env"
+            echo "❌ Erreur: Fichiers d'environnement non créés"
             cd "$PROJECT_DIR"
             exit 1
           fi
@@ -131,15 +131,20 @@ workflows:
           git config --global url."https://".insteadOf "git://"
           git config --global url."https://github.com/".insteadOf "git@github.com:"
           
-          # Copier .env dans le répertoire de build
-          if [ -f ".env" ]; then
-            mkdir -p build/app/intermediates/flutter/release/
-            cp .env build/app/intermediates/flutter/release/
-            echo "✅ .env copié vers le répertoire de build"
-          fi
-          
           # Obtenir les dépendances proprement
           flutter pub get --verbose
+          
+          # S'assurer que les assets/env existent dans le répertoire de build
+          mkdir -p build/app/intermediates/flutter/release/assets/env/
+          
+          # Copier les fichiers d'environnement dans le répertoire de build
+          if [ -d "assets/env" ]; then
+            cp -r assets/env/* build/app/intermediates/flutter/release/assets/env/
+            echo "✅ Fichiers d'environnement copiés vers le répertoire de build"
+            ls -la build/app/intermediates/flutter/release/assets/env/
+          else
+            echo "⚠️ Répertoire assets/env non trouvé pour la copie"
+          fi
 
       - name: Fix Android Configuration
         script: |
@@ -198,22 +203,25 @@ workflows:
       - name: Verify bundle structure (debug)
         script: |
           echo "Vérification de la structure du bundle..."
-          # Vérifier que .env existe dans les assets
-          if [ -f "build/app/intermediates/flutter/release/.env" ]; then
-            echo "✅ .env trouvé dans le répertoire des assets intermédiaires"
-          else
-            echo "⚠️ .env non trouvé dans le répertoire des assets intermédiaires"
-            echo "Contenu du répertoire des assets intermédiaires:"
-            ls -la build/app/intermediates/flutter/release/
-          fi
-          
-          # Vérifier que les fichiers .env existent dans les assets/env
+          # Vérifier les assets intermédiaires
           if [ -d "build/app/intermediates/flutter/release/assets/env" ]; then
             echo "✅ Dossier assets/env trouvé dans le répertoire des assets intermédiaires"
             echo "Contenu du dossier assets/env:"
             ls -la build/app/intermediates/flutter/release/assets/env/
           else
             echo "⚠️ Dossier assets/env non trouvé dans le répertoire des assets intermédiaires"
+            echo "Contenu du répertoire flutter/release:"
+            find build/app/intermediates/flutter/release -type d | sort
+          fi
+          
+          # Copier manuellement les fichiers d'environnement si nécessaire
+          mkdir -p build/app/intermediates/flutter/release/assets/env
+          if [ -f "assets/env/default.env" ]; then
+            cp assets/env/default.env build/app/intermediates/flutter/release/assets/env/
+            cp assets/env/production.env build/app/intermediates/flutter/release/assets/env/
+            echo "✅ Fichiers d'environnement copiés manuellement dans le répertoire des assets intermédiaires"
+          else
+            echo "⚠️ Impossible de trouver les fichiers d'environnement source pour la copie manuelle"
           fi
           
           # Utiliser l'outil bundletool pour analyser le bundle

@@ -664,10 +664,16 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> wit
   @override
   Widget build(BuildContext context) {
     // Get participant ID and Type for potential navigation
-    final String? otherUserId = widget.participants?.firstWhere(
-         (p) => p is String && p != widget.userId,
-         orElse: () => null, // Return null if not found
-     )?.toString();
+    String? otherUserId;
+    if (widget.participants != null) {
+      for (final p in widget.participants!) {
+        final idStr = p.toString();
+        if (idStr != widget.userId) {
+          otherUserId = idStr;
+          break;
+        }
+      }
+    }
     final String otherUserType = widget.isProducer ? 'restaurant' : 'user'; // Simplified type guessing
 
     return Scaffold(
