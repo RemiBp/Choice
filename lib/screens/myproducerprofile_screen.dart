@@ -24,6 +24,11 @@ import '../services/premium_feature_service.dart'; // Import for premium feature
 import 'restaurant_stats_screen.dart'; // Import for RestaurantStatsScreen
 import 'clients_list_screen.dart'; // Import for ClientsListScreen
 import 'transaction_history_screen.dart'; // Import for TransactionHistoryScreen
+import 'widgets/profile_header.dart';
+import 'widgets/filtered_items_list.dart';
+import 'widgets/global_menus_list.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter/services.dart';
 
 class MyProducerProfileScreen extends StatefulWidget {
   final String producerId;
@@ -1006,18 +1011,65 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
               padding: EdgeInsets.zero,
               children: [
                 if (_hasActivePromotion) _buildPromotionBanner(),
-                _buildHeader(producer),
+                ProfileHeader(
+                  data: producer,
+                  hasActivePromotion: _hasActivePromotion,
+                  promotionDiscount: _promotionDiscount,
+                  onEdit: () => _showEditProfileDialog(producer),
+                  onPromotion: () {
+                    if (_hasActivePromotion) {
+                      // Afficher la boîte de dialogue pour désactiver la promotion
+                      showDialog(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          title: const Text('Promotion active'),
+                          content: _promotionEndDate != null
+                              ? Text(
+                                  'Une promotion de $_promotionDiscount% est active jusqu\'au ${DateFormat('dd/MM/yyyy').format(_promotionEndDate!)}. Voulez-vous la désactiver?')
+                              : const Text('Une promotion est active. Voulez-vous la désactiver?'),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(context),
+                              child: const Text('Annuler'),
+                            ),
+                            ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.red,
+                              ),
+                              onPressed: () {
+                                Navigator.pop(context);
+                                _deactivatePromotion();
+                              },
+                              child: const Text('Désactiver'),
+                            ),
+                          ],
+                        ),
+                      );
+                    } else {
+                      _showPromotionDialog();
+                    }
+                  },
+                ),
                 const Divider(height: 10, thickness: 10, color: Color(0xFFF5F5F5)),
                 _buildFrequencyGraph(producer),
                 const Divider(height: 10, thickness: 10, color: Color(0xFFF5F5F5)),
                 _buildFilterOptions(),
                 const Divider(height: 10, thickness: 10, color: Color(0xFFF5F5F5)),
-                _buildFilteredItems(producer),
+                FilteredItemsList(
+                  producer: producer,
+                  selectedCarbon: _selectedCarbon,
+                  selectedNutriScore: _selectedNutriScore,
+                  selectedMaxCalories: _selectedMaxCalories,
+                  hasActivePromotion: _hasActivePromotion,
+                  promotionDiscount: _promotionDiscount,
+                ),
                 const Divider(height: 10, thickness: 10, color: Color(0xFFF5F5F5)),
                 // _buildHeatmapSection(producer), // <-- Méthode non définie, à commenter ou implémenter
                 const Divider(height: 10, thickness: 10, color: Color(0xFFF5F5F5)),
                 _buildContactDetails(producer),
                 const SizedBox(height: 20),
+                _buildProfileActions(producer),
+                const SizedBox(height: 10),
               ],
             );
           },
@@ -1379,23 +1431,69 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
                           const SizedBox(height: 8),
                           
                           // Adresse avec icône
-                          Row(
-                            children: [
-                              Icon(Icons.location_on, size: 16, color: Colors.grey[600]),
-                              const SizedBox(width: 4),
-                              Expanded(
-                                child: Text(
-                                  data['address'] ?? 'Adresse non spécifiée',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    color: Colors.grey[600],
+                          if (data['address'] != null && data['address'].toString().isNotEmpty)
+                            Row(
+                              children: [
+                                Icon(Icons.location_on, size: 16, color: Colors.grey[600]),
+                                const SizedBox(width: 4),
+                                Expanded(
+                                  child: GestureDetector(
+                                    onTap: () async {
+                                      final url = Uri.parse('https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(data['address'])}');
+                                      if (await canLaunchUrl(url)) await launchUrl(url);
+                                    },
+                                    child: Text(
+                                      data['address'],
+                                      style: TextStyle(fontSize: 14, color: Colors.blue[700], decoration: TextDecoration.underline),
+                                      maxLines: 1, overflow: TextOverflow.ellipsis,
+                                    ),
                                   ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
                                 ),
+                                IconButton(
+                                  icon: const Icon(Icons.copy, size: 16, color: Colors.grey),
+                                  tooltip: 'Copier l\'adresse',
+                                  onPressed: () {
+                                    Clipboard.setData(ClipboardData(text: data['address']));
+                                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Adresse copiée !')));
+                                  },
+                                ),
+                              ],
+                            ),
+                            if (data['phone_number'] != null && data['phone_number'].toString().isNotEmpty)
+                              Row(
+                                children: [
+                                  Icon(Icons.phone, size: 16, color: Colors.grey[600]),
+                                  const SizedBox(width: 4),
+                                  GestureDetector(
+                                    onTap: () async {
+                                      final url = Uri.parse('tel:${data['phone_number']}');
+                                      if (await canLaunchUrl(url)) await launchUrl(url);
+                                    },
+                                    child: Text(
+                                      data['phone_number'],
+                                      style: TextStyle(fontSize: 14, color: Colors.blue[700], decoration: TextDecoration.underline),
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ],
-                          ),
+                            if (data['website'] != null && data['website'].toString().isNotEmpty)
+                              Row(
+                                children: [
+                                  Icon(Icons.language, size: 16, color: Colors.grey[600]),
+                                  const SizedBox(width: 4),
+                                  GestureDetector(
+                                    onTap: () async {
+                                      final url = Uri.parse(data['website']);
+                                      if (await canLaunchUrl(url)) await launchUrl(url);
+                                    },
+                                    child: Text(
+                                      data['website'],
+                                      style: TextStyle(fontSize: 14, color: Colors.blue[700], decoration: TextDecoration.underline),
+                                      maxLines: 1, overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ],
+                              ),
 
                           const SizedBox(height: 8),
                           
@@ -2277,407 +2375,6 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
     );
   }
 
-  Widget _buildFilteredItems(Map<String, dynamic> producer) {
-    // Vérifier et sécuriser l'accès aux données structurées
-    if (!producer.containsKey('structured_data') || producer['structured_data'] == null) {
-      producer['structured_data'] = {'Items Indépendants': []};
-    } else if (producer['structured_data'] is! Map) {
-      producer['structured_data'] = {'Items Indépendants': []};
-    }
-    
-    // Vérifier et sécuriser l'accès aux items indépendants
-    final structuredData = producer['structured_data'] as Map<String, dynamic>;
-    final items = structuredData['Items Indépendants'];
-    
-    if (items == null || !(items is List) || items.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.no_food, size: 60, color: Colors.grey[400]),
-            const SizedBox(height: 16),
-            Text(
-              'Aucun item disponible',
-              style: TextStyle(fontSize: 18, color: Colors.grey[600]),
-            ),
-          ],
-        ),
-      );
-    }
-
-    // Filtrer et traiter les items de manière sécurisée
-    final filteredItems = <String, List<Map<String, dynamic>>>{};
-    
-    for (var category in items) {
-      if (category is! Map<String, dynamic>) continue;
-      
-      final categoryName = category['catégorie']?.toString().trim() ?? 'Autres';
-      final categoryItems = category['items'];
-      
-      if (categoryItems == null || !(categoryItems is List) || categoryItems.isEmpty) continue;
-      
-      for (var item in categoryItems) {
-        if (item is! Map<String, dynamic>) continue;
-        
-        // Extraire les valeurs nutritionnelles de façon sécurisée
-        double carbonFootprint = 0;
-        String nutriScore = 'N/A';
-        double calories = 0;
-        
-        try {
-          // Récupérer le bilan carbone
-          final carbonValue = item['carbon_footprint'];
-          if (carbonValue != null) {
-            if (carbonValue is num) {
-              carbonFootprint = carbonValue.toDouble();
-            } else {
-              carbonFootprint = double.tryParse(carbonValue.toString()) ?? 0;
-            }
-          }
-          
-          // Récupérer le nutriscore
-          nutriScore = item['nutri_score']?.toString() ?? 'N/A';
-          
-          // Récupérer les calories
-          if (item['nutrition'] is Map<String, dynamic>) {
-            final nutritionData = item['nutrition'] as Map<String, dynamic>;
-            final caloriesValue = nutritionData['calories'];
-            if (caloriesValue != null) {
-              if (caloriesValue is num) {
-                calories = caloriesValue.toDouble();
-              } else {
-                calories = double.tryParse(caloriesValue.toString()) ?? 0;
-              }
-            }
-          } else if (item['calories'] != null) {
-            // Alternative si les calories sont directement dans l'item
-            final caloriesValue = item['calories'];
-            if (caloriesValue is num) {
-              calories = caloriesValue.toDouble();
-            } else {
-              calories = double.tryParse(caloriesValue.toString()) ?? 0;
-            }
-          }
-        } catch (e) {
-          print('❌ Erreur lors de l\'extraction des données nutritionnelles: $e');
-        }
-        
-        // Appliquer les filtres
-        if (carbonFootprint <= (_selectedCarbon == "<3kg" ? 3 : 5) && 
-            (nutriScore.compareTo(_selectedNutriScore == "A-B" ? 'C' : 'D') <= 0) && 
-            calories <= _selectedMaxCalories) {
-          
-          filteredItems.putIfAbsent(categoryName, () => []);
-          filteredItems[categoryName]!.add(item);
-        }
-      }
-    }
-
-    if (filteredItems.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.filter_alt_off, size: 60, color: Colors.grey[400]),
-            const SizedBox(height: 16),
-            Text(
-              'Aucun item ne correspond aux critères',
-              style: TextStyle(fontSize: 18, color: Colors.grey[600]),
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton.icon(
-              icon: const Icon(Icons.tune),
-              label: const Text('Modifier les filtres'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.orangeAccent,
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-              ),
-              onPressed: () {
-                // Scroll vers les options de filtres - fonctionnalité simplifiée
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Utilisez les filtres en haut de la page')),
-                );
-              },
-            ),
-          ],
-        ),
-      );
-    }
-
-    return Container(
-      margin: const EdgeInsets.all(16.0),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.green.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(Icons.restaurant, color: Colors.green),
-                ),
-                const SizedBox(width: 12),
-                const Text(
-                  'Plats Filtrés',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
-                ),
-              ],
-            ),
-          ),
-          
-          const Divider(height: 1),
-          
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-            child: Row(
-              children: [
-                Chip(
-                  label: Text('Carbone: $_selectedCarbon'),
-                  avatar: const Icon(Icons.eco, size: 16, color: Colors.green),
-                  backgroundColor: Colors.green.withOpacity(0.1),
-                ),
-                const SizedBox(width: 8),
-                Chip(
-                  label: Text('NutriScore: $_selectedNutriScore'),
-                  avatar: const Icon(Icons.health_and_safety, size: 16, color: Colors.blue),
-                  backgroundColor: Colors.blue.withOpacity(0.1),
-                ),
-                const SizedBox(width: 8),
-                Chip(
-                  label: Text('Max: ${_selectedMaxCalories.toInt()} cal'),
-                  avatar: const Icon(Icons.local_fire_department, size: 16, color: Colors.orange),
-                  backgroundColor: Colors.orange.withOpacity(0.1),
-                ),
-              ],
-            ),
-          ),
-          
-          ...filteredItems.entries.map((entry) {
-            final categoryName = entry.key;
-            final categoryItems = entry.value;
-            return ExpansionTile(
-              initiallyExpanded: true,
-              title: Row(
-                children: [
-                  const Icon(Icons.category, size: 18, color: Colors.grey),
-                  const SizedBox(width: 8),
-                  Text(
-                    categoryName,
-                    style: const TextStyle(
-                      fontSize: 16, 
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black87,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: Colors.grey[200],
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      '${categoryItems.length}',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black54,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              children: categoryItems.map<Widget>((item) {
-                // Calculer le prix après réduction si une promotion est active
-                final originalPrice = double.tryParse(item['prix']?.toString() ?? '0') ?? 0;
-                final discountedPrice = _hasActivePromotion 
-                    ? originalPrice * (1 - _promotionDiscount / 100) 
-                    : null;
-                
-                return Card(
-                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                  elevation: 0,
-                  color: Colors.grey[50],
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    side: BorderSide(color: Colors.grey[200]!),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // En-tête avec nom du plat, prix et éventuellement notation
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Nom et notation
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          item['nom'] ?? 'Nom non spécifié',
-                                          style: const TextStyle(
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ),
-                                      if (item['note'] != null)
-                                        _buildCompactRatingStars(item['note']),
-                                    ],
-                                  ),
-                                  if (item['description'] != null && item['description'].toString().isNotEmpty)
-                                    Padding(
-                                      padding: const EdgeInsets.only(top: 4),
-                                      child: Text(
-                                        item['description'],
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          color: Colors.grey[700],
-                                        ),
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            ),
-                            
-                            // Prix avec éventuelle réduction
-                            if (originalPrice > 0)
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                                children: [
-                                  if (_hasActivePromotion && discountedPrice != null)
-                                    Text(
-                                      '${originalPrice.toStringAsFixed(2)} €',
-                                      style: const TextStyle(
-                                        fontSize: 12,
-                                        decoration: TextDecoration.lineThrough,
-                                        color: Colors.grey,
-                                      ),
-                                    ),
-                                  Text(
-                                    _hasActivePromotion && discountedPrice != null
-                                        ? '${discountedPrice.toStringAsFixed(2)} €'
-                                        : '${originalPrice.toStringAsFixed(2)} €',
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold,
-                                      color: _hasActivePromotion ? Colors.red : Colors.black87,
-                                    ),
-                                  ),
-                                  if (_hasActivePromotion)
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                      decoration: BoxDecoration(
-                                        color: Colors.red,
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      child: Text(
-                                        '-${_promotionDiscount.toStringAsFixed(0)}%',
-                                        style: const TextStyle(
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.white,
-                                        ),
-                                      ),
-                                    ),
-                                ],
-                              ),
-                          ],
-                        ),
-                        
-                        const SizedBox(height: 8),
-                        const Divider(height: 1),
-                        const SizedBox(height: 8),
-                        
-                        // Informations nutritionnelles
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            // Bilan carbone
-                            Row(
-                              children: [
-                                const Icon(Icons.eco, size: 16, color: Colors.green),
-                                const SizedBox(width: 4),
-                                Text(
-                                  '${item['carbon_footprint']} kg',
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.green,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            
-                            // NutriScore
-                            Row(
-                              children: [
-                                const Icon(Icons.health_and_safety, size: 16, color: Colors.blue),
-                                const SizedBox(width: 4),
-                                Text(
-                                  'NutriScore: ${item['nutri_score'] ?? 'N/A'}',
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.blue,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            
-                            // Calories
-                            Row(
-                              children: [
-                                const Icon(Icons.local_fire_department, size: 16, color: Colors.orange),
-                                const SizedBox(width: 4),
-                                Text(
-                                  '${item['nutrition']?['calories'] ?? 'N/A'} cal',
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.orange,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              }).toList(),
-            );
-          }).toList(),
-        ],
-      ),
-    );
-  }
-
   Widget _buildTabs(Map<String, dynamic> producer) {
     return DefaultTabController(
       length: 4, // Augmenté à 4 pour inclure l'onglet Abonnement
@@ -2698,7 +2395,11 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
             height: 500, // Augmenter la hauteur pour l'onglet d'abonnement
             child: TabBarView(
               children: [
-                _buildMenuDetails(producer),
+                GlobalMenusList(
+                  producer: producer,
+                  hasActivePromotion: _hasActivePromotion,
+                  promotionDiscount: _promotionDiscount,
+                ),
                 _buildPhotosSection(producer['photos'] ?? []),
                 _buildPostsSection(),
                 _buildSubscriptionTab(), // Nouvel onglet d'abonnement
@@ -3551,45 +3252,33 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
   Widget _buildProfileActions(Map<String, dynamic> data) {
     // Helper function to safely get counts
     int getCount(dynamic field) {
-      if (field is int) {
-        return field;
-      } else if (field is List) {
-        return field.length;
-      } else if (field is Map && field['count'] is int) {
-        return field['count'];
-      } else {
-        return 0;
-      }
+      if (field is int) return field;
+      if (field is List) return field.length;
+      if (field is Map && field['count'] is int) return field['count'];
+      return 0;
     }
 
     // Get counts using the helper
-    final followersCount = getCount(data['followers'] ?? data['abonnés']); // Check 'abonnés' too
+    final followersCount = getCount(data['followers'] ?? data['abonnés']);
     final followingCount = getCount(data['following']);
     final interestedCount = getCount(data['interestedUsers']);
     final choicesCount = getCount(data['choiceUsers']);
 
     // Function to safely get user list from potentially complex data structures
     List<String> getUserIds(dynamic field) {
-      if (field is List) {
-        return field.whereType<String>().toList();
-      } else if (field is Map && field['users'] is List) {
-        return (field['users'] as List).whereType<String>().toList();
-      } else {
-        return [];
-      }
+      if (field is List) return field.whereType<String>().toList();
+      if (field is Map && field['users'] is List) return (field['users'] as List).whereType<String>().toList();
+      return [];
     }
 
     void _navigateToRelationDetails(String title, List<String> ids) async {
       if (ids.isEmpty) {
-        print('❌ Aucun ID valide trouvé pour $title.');
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Aucun profil à afficher.')),
         );
         return;
       }
-
       final validProfiles = await _validateProfiles(ids);
-
       if (validProfiles.isNotEmpty && mounted) {
         Navigator.push(
           context,
@@ -3601,15 +3290,12 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
           ),
         );
       } else {
-        print('❌ Aucun profil valide trouvé pour les IDs de $title: $ids');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Aucun profil valide trouvé.')),
-          );
-        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Aucun profil valide trouvé.')),
+        );
       }
     }
-    
+
     return Padding(
       padding: const EdgeInsets.all(16.0),
       child: Row(
@@ -3617,62 +3303,38 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
         children: [
           GestureDetector(
             onTap: () => _navigateToRelationDetails('Followers', getUserIds(data['followers'])),
-            child: Container(
-              color: Colors.transparent, // Make the container tappable
-              child: Column(
-                children: [
-                  Text(
-                    '$followersCount',
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  const Text('Followers'),
-                ],
-              ),
+            child: Column(
+              children: [
+                Text('$followersCount', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const Text('Followers'),
+              ],
             ),
           ),
           GestureDetector(
             onTap: () => _navigateToRelationDetails('Following', getUserIds(data['following'])),
-             child: Container(
-              color: Colors.transparent, // Make the container tappable
-              child: Column(
-                children: [
-                  Text(
-                    '$followingCount',
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  const Text('Following'),
-                ],
-              ),
+            child: Column(
+              children: [
+                Text('$followingCount', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const Text('Following'),
+              ],
             ),
           ),
           GestureDetector(
             onTap: () => _navigateToRelationDetails('Interested', getUserIds(data['interestedUsers'])),
-             child: Container(
-              color: Colors.transparent, // Make the container tappable
-              child: Column(
-                children: [
-                  Text(
-                    '$interestedCount',
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  const Text('Interested'),
-                ],
-              ),
+            child: Column(
+              children: [
+                Text('$interestedCount', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const Text('Interested'),
+              ],
             ),
           ),
           GestureDetector(
             onTap: () => _navigateToRelationDetails('Choices', getUserIds(data['choiceUsers'])),
-             child: Container(
-              color: Colors.transparent, // Make the container tappable
-              child: Column(
-                children: [
-                  Text(
-                    '$choicesCount',
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  const Text('Choices'),
-                ],
-              ),
+            child: Column(
+              children: [
+                Text('$choicesCount', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const Text('Choices'),
+              ],
             ),
           ),
         ],
@@ -4045,10 +3707,9 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 
 class RelationDetailsScreen extends StatelessWidget {
   final String title;
-  final List<Map<String, dynamic>> profiles; // Liste des profils à afficher
+  final List<Map<String, dynamic>> profiles;
 
-  const RelationDetailsScreen({Key? key, required this.title, required this.profiles})
-      : super(key: key);
+  const RelationDetailsScreen({Key? key, required this.title, required this.profiles}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -4061,167 +3722,75 @@ class RelationDetailsScreen extends StatelessWidget {
           ? ListView.builder(
               itemCount: profiles.length,
               itemBuilder: (context, index) {
-                try {
-                  final profile = profiles[index];
-                  if (profile == null || profile is! Map<String, dynamic>) {
-                    print('❌ Profil invalide à l\'index $index');
-                    return const SizedBox.shrink();
-                  }
-
-                  // Récupération des données de manière sécurisée
-                  final userId = profile['_id']?.toString();
-                  final producerId = profile['producerId']?.toString();
-                  
-                  // Vérifier que producerData est bien un Map si présent
-                  final producerData = profile['producerData'] is Map ? 
-                      profile['producerData'] as Map<String, dynamic> : null;
-                  
-                  // Utiliser la première photo valide trouvée
-                  String photoUrl = 'https://via.placeholder.com/150';
-                  for (var key in ['photo', 'photo_url', 'avatar', 'image']) {
-                    if (profile[key] != null && profile[key].toString().isNotEmpty) {
-                      photoUrl = profile[key].toString();
-                      break;
-                    }
-                  }
-                  
-                  // Récupérer le nom avec fallback pour divers champs possibles
-                  String name = 'Nom inconnu';
-                  for (var key in ['name', 'username', 'displayName', 'title', 'nom']) {
-                    if (profile[key] != null && profile[key].toString().isNotEmpty) {
-                      name = profile[key].toString();
-                      break;
-                    }
-                  }
-                  
-                  // Récupérer la description avec fallback pour divers champs possibles
-                  String description = 'Pas de description';
-                  for (var key in ['description', 'bio', 'about', 'summary']) {
-                    if (profile[key] != null && profile[key].toString().isNotEmpty) {
-                      description = profile[key].toString();
-                      break;
-                    }
-                  }
-
-                  // Détection du type de profil
-                  final isUser = userId != null && producerId == null && producerData == null;
-                  final isProducer = producerId != null;
-                  final isLeisureProducer = producerData != null;
-
-                  // Vérification des profils non valides
-                  if (!isUser && !isProducer && !isLeisureProducer) {
-                    print('❌ Profil non valide à l\'index $index (aucun type reconnu)');
-                    return const SizedBox.shrink(); // Ignore les entrées non valides
-                  }
-
-                  return Card(
-                    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    elevation: 2,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
+                final profile = profiles[index];
+                final userId = profile['_id']?.toString();
+                final producerId = profile['producerId']?.toString();
+                final producerData = profile['producerData'] is Map ? profile['producerData'] as Map<String, dynamic> : null;
+                String photoUrl = profile['photo'] ?? profile['photo_url'] ?? profile['avatar'] ?? profile['image'] ?? 'https://via.placeholder.com/150';
+                String name = profile['name'] ?? profile['username'] ?? profile['displayName'] ?? profile['title'] ?? profile['nom'] ?? 'Nom inconnu';
+                String description = profile['description'] ?? profile['bio'] ?? profile['about'] ?? profile['summary'] ?? 'Pas de description';
+                final isUser = userId != null && producerId == null && producerData == null;
+                final isProducer = producerId != null;
+                final isLeisureProducer = producerData != null;
+                IconData typeIcon = Icons.person;
+                Color iconColor = Colors.grey;
+                if (isProducer) { typeIcon = Icons.restaurant; iconColor = Colors.orange; }
+                if (isLeisureProducer) { typeIcon = Icons.sports_bar; iconColor = Colors.blue; }
+                return Card(
+                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  elevation: 2,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () {
+                      if (isUser && userId != null) {
+                        Navigator.push(context, MaterialPageRoute(builder: (context) => ProfileScreen(userId: userId)));
+                      } else if (isProducer && producerId != null) {
+                        Navigator.push(context, MaterialPageRoute(builder: (context) => ProducerScreen(producerId: producerId)));
+                      } else if (isLeisureProducer && producerData != null) {
+                        Navigator.push(context, MaterialPageRoute(builder: (context) => ProducerLeisureScreen(producerData: producerData)));
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Impossible d\'ouvrir ce profil.')));
+                      }
+                    },
                     child: ListTile(
-                      leading: CircleAvatar(
-                        radius: 25,
-                        backgroundImage: NetworkImage(photoUrl),
-                        onBackgroundImageError: (_, __) {
-                          // Gérer l'erreur d'image silencieusement
-                          print('⚠️ Erreur de chargement d\'image pour le profil à l\'index $index');
-                        },
-                        backgroundColor: Colors.grey[300],
-                        child: photoUrl == 'https://via.placeholder.com/150' 
-                            ? const Icon(Icons.person, color: Colors.grey) 
-                            : null,
+                      leading: Stack(
+                        children: [
+                          CircleAvatar(
+                            radius: 25,
+                            backgroundImage: NetworkImage(photoUrl),
+                            backgroundColor: Colors.grey[300],
+                            child: photoUrl == 'https://via.placeholder.com/150' ? Icon(typeIcon, color: iconColor) : null,
+                          ),
+                          Positioned(
+                            bottom: 0, right: 0,
+                            child: CircleAvatar(
+                              radius: 10,
+                              backgroundColor: Colors.white,
+                              child: Icon(typeIcon, color: iconColor, size: 16),
+                            ),
+                          ),
+                        ],
                       ),
-                      title: Text(
-                        name,
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                      ),
-                      subtitle: Text(
-                        description,
-                        style: const TextStyle(color: Colors.grey),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      onTap: () => _navigateToProfile(context, userId, producerId, producerData, isUser, isProducer, isLeisureProducer),
+                      title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                      subtitle: Text(description, style: const TextStyle(color: Colors.grey), maxLines: 2, overflow: TextOverflow.ellipsis),
+                      trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
                     ),
-                  );
-                } catch (e) {
-                  print('❌ Erreur de rendu pour le profil à l\'index $index: $e');
-                  return const SizedBox.shrink();
-                }
+                  ),
+                );
               },
             )
           : Center(
-              child: Text(
-                'Aucun profil disponible.',
-                style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.sentiment_dissatisfied, size: 60, color: Colors.grey[400]),
+                  const SizedBox(height: 16),
+                  Text('Aucun profil disponible.', style: TextStyle(fontSize: 16, color: Colors.grey[600])),
+                ],
               ),
             ),
     );
-  }
-  
-  void _navigateToProfile(
-    BuildContext context,
-    String? userId,
-    String? producerId,
-    Map<String, dynamic>? producerData,
-    bool isUser,
-    bool isProducer,
-    bool isLeisureProducer
-  ) async {
-    try {
-      // Gestion des navigations selon le type de profil
-      if (isUser && userId != null) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ProfileScreen(userId: userId),
-          ),
-        );
-        return;
-      }
-      
-      if (isProducer && producerId != null) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ProducerScreen(
-              producerId: producerId,
-            ),
-          ),
-        );
-        return;
-      }
-      
-      if (isLeisureProducer && producerData != null) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ProducerLeisureScreen(
-              producerData: producerData,
-            ),
-          ),
-        );
-        return;
-      }
-      
-      // Si aucune condition n'est satisfaite, afficher un message d'erreur
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Impossible d\'ouvrir ce profil: données insuffisantes'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    } catch (e) {
-      print('❌ Erreur de navigation: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Erreur lors de la navigation: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
   }
 }
 

@@ -30,6 +30,9 @@ import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import '../utils.dart' show getImageProvider;
 import 'package:flutter/foundation.dart' show defaultTargetPlatform, TargetPlatform;
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
+import '../widgets/tenor_gif_picker.dart';
 
 class Mention {
   final String userId;
@@ -123,12 +126,22 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> wit
 
   // --- WebSocket State ---
   IO.Socket? _socket;
+  Map<String, dynamic> _messageReadStatus = {};
+  Map<String, dynamic> _conversationUpdates = {};
   // --- End WebSocket State ---
 
   // Toggle pour l'affichage du picker d'émojis
   bool _isEmojiVisible = false;
 
   bool _isDarkMode = false;
+
+  Map<String, dynamic>? _replyingMessage;
+
+  bool _isPinned = false;
+  bool _isMuted = false;
+
+  String _recipientName = '';
+  String _recipientAvatar = '';
 
   @override
   void initState() {
@@ -138,6 +151,7 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> wit
     
     _loadMessages();
     _initWebSocket(); // Initialize WebSocket connection
+    _markAsReadOnOpen();
     
     if (widget.isGroup) {
       _loadGroupDetails();
@@ -152,6 +166,12 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> wit
         _loadMessages(silent: true);
       }
     });
+    // Charger l'état pin/mute initial si possible
+    _fetchPinMuteStatus();
+    _scrollController.addListener(_onScrollForReadReceipt);
+
+    _recipientName = widget.recipientName;
+    _recipientAvatar = widget.recipientAvatar;
   }
 
   @override
@@ -338,33 +358,36 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> wit
     final message = _messageController.text.trim();
     final List<String> mediaUrls = List.from(_mediaToSend);
     final List<Mention> messageMentions = List.from(_mentions);
-    // Define tempId here, before setState
     final String tempId = 'temp-${DateTime.now().millisecondsSinceEpoch}';
+    final replyToId = _replyingMessage?['_id'] ?? _replyingMessage?['id'];
 
     setState(() {
       _isSending = true;
       _isTyping = false;
       _messageController.clear();
       _mediaToSend = [];
-      _mentions = []; // Clear mentions for the *next* message
-      _showMentionSuggestions = false; // Hide suggestions after sending
+      _mentions = [];
+      _showMentionSuggestions = false;
       _currentMentionQuery = '';
-
-      // Add the message to the list with a temporary ID for affichage immédiat
+      _replyingMessage = null;
       _messages.add({
         '_id': tempId,
         'id': tempId,
         'senderId': widget.userId,
         'content': message,
         'timestamp': DateTime.now().toIso8601String(),
-        'status': 'sending', // Nouveau champ pour suivre l'état d'envoi
+        'status': 'sending',
         'media': mediaUrls,
-        // Use the message-specific mentions
         'mentions': messageMentions.isNotEmpty ? messageMentions.map((m) => m.toJson()).toList() : [],
+        'replyTo': _replyingMessage != null
+            ? {
+                '_id': _replyingMessage!['_id'] ?? _replyingMessage!['id'],
+                'content': _replyingMessage!['content'] ?? ''
+              }
+            : null,
       });
     });
 
-    // Scroll to bottom after adding temp message
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) {
         _scrollController.animateTo(
@@ -376,54 +399,59 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> wit
     });
 
     try {
-      print('📨 Envoi du message: $message dans la conversation ${widget.conversationId}');
-      print('📨 senderId: ${widget.userId}');
-
-      // Prepare the mention data for the API call
       List<Map<String, dynamic>>? mentionsData =
           messageMentions.isNotEmpty ? messageMentions.map((m) => m.toJson()).toList() : null;
-
       final response = await _conversationService.sendMessage(
         widget.conversationId,
         widget.userId,
         message,
         mediaUrls.isNotEmpty ? mediaUrls : null,
-        mentionsData, // Pass the correct mention data
+        mentionsData,
       );
 
       if (mounted) {
         setState(() {
           _isSending = false;
-
-          // Update the temporary message with the real data
           final tempIndex = _messages.indexWhere((m) => m['_id'].toString() == tempId);
           if (tempIndex != -1) {
-             // Safely access response data
              final Map<String, dynamic> messageData = response['message'] is Map ? Map<String, dynamic>.from(response['message']) : {};
              final String messageId = messageData['_id']?.toString() ?? messageData['id']?.toString() ?? tempId;
              final String messageTimestamp = messageData['timestamp']?.toString() ?? DateTime.now().toIso8601String();
-
+             // --- Fix replyTo: if backend only returns id, fill in content from _messages ---
+             dynamic replyTo = messageData['replyTo'];
+             if (replyTo != null && (replyTo is String || replyTo is int)) {
+               // Find the message in _messages
+               final refMsg = _messages.firstWhere(
+                 (m) => m['_id'].toString() == replyTo.toString() || m['id'].toString() == replyTo.toString(),
+                 orElse: () => <String, dynamic>{},
+               );
+               if (refMsg != null) {
+                 replyTo = {
+                   '_id': refMsg['_id'] ?? refMsg['id'],
+                   'content': refMsg['content'] ?? ''
+                 };
+               } else {
+                 replyTo = null;
+               }
+             }
+             // If backend returns full object, keep as is
              _messages[tempIndex] = {
                ..._messages[tempIndex],
                '_id': messageId,
                'id': messageId,
                'status': 'sent',
                'timestamp': messageTimestamp,
-               // Keep the original mentions data sent
                'mentions': messageMentions.isNotEmpty ? messageMentions.map((m) => m.toJson()).toList() : [],
+               'replyTo': replyTo,
              };
           }
         });
       }
-
     } catch (e) {
       print('❌ Erreur lors de l\'envoi du message: $e');
-
       if (mounted) {
         setState(() {
           _isSending = false;
-
-          // Mark the message as error
           final tempIndex = _messages.indexWhere((m) => m['_id'].toString() == tempId);
           if (tempIndex != -1) {
             _messages[tempIndex] = {
@@ -432,7 +460,6 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> wit
             };
           }
         });
-
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Erreur lors de l\'envoi du message. Veuillez réessayer.'),
@@ -441,14 +468,12 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> wit
               label: 'Réessayer',
               textColor: Colors.white,
               onPressed: () {
-                 // Restore the state to allow retry
                  setState(() {
-                     // Remove the error message first
                      _messages.removeWhere((m) => m['_id'].toString() == tempId);
-                     // Restore text, media, mentions
                      _messageController.text = message;
                      _mediaToSend = List.from(mediaUrls);
-                     _mentions = List.from(messageMentions); // Restore mentions too
+                     _mentions = List.from(messageMentions);
+                     _replyingMessage = _replyingMessage;
                  });
               },
             ),
@@ -542,9 +567,22 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> wit
   Widget _buildMessageBubble(Map<String, dynamic> message, bool isCurrentUser) {
     final String content = message['content'] ?? '';
     final List<dynamic> media = message['media'] ?? [];
-    final String status = message['status'] ?? 'sent';
-    // Retrieve mentions data
+    String status = message['status'] ?? 'sent';
     final List<dynamic>? mentionsData = message['mentions'] as List<dynamic>?;
+    final Map<String, dynamic>? replyTo = message['replyTo'] as Map<String, dynamic>?;
+    String? replySenderName;
+    if (replyTo != null && replyTo['_id'] != null) {
+      if (message['senderId'] == widget.userId) {
+        replySenderName = 'Vous';
+      } else if (widget.isGroup && _participantsInfo.isNotEmpty) {
+        final p = _participantsInfo[message['senderId']];
+        replySenderName = p != null ? (p['name'] ?? p['username'] ?? 'Utilisateur') : 'Utilisateur';
+      } else if (!widget.isGroup) {
+        replySenderName = widget.recipientName;
+      } else {
+        replySenderName = 'Utilisateur';
+      }
+    }
 
     final Color bubbleColor = isCurrentUser
         ? _primaryColor.withOpacity(0.9)
@@ -566,96 +604,151 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> wit
       }
     }
 
+    // Bloc 2: read receipts - if current user is sender, check if all others have read
+    if (isCurrentUser && message['id'] != null && _messageReadStatus.isNotEmpty) {
+      final readStatus = _messageReadStatus[message['id']] ?? _messageReadStatus[message['_id']];
+      if (readStatus == true || readStatus == 'read' || readStatus == 1) {
+        status = 'read';
+      }
+    }
+
     return Align(
       alignment: isCurrentUser ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: bubbleColor,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 3,
-              offset: const Offset(0, 1),
-            ),
-          ],
-        ),
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.7,
-        ),
-        child: Column(
-          crossAxisAlignment: isCurrentUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-          children: [
-            if (media.isNotEmpty)
-              Container(
-                margin: const EdgeInsets.only(bottom: 8),
-                height: 150,
-                child: ListView.builder(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: media.length,
-                  itemBuilder: (context, index) {
-                    return Container(
-                      margin: const EdgeInsets.only(right: 8),
-                      width: 150,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(8),
-                        color: Colors.grey[200],
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: message['image_url'] != null
-                          ? Builder(
-                              builder: (context) {
-                                final imageUrl = message['image_url'];
-                                final imageProvider = getImageProvider(imageUrl);
-                                
-                                return imageProvider != null
-                                  ? ClipRRect(
-                                      borderRadius: BorderRadius.circular(8),
-                                      child: Image(
-                                        image: imageProvider,
-                                        fit: BoxFit.cover,
-                                        errorBuilder: (context, error, stackTrace) {
-                                          print("❌ Error loading message image: $error");
-                                          return Center(child: Icon(Icons.broken_image, size: 30, color: Colors.grey[600]));
-                                        },
-                                      ),
-                                    )
-                                  : Center(child: Icon(Icons.image, size: 30, color: Colors.grey[600]));
-                              }
-                            )
-                          : Container(),
-                      ),
-                    );
-                  },
-                ),
+      child: GestureDetector(
+        onHorizontalDragEnd: (details) {
+          if (details.primaryVelocity != null && details.primaryVelocity! > 0) {
+            setState(() => _replyingMessage = message);
+          }
+        },
+        onDoubleTap: () {
+          setState(() => _replyingMessage = message);
+        },
+        onLongPress: () => _showMessageMenu(context, message, isCurrentUser),
+        child: Container(
+          margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: bubbleColor,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 3,
+                offset: const Offset(0, 1),
               ),
-            
-            // Use the rendering function for text content
-             if (content.isNotEmpty) // Only render if there is text content
-               Padding(
-                 padding: const EdgeInsets.only(bottom: 4.0), // Add some padding below text
-                 child: _renderMessageContent(content, mentionsData),
-               ),
-            
-            // Heure d'envoi et statut
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  _formatMessageTime(message['timestamp'] ?? ''),
-                  style: TextStyle(
-                    color: textColor.withOpacity(0.7),
-                    fontSize: 10,
+            ],
+          ),
+          constraints: BoxConstraints(
+            maxWidth: MediaQuery.of(context).size.width * 0.7,
+          ),
+          child: Column(
+            crossAxisAlignment: isCurrentUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+            children: [
+              if (replyTo != null && replyTo['content'] != null)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: isCurrentUser ? Colors.white24 : Colors.grey[100],
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 4,
+                        height: 32,
+                        margin: const EdgeInsets.only(right: 8),
+                        decoration: BoxDecoration(
+                          color: _primaryColor,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                      ),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (replySenderName != null)
+                              Text(
+                                replySenderName,
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.deepPurple),
+                              ),
+                            Text(
+                              replyTo['content'],
+                              style: TextStyle(fontStyle: FontStyle.italic, color: isCurrentUser ? Colors.white70 : Colors.black54, fontSize: 13),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(width: 4),
-                statusIcon,
-              ],
-            ),
-          ],
+              if (media.isNotEmpty)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  height: 150,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: media.length,
+                    itemBuilder: (context, index) {
+                      return Container(
+                        margin: const EdgeInsets.only(right: 8),
+                        width: 150,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(8),
+                          color: Colors.grey[200],
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: message['image_url'] != null
+                            ? Builder(
+                                builder: (context) {
+                                  final imageUrl = message['image_url'];
+                                  final imageProvider = getImageProvider(imageUrl);
+                                  
+                                  return imageProvider != null
+                                    ? ClipRRect(
+                                        borderRadius: BorderRadius.circular(8),
+                                        child: Image(
+                                          image: imageProvider,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (context, error, stackTrace) {
+                                            print("❌ Error loading message image: $error");
+                                            return Center(child: Icon(Icons.broken_image, size: 30, color: Colors.grey[600]));
+                                          },
+                                        ),
+                                      )
+                                    : Center(child: Icon(Icons.image, size: 30, color: Colors.grey[600]));
+                                }
+                              )
+                            : Container(),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              if (content.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4.0),
+                  child: _renderMessageContent(content, mentionsData),
+                ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    _formatMessageTime(message['timestamp'] ?? ''),
+                    style: TextStyle(
+                      color: textColor.withOpacity(0.7),
+                      fontSize: 10,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  statusIcon,
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -684,7 +777,7 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> wit
             GestureDetector(
               // Navigate on avatar tap ONLY for non-group chats
               onTap: (!widget.isGroup && otherUserId != null)
-                  ? () => _navigateToProfile(otherUserId, otherUserType)
+                  ? () => _navigateToProfile(otherUserId ?? '', otherUserType)
                   : null,
               child: CircleAvatar(
                 radius: 20,
@@ -729,9 +822,37 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> wit
             icon: Icon(Icons.call),
             onPressed: () => _initiateCall(false),
           ),
+          if (widget.isGroup)
+            IconButton(
+              icon: Icon(Icons.info_outline),
+              tooltip: 'Détails du groupe',
+              onPressed: () async {
+                final result = await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => GroupDetailsScreen(
+                      conversationId: widget.conversationId,
+                      currentUserId: widget.userId,
+                      groupName: widget.recipientName,
+                      groupAvatar: widget.recipientAvatar,
+                      participants: (widget.participants ?? []).map((p) {
+                        if (p is Map<String, dynamic>) return p;
+                        if (p is String) return {'id': p, 'name': '', 'avatar': ''};
+                        return <String, dynamic>{};
+                      }).toList().cast<Map<String, dynamic>>(),
+                    ),
+                  ),
+                );
+                if (result != null && mounted) {
+                  setState(() {
+                    if (result['groupName'] != null) _recipientName = result['groupName'];
+                    if (result['groupAvatar'] != null) _recipientAvatar = result['groupAvatar'];
+                  });
+                }
+              },
+            ),
           PopupMenuButton<String>(
-            onSelected: (value) {
-              // Implémenter les actions du menu
+            onSelected: (value) async {
               if (value == 'search') {
                 // Rechercher dans les messages
               } else if (value == 'clear') {
@@ -740,6 +861,10 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> wit
                   // TODO: Add participant logic
               } else if (value == 'group_info' && widget.isGroup) {
                   // TODO: Show group info screen
+              } else if (value == 'pin') {
+                await _togglePin();
+              } else if (value == 'mute') {
+                await _toggleMute();
               }
             },
             itemBuilder: (BuildContext context) => [
@@ -750,6 +875,26 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> wit
                     Icon(Icons.search, color: Colors.grey[700]),
                     const SizedBox(width: 8),
                     Text('Rechercher'),
+                  ],
+                ),
+              ),
+              PopupMenuItem<String>(
+                value: 'pin',
+                child: Row(
+                  children: [
+                    Icon(_isPinned ? Icons.push_pin : Icons.push_pin_outlined, color: Colors.grey[700]),
+                    const SizedBox(width: 8),
+                    Text(_isPinned ? 'Désépingler' : 'Épingler'),
+                  ],
+                ),
+              ),
+              PopupMenuItem<String>(
+                value: 'mute',
+                child: Row(
+                  children: [
+                    Icon(_isMuted ? Icons.volume_off : Icons.volume_up, color: Colors.grey[700]),
+                    const SizedBox(width: 8),
+                    Text(_isMuted ? 'Activer notifications' : 'Mettre en sourdine'),
                   ],
                 ),
               ),
@@ -1015,6 +1160,20 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> wit
   }
   
   Widget _buildInputArea() {
+    String? replySenderName;
+    if (_replyingMessage != null) {
+      if (_replyingMessage!['senderId'] == widget.userId) {
+        replySenderName = 'Vous';
+      } else if (widget.isGroup && _participantsInfo.isNotEmpty) {
+        // Try to get name from group participants info
+        final p = _participantsInfo[_replyingMessage!['senderId']];
+        replySenderName = p != null ? (p['name'] ?? p['username'] ?? 'Utilisateur') : 'Utilisateur';
+      } else if (!widget.isGroup) {
+        replySenderName = widget.recipientName;
+      } else {
+        replySenderName = 'Utilisateur';
+      }
+    }
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 8.0, vertical: 10.0),
       decoration: BoxDecoration(
@@ -1028,44 +1187,97 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> wit
         ],
       ),
       child: SafeArea(
-        child: Row(
-          children: <Widget>[
-            // Bouton "+" pour pièces jointes (ouvertures galerie/caméra)
-            IconButton(
-              icon: Icon(Icons.add_circle_outline, color: _primaryColor),
-              onPressed: _showMediaOptions,
-            ),
-            IconButton(
-              icon: Icon(Icons.emoji_emotions_outlined, color: _primaryColor),
-              onPressed: _showEmojiPicker,
-            ),
-            // Champ de texte
-            Expanded(
-              child: Container(
-                 padding: EdgeInsets.symmetric(horizontal: 14.0),
-                 decoration: BoxDecoration(
-                   color: Colors.grey[100], // Slightly different background for text field
-                   borderRadius: BorderRadius.circular(25.0),
-                 ),
-                child: TextField(
-                  controller: _messageController,
-                  focusNode: _messageFocusNode,
-                  decoration: InputDecoration(
-                    hintText: 'Taper un message...',
-                    border: InputBorder.none,
-                    isDense: true, // Reduces padding inside TextField
-                  ),
-                   textCapitalization: TextCapitalization.sentences,
-                   keyboardType: TextInputType.multiline,
-                   maxLines: null, // Allows multiple lines
-                   onSubmitted: (_) => _sendMessage(), // Send on keyboard submit
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_replyingMessage != null)
+              Container(
+                margin: const EdgeInsets.only(bottom: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.grey[100],
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 4,
+                      height: 36,
+                      margin: const EdgeInsets.only(right: 8),
+                      decoration: BoxDecoration(
+                        color: _primaryColor,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (replySenderName != null)
+                            Text(
+                              replySenderName,
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.deepPurple),
+                            ),
+                          Text(
+                            _replyingMessage?['content'] ?? '',
+                            style: TextStyle(fontStyle: FontStyle.italic, color: Colors.black87),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: Icon(Icons.close, size: 18),
+                      onPressed: () => setState(() => _replyingMessage = null),
+                    ),
+                  ],
                 ),
               ),
-            ),
-            // Bouton d'envoi
-            IconButton(
-              icon: Icon(Icons.send, color: _primaryColor),
-              onPressed: _isSending ? null : _sendMessage, // Désactiver pendant l'envoi
+            Row(
+              children: <Widget>[
+                // Bouton "+" pour pièces jointes (ouvertures galerie/caméra)
+                IconButton(
+                  icon: Icon(Icons.add_circle_outline, color: _primaryColor),
+                  onPressed: _showMediaOptions,
+                ),
+                IconButton(
+                  icon: Icon(Icons.emoji_emotions_outlined, color: _primaryColor),
+                  onPressed: _showEmojiPicker,
+                ),
+                IconButton(
+                  icon: Icon(Icons.gif_box, color: _primaryColor),
+                  onPressed: _showGifPicker,
+                ),
+                // Champ de texte
+                Expanded(
+                  child: Container(
+                     padding: EdgeInsets.symmetric(horizontal: 14.0),
+                     decoration: BoxDecoration(
+                       color: Colors.grey[100], // Slightly different background for text field
+                       borderRadius: BorderRadius.circular(25.0),
+                     ),
+                    child: TextField(
+                      controller: _messageController,
+                      focusNode: _messageFocusNode,
+                      decoration: InputDecoration(
+                        hintText: 'Taper un message...',
+                        border: InputBorder.none,
+                        isDense: true, // Reduces padding inside TextField
+                      ),
+                       textCapitalization: TextCapitalization.sentences,
+                       keyboardType: TextInputType.multiline,
+                       maxLines: null, // Allows multiple lines
+                       onSubmitted: (_) => _sendMessage(), // Send on keyboard submit
+                    ),
+                  ),
+                ),
+                // Bouton d'envoi
+                IconButton(
+                  icon: Icon(Icons.send, color: _primaryColor),
+                  onPressed: _isSending ? null : _sendMessage, // Désactiver pendant l'envoi
+                ),
+              ],
             ),
           ],
         ),
@@ -1650,6 +1862,24 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> wit
         }
       });
 
+      _socket!.on('message_read', (data) {
+        if (data is Map && data['conversationId'] == widget.conversationId) {
+          setState(() {
+            _messageReadStatus = Map<String, dynamic>.from(data);
+          });
+        }
+      });
+
+      _socket!.on('conversation_updated', (data) {
+        if (data is Map && data['conversationId'] == widget.conversationId) {
+          setState(() {
+            _conversationUpdates = Map<String, dynamic>.from(data);
+            if (data['groupName'] != null) _recipientName = data['groupName'];
+            if (data['groupAvatar'] != null) _recipientAvatar = data['groupAvatar'];
+          });
+        }
+      });
+
       _socket!.onDisconnect((_) => print('🔌 WebSocket disconnected'));
       _socket!.onError((error) => print('❌ WebSocket Error: $error'));
       _socket!.onConnectError((error) => print('❌ WebSocket Connection Error: $error'));
@@ -1658,7 +1888,24 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> wit
       print('❌ Failed to initialize WebSocket: $e');
     }
   }
-  // --- End WebSocket --- 
+
+  void _markAsReadOnOpen() async {
+    try {
+      await _conversationService.markConversationAsRead(widget.conversationId, widget.userId);
+      _emitMessageRead();
+    } catch (e) {
+      print('Erreur lors du mark as read: $e');
+    }
+  }
+
+  void _emitMessageRead() {
+    if (_socket != null && _socket!.connected) {
+      _socket!.emit('message_read', {
+        'conversationId': widget.conversationId,
+        'userId': widget.userId,
+      });
+    }
+  }
 
   // Placeholder pour picker d'émojis -> toggle réel
   void _showEmojiPicker() {
@@ -1672,5 +1919,112 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> wit
         _messageFocusNode.requestFocus();
       }
     });
+  }
+
+  void _showGifPicker() async {
+    final gifUrl = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) => TenorGifPicker(),
+    );
+    if (gifUrl != null && gifUrl.isNotEmpty) {
+      _messageController.text += ' $gifUrl ';
+      _messageController.selection = TextSelection.fromPosition(
+        TextPosition(offset: _messageController.text.length),
+      );
+    }
+  }
+
+  Future<void> _fetchPinMuteStatus() async {
+    try {
+      final details = await _conversationService.getConversationDetails(widget.conversationId);
+      if (mounted) {
+        setState(() {
+          _isPinned = details['isPinned'] == true;
+          _isMuted = details['isMuted'] == true;
+        });
+      }
+    } catch (e) {
+      print('Erreur chargement pin/mute: $e');
+    }
+  }
+
+  Future<void> _togglePin() async {
+    try {
+      await _conversationService.updateGroupInfo(widget.conversationId);
+      setState(() => _isPinned = !_isPinned);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(_isPinned ? 'Conversation épinglée' : 'Conversation désépinglée')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  Future<void> _toggleMute() async {
+    try {
+      await _conversationService.updateGroupInfo(widget.conversationId);
+      setState(() => _isMuted = !_isMuted);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(_isMuted ? 'Conversation muette' : 'Notifications activées')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  void _onScrollForReadReceipt() {
+    if (_scrollController.hasClients &&
+        _scrollController.offset >= _scrollController.position.maxScrollExtent - 40) {
+      _emitMessageRead();
+    }
+  }
+
+  void _showMessageMenu(BuildContext context, Map<String, dynamic> message, bool isCurrentUser) {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) {
+        return SafeArea(
+          child: Wrap(
+            children: [
+              ListTile(
+                leading: Icon(Icons.reply, color: _primaryColor),
+                title: Text('Répondre'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  setState(() => _replyingMessage = message);
+                },
+              ),
+              ListTile(
+                leading: Icon(Icons.copy, color: _primaryColor),
+                title: Text('Copier'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  Clipboard.setData(ClipboardData(text: message['content'] ?? ''));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Message copié')),
+                  );
+                },
+              ),
+              if (isCurrentUser)
+                ListTile(
+                  leading: Icon(Icons.delete_outline, color: Colors.red),
+                  title: Text('Supprimer pour moi', style: TextStyle(color: Colors.red)),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    setState(() {
+                      _messages.removeWhere((m) => m['_id'] == message['_id']);
+                    });
+                    // TODO: Appeler l'API pour suppression côté serveur si besoin
+                  },
+                ),
+            ],
+          ),
+        );
+      },
+    );
   }
 } 

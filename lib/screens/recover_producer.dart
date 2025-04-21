@@ -302,7 +302,6 @@ class _RecoverProducerPageState extends State<RecoverProducerPage> with SingleTi
       if (response['success'] == true) {
         print('✅ Connexion réussie via loginWithId pour $producerId');
         // La navigation est maintenant gérée par le listener de AuthService dans main.dart
-        // ou on peut forcer une navigation si nécessaire
         if (mounted) {
            Navigator.pushAndRemoveUntil(
               context,

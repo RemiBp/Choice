@@ -1681,4 +1681,54 @@ class ConversationService {
       throw Exception('Erreur lors de la création de la conversation: $e');
     }
   }
+
+  // ---- File Upload & Group helpers ----
+  Future<String?> uploadFile(File file) async {
+    try {
+      final baseUrl = getBaseUrl();
+      final request = http.MultipartRequest('POST', Uri.parse('$baseUrl/api/upload'));
+      request.files.add(await http.MultipartFile.fromPath('file', file.path));
+      final streamed = await request.send();
+      final response = await http.Response.fromStream(streamed);
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final data = json.decode(response.body);
+        return data['url'] ?? data['fileUrl'];
+      }
+    } catch (e) {
+      print('uploadFile error: $e');
+    }
+    return null;
+  }
+
+  Future<void> updateGroupInfo(String conversationId, {String? groupName, String? groupAvatar}) async {
+    if (groupName == null && groupAvatar == null) return;
+    final baseUrl = getBaseUrl();
+    final body = <String, dynamic>{};
+    if (groupName != null) body['groupName'] = groupName;
+    if (groupAvatar != null) body['groupAvatar'] = groupAvatar;
+    final resp = await http.patch(Uri.parse('$baseUrl/api/conversations/$conversationId'),
+        headers: {'Content-Type': 'application/json'}, body: json.encode(body));
+    if (resp.statusCode != 200) {
+      throw Exception('updateGroupInfo failed ${resp.statusCode} ${resp.body}');
+    }
+  }
+
+  Future<void> addParticipants(String conversationId, List<Map<String, dynamic>> users) async {
+    if (users.isEmpty) return;
+    final ids = users.map((e) => e['id'] ?? e['_id']).where((e) => e != null).toList();
+    final baseUrl = getBaseUrl();
+    final resp = await http.post(Uri.parse('$baseUrl/api/conversations/$conversationId/participants'),
+        headers: {'Content-Type': 'application/json'}, body: json.encode({'participantIds': ids}));
+    if (resp.statusCode != 200) {
+      throw Exception('addParticipants failed ${resp.statusCode}');
+    }
+  }
+
+  Future<void> removeParticipant(String conversationId, String participantId) async {
+    final baseUrl = getBaseUrl();
+    final resp = await http.delete(Uri.parse('$baseUrl/api/conversations/$conversationId/participants/$participantId'));
+    if (resp.statusCode != 200) {
+      throw Exception('removeParticipant failed ${resp.statusCode}');
+    }
+  }
 } 

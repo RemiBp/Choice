@@ -1,438 +1,249 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../services/conversation_service.dart';
+import '../utils/api_config.dart';
 
 class GroupDetailsScreen extends StatefulWidget {
-  final String groupId;
-  final String userId;
+  final String conversationId;
+  final String currentUserId;
+  final String groupName;
+  final String groupAvatar;
+  final List<Map<String, dynamic>> participants; // {id,name,avatar}
 
   const GroupDetailsScreen({
     Key? key,
-    required this.groupId,
-    required this.userId,
+    required this.conversationId,
+    required this.currentUserId,
+    required this.groupName,
+    required this.groupAvatar,
+    required this.participants,
   }) : super(key: key);
 
   @override
-  _GroupDetailsScreenState createState() => _GroupDetailsScreenState();
+  State<GroupDetailsScreen> createState() => _GroupDetailsScreenState();
 }
 
 class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
+  late TextEditingController _nameController;
+  late String _avatarUrl;
+  bool _isSaving = false;
   final ConversationService _conversationService = ConversationService();
-  bool _isLoading = true;
-  Map<String, dynamic> _groupInfo = {};
-  List<Map<String, dynamic>> _participants = [];
-  
+
   @override
   void initState() {
     super.initState();
-    _loadGroupDetails();
+    _nameController = TextEditingController(text: widget.groupName);
+    _avatarUrl = widget.groupAvatar;
   }
-  
-  Future<void> _loadGroupDetails() async {
-    setState(() {
-      _isLoading = true;
-    });
-    
+
+  Future<void> _pickNewAvatar() async {
+    final picker = ImagePicker();
+    final XFile? img = await picker.pickImage(source: ImageSource.gallery);
+    if (img == null) return;
+
+    setState(() => _isSaving = true);
     try {
-      // Dans une vraie implémentation, récupérez les détails du groupe depuis le service
-      // final details = await _conversationService.getConversationDetails(widget.groupId);
-      
-      // Pour la démo, nous simulons des données
-      await Future.delayed(Duration(seconds: 1));
-      
-      final Map<String, dynamic> groupInfo = {
-        'name': 'Groupe de discussion',
-        'avatar': 'https://via.placeholder.com/150',
-        'createdAt': DateTime.now().subtract(Duration(days: 30)).toIso8601String(),
-        'type': 'general',
-      };
-      
-      final List<Map<String, dynamic>> participants = [
-        {
-          'id': widget.userId,
-          'name': 'Vous (Admin)',
-          'avatar': 'https://via.placeholder.com/150',
-          'isAdmin': true,
-        },
-        {
-          'id': 'user2',
-          'name': 'Julie Martin',
-          'avatar': 'https://via.placeholder.com/150',
-          'isAdmin': false,
-        },
-        {
-          'id': 'user3',
-          'name': 'Thomas Dubois',
-          'avatar': 'https://via.placeholder.com/150',
-          'isAdmin': false,
-        }
-      ];
-      
-      setState(() {
-        _groupInfo = groupInfo;
-        _participants = participants;
-        _isLoading = false;
-      });
-    } catch (e) {
-      print('Erreur lors du chargement des détails du groupe: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur lors du chargement des détails')),
-      );
-      
-      setState(() {
-        _isLoading = false;
-      });
+      // simple upload using same upload service used elsewhere
+      final uploaded = await _conversationService.uploadFile(File(img.path));
+      if (uploaded != null) {
+        setState(() => _avatarUrl = uploaded);
+      }
+    } finally {
+      setState(() => _isSaving = false);
     }
   }
-  
+
+  Future<void> _saveChanges() async {
+    final newName = _nameController.text.trim();
+    setState(() => _isSaving = true);
+    try {
+      await _conversationService.updateGroupInfo(
+        widget.conversationId,
+        groupName: newName != widget.groupName ? newName : null,
+        groupAvatar: _avatarUrl != widget.groupAvatar ? _avatarUrl : null,
+      );
+      Navigator.pop(context, {
+        'groupName': newName,
+        'groupAvatar': _avatarUrl,
+      });
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: $e')));
+    } finally {
+      setState(() => _isSaving = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          'Détails du groupe',
-          style: GoogleFonts.poppins(
-            fontWeight: FontWeight.bold,
-          ),
-        ),
+        title: Text('Détails du groupe'),
         actions: [
-          PopupMenuButton<String>(
-            onSelected: (value) {
-              if (value == 'leave') {
-                _showLeaveGroupConfirmation();
-              }
-            },
-            itemBuilder: (context) => [
-              PopupMenuItem(
-                value: 'leave',
-                child: Row(
-                  children: [
-                    Icon(Icons.exit_to_app, color: Colors.red),
-                    SizedBox(width: 8),
-                    Text('Quitter le groupe', style: TextStyle(color: Colors.red)),
-                  ],
-                ),
-              ),
-            ],
-          ),
+          if (_isSaving)
+            const Padding(
+              padding: EdgeInsets.all(12.0),
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          else
+            IconButton(
+              icon: const Icon(Icons.save),
+              onPressed: _saveChanges,
+            ),
         ],
       ),
-      body: _isLoading
-          ? Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-              child: Column(
-                children: [
-                  _buildGroupHeader(),
-                  Divider(),
-                  _buildParticipantsList(),
-                  Divider(),
-                  _buildGroupOptions(),
-                ],
-              ),
-            ),
-    );
-  }
-  
-  Widget _buildGroupHeader() {
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
+      body: ListView(
+        padding: const EdgeInsets.all(16),
         children: [
-          CircleAvatar(
-            radius: 50,
-            backgroundImage: CachedNetworkImageProvider(_groupInfo['avatar']),
-            backgroundColor: Colors.grey[200],
-          ),
-          SizedBox(height: 16),
-          Text(
-            _groupInfo['name'],
-            style: GoogleFonts.poppins(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          SizedBox(height: 8),
-          Text(
-            '${_participants.length} participants',
-            style: TextStyle(
-              color: Colors.grey[600],
-            ),
-          ),
-          SizedBox(height: 4),
-          Text(
-            'Créé le ${_formatDate(_groupInfo['createdAt'])}',
-            style: TextStyle(
-              color: Colors.grey[500],
-              fontSize: 12,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-  
-  Widget _buildParticipantsList() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Text(
-            'Participants',
-            style: GoogleFonts.poppins(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ),
-        ListView.builder(
-          shrinkWrap: true,
-          physics: NeverScrollableScrollPhysics(),
-          itemCount: _participants.length,
-          itemBuilder: (context, index) {
-            final participant = _participants[index];
-            return ListTile(
-              leading: CircleAvatar(
-                backgroundImage: CachedNetworkImageProvider(participant['avatar']),
-                backgroundColor: Colors.grey[200],
-              ),
-              title: Text(
-                participant['name'],
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
+          Center(
+            child: Stack(
+              children: [
+                CircleAvatar(
+                  radius: 50,
+                  backgroundImage: CachedNetworkImageProvider(_avatarUrl),
                 ),
-              ),
-              subtitle: participant['isAdmin']
-                  ? Text(
-                      'Administrateur',
-                      style: TextStyle(
-                        color: Colors.blue,
-                        fontSize: 12,
-                      ),
-                    )
-                  : null,
-              trailing: participant['id'] != widget.userId
-                  ? IconButton(
-                      icon: Icon(Icons.more_vert),
-                      onPressed: () => _showParticipantOptions(participant),
-                    )
-                  : null,
-            );
-          },
-        ),
-      ],
-    );
-  }
-  
-  Widget _buildGroupOptions() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Text(
-            'Options du groupe',
-            style: GoogleFonts.poppins(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
+                Positioned(
+                  bottom: 0,
+                  right: 0,
+                  child: GestureDetector(
+                    onTap: _pickNewAvatar,
+                    child: CircleAvatar(
+                      radius: 18,
+                      backgroundColor: Colors.blueAccent,
+                      child: const Icon(Icons.camera_alt, color: Colors.white, size: 18),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-        ),
-        ListTile(
-          leading: Icon(Icons.edit),
-          title: Text('Modifier le nom du groupe'),
-          onTap: _showRenameGroupDialog,
-        ),
-        ListTile(
-          leading: Icon(Icons.photo_camera),
-          title: Text('Changer la photo du groupe'),
-          onTap: () {
-            // Implémenter la modification de la photo
-          },
-        ),
-        ListTile(
-          leading: Icon(Icons.person_add),
-          title: Text('Ajouter des participants'),
-          onTap: () {
-            // Implémenter l'ajout de participants
-          },
-        ),
-        ListTile(
-          leading: Icon(Icons.notifications),
-          title: Text('Notifications'),
-          trailing: Switch(
-            value: true,
-            onChanged: (value) {
-              // Implémenter la gestion des notifications
-            },
-          ),
-        ),
-      ],
-    );
-  }
-  
-  void _showParticipantOptions(Map<String, dynamic> participant) {
-    showModalBottomSheet(
-      context: context,
-      builder: (context) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: CircleAvatar(
-                  backgroundImage: CachedNetworkImageProvider(participant['avatar']),
-                ),
-                title: Text(participant['name']),
-              ),
-              Divider(),
-              ListTile(
-                leading: Icon(Icons.message),
-                title: Text('Envoyer un message privé'),
-                onTap: () {
-                  Navigator.pop(context);
-                  // Implémenter l'envoi de message privé
-                },
-              ),
-              ListTile(
-                leading: Icon(Icons.admin_panel_settings),
-                title: Text(participant['isAdmin'] ? 'Retirer les droits d\'admin' : 'Faire administrateur'),
-                onTap: () {
-                  Navigator.pop(context);
-                  // Implémenter la gestion des droits d'admin
-                },
-              ),
-              ListTile(
-                leading: Icon(Icons.remove_circle_outline, color: Colors.red),
-                title: Text('Retirer du groupe', style: TextStyle(color: Colors.red)),
-                onTap: () {
-                  Navigator.pop(context);
-                  _showRemoveParticipantConfirmation(participant);
-                },
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-  
-  void _showRenameGroupDialog() {
-    final TextEditingController nameController = TextEditingController(text: _groupInfo['name']);
-    
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Text('Renommer le groupe'),
-          content: TextField(
-            controller: nameController,
-            decoration: InputDecoration(
-              hintText: 'Nom du groupe',
+          const SizedBox(height: 20),
+          TextField(
+            controller: _nameController,
+            decoration: const InputDecoration(
+              labelText: 'Nom du groupe',
               border: OutlineInputBorder(),
             ),
-            autofocus: true,
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text('Annuler'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.pop(context);
-                
-                if (nameController.text.trim().isNotEmpty) {
-                  // Implémenter le renommage du groupe
-                  setState(() {
-                    _groupInfo['name'] = nameController.text.trim();
-                  });
-                  
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Groupe renommé avec succès')),
-                  );
-                }
-              },
-              child: Text('Renommer'),
-            ),
-          ],
-        );
-      },
+          const SizedBox(height: 20),
+          Text('Participants', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 10),
+          ...widget.participants.map((p) => ListTile(
+                leading: CircleAvatar(
+                  backgroundImage: CachedNetworkImageProvider(
+                      p['avatar'] ?? 'https://via.placeholder.com/100'),
+                ),
+                title: Text(p['name'] ?? 'Utilisateur'),
+                trailing: p['id'] != widget.currentUserId
+                    ? IconButton(
+                        icon: const Icon(Icons.remove_circle, color: Colors.red),
+                        onPressed: () async {
+                          final confirm = await showDialog<bool>(
+                            context: context,
+                            builder: (_) => AlertDialog(
+                              title: const Text('Retirer du groupe ?'),
+                              content: Text('Retirer ${p['name']} du groupe ?'),
+                              actions: [
+                                TextButton(
+                                    onPressed: () => Navigator.pop(context, false),
+                                    child: const Text('Annuler')),
+                                ElevatedButton(
+                                    onPressed: () => Navigator.pop(context, true),
+                                    child: const Text('Retirer')),
+                              ],
+                            ),
+                          );
+                          if (confirm == true) {
+                            await _conversationService.removeParticipant(
+                                widget.conversationId, p['id']);
+                            setState(() => widget.participants.remove(p));
+                          }
+                        },
+                      )
+                    : null,
+              )),
+          const SizedBox(height: 10),
+          ElevatedButton.icon(
+            icon: const Icon(Icons.person_add),
+            label: const Text('Ajouter des participants'),
+            onPressed: () async {
+              final added = await _selectParticipants();
+              if (added.isNotEmpty) {
+                await _conversationService.addParticipants(
+                    widget.conversationId, added);
+                setState(() => widget.participants.addAll(added));
+              }
+            },
+          ),
+        ],
+      ),
     );
   }
-  
-  void _showRemoveParticipantConfirmation(Map<String, dynamic> participant) {
-    showDialog(
+
+  Future<List<Map<String, dynamic>>> _selectParticipants() async {
+    // simple implementation: reuse producer search modal but for users only
+    final List<Map<String, dynamic>> selected = [];
+    await showModalBottomSheet(
       context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Text('Retirer le participant'),
-          content: Text('Êtes-vous sûr de vouloir retirer ${participant['name']} du groupe ?'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text('Annuler'),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
+      isScrollControlled: true,
+      builder: (ctx) {
+        TextEditingController ctrl = TextEditingController();
+        List<Map<String, dynamic>> results = [];
+        bool loading = false;
+        return StatefulBuilder(builder: (ctx, setModal) {
+          Future<void> search(String q) async {
+            if (q.length < 2) return;
+            setModal(() => loading = true);
+            final r = await _conversationService.searchUsers(q);
+            setModal(() {
+              results = r.where((e) => e['type'] == 'user').toList();
+              loading = false;
+            });
+          }
+
+          return Padding(
+            padding: MediaQuery.of(ctx).viewInsets,
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: TextField(
+                  controller: ctrl,
+                  decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Rechercher…'),
+                  onChanged: search,
+                ),
               ),
-              onPressed: () {
-                Navigator.pop(context);
-                
-                // Implémenter la suppression du participant
-                setState(() {
-                  _participants.removeWhere((p) => p['id'] == participant['id']);
-                });
-                
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('${participant['name']} a été retiré du groupe')),
-                );
-              },
-              child: Text('Retirer', style: TextStyle(color: Colors.white)),
-            ),
-          ],
-        );
+              if (loading) const CircularProgressIndicator(),
+              SizedBox(
+                height: 300,
+                child: ListView.builder(
+                  itemCount: results.length,
+                  itemBuilder: (_, i) {
+                    final u = results[i];
+                    return ListTile(
+                      leading: CircleAvatar(
+                        backgroundImage: CachedNetworkImageProvider(u['avatar'] ?? ''),
+                      ),
+                      title: Text(u['name'] ?? ''),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.add),
+                        onPressed: () {
+                          selected.add(u);
+                          Navigator.pop(ctx);
+                        },
+                      ),
+                    );
+                  },
+                ),
+              )
+            ]),
+          );
+        });
       },
     );
+    return selected;
   }
-  
-  void _showLeaveGroupConfirmation() {
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Text('Quitter le groupe'),
-          content: Text('Êtes-vous sûr de vouloir quitter ce groupe ?'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text('Annuler'),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
-              ),
-              onPressed: () {
-                Navigator.pop(context);
-                // Implémenter la sortie du groupe
-                Navigator.pop(context); // Retour à l'écran de conversation
-                
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Vous avez quitté le groupe')),
-                );
-              },
-              child: Text('Quitter', style: TextStyle(color: Colors.white)),
-            ),
-          ],
-        );
-      },
-    );
-  }
-  
-  String _formatDate(String dateString) {
-    final date = DateTime.parse(dateString);
-    return '${date.day}/${date.month}/${date.year}';
-  }
-} 
+}

@@ -22,6 +22,7 @@ import 'package:choice_app/screens/producerLeisure_screen.dart';
 import 'package:choice_app/screens/wellness_producer_profile_screen.dart';
 import '../utils/api_config.dart';
 import '../utils/constants.dart' as constants;
+import 'package:socket_io_client/socket_io_client.dart' as IO;
 
 class MessagingScreen extends StatefulWidget {
   final String userId;
@@ -58,6 +59,10 @@ class _MessagingScreenState extends State<MessagingScreen>
   String _currentProducerType = 'restaurant';
   // --- End Producer Search State ---
   
+  // --- WebSocket for conversation updates ---
+  IO.Socket? _socket;
+  Map<String, dynamic> _conversationUpdates = {};
+  
   @override
   void initState() {
     super.initState();
@@ -65,16 +70,13 @@ class _MessagingScreenState extends State<MessagingScreen>
     _tabController.addListener(_handleTabChange);
     _fetchConversations();
     _loadThemePreference();
-    
-    // Initialiser les notifications et écouter les mises à jour
     _initializeNotifications();
-    
-    // Si un ID de conversation est fourni, ouvrir cette conversation après le chargement
     if (widget.selectedConversationId != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _openSelectedConversation();
       });
     }
+    _initWebSocket();
   }
 
   void _handleTabChange() {
@@ -626,10 +628,37 @@ class _MessagingScreenState extends State<MessagingScreen>
                 );
               },
           );
-        } else { // Swipe left (Pin/Unpin)
-          // Pin/Unpin logic here - For now, just return false to prevent dismissal
-          _togglePinConversation(conversationId, !isPinned);
-          return false; 
+        } else { // Swipe left (Pin/Unpin or Mute/Unmute)
+          // Show action sheet for Pin/Mute
+          showModalBottomSheet(
+            context: context,
+            builder: (ctx) {
+              return SafeArea(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ListTile(
+                      leading: Icon(isPinned ? Icons.push_pin : Icons.push_pin_outlined),
+                      title: Text(isPinned ? 'Désépingler' : 'Épingler'),
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        _togglePinConversation(conversationId, !isPinned);
+                      },
+                    ),
+                    ListTile(
+                      leading: Icon(isMuted ? Icons.volume_off : Icons.volume_up),
+                      title: Text(isMuted ? 'Activer notifications' : 'Mettre en sourdine'),
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        _toggleMuteConversation(conversationId, !isMuted);
+                      },
+                    ),
+                  ],
+                ),
+              );
+            },
+          );
+          return false;
         }
       },
       onDismissed: (direction) {
@@ -788,38 +817,52 @@ class _MessagingScreenState extends State<MessagingScreen>
   
    // Méthode pour épingler/désépingler
   Future<void> _togglePinConversation(String conversationId, bool shouldPin) async {
-    // TODO: Appeler l'API pour mettre à jour l'état "pinned" côté serveur
     try {
-      // await _conversationService.setPinStatus(widget.userId, conversationId, shouldPin);
-      
-      // Mise à jour optimiste de l'UI
+      await _conversationService.updateGroupInfo(conversationId);
       setState(() {
         final index = _conversations.indexWhere((c) => c['id'] == conversationId);
         if (index != -1) {
           _conversations[index]['isPinned'] = shouldPin;
-          // Trier pour mettre les épinglés en haut
           _conversations.sort((a, b) {
             final pinA = _safeGet<bool>(a, 'isPinned', false);
             final pinB = _safeGet<bool>(b, 'isPinned', false);
             if (pinA && !pinB) return -1;
             if (!pinA && pinB) return 1;
-            // Trier ensuite par date
             final timeA = DateTime.tryParse(_safeGet<String>(a, 'time', '')) ?? DateTime(0);
             final timeB = DateTime.tryParse(_safeGet<String>(b, 'time', '')) ?? DateTime(0);
             return timeB.compareTo(timeA);
           });
-          _filterConversationsByTab(); // Réappliquer le filtre
+          _filterConversationsByTab();
         }
       });
-       ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(shouldPin ? 'Conversation épinglée' : 'Conversation désépinglée')),
       );
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
       );
-       // Revert UI change on error ? Or refresh from server ?
-       _fetchConversations(); // Refresh to get actual state
+      _fetchConversations();
+    }
+  }
+
+  Future<void> _toggleMuteConversation(String conversationId, bool shouldMute) async {
+    try {
+      await _conversationService.updateGroupInfo(conversationId);
+      setState(() {
+        final index = _conversations.indexWhere((c) => c['id'] == conversationId);
+        if (index != -1) {
+          _conversations[index]['isMuted'] = shouldMute;
+        }
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(shouldMute ? 'Conversation muette' : 'Notifications activées')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+      );
+      _fetchConversations();
     }
   }
 
@@ -1356,6 +1399,25 @@ class _MessagingScreenState extends State<MessagingScreen>
         );
       },
     );
+  }
+
+  void _initWebSocket() {
+    try {
+      final baseUrl = constants.getBaseUrlSync();
+      _socket = IO.io(baseUrl, <String, dynamic>{
+        'transports': ['websocket'],
+        'autoConnect': true,
+      });
+      _socket!.on('conversation_updated', (data) {
+        if (data is Map && data['conversationId'] != null) {
+          setState(() {
+            _conversationUpdates[data['conversationId']] = data;
+          });
+        }
+      });
+    } catch (e) {
+      print('WebSocket error: $e');
+    }
   }
 }
 

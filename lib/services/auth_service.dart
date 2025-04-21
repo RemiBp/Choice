@@ -136,9 +136,9 @@ class AuthService extends ChangeNotifier {
         if (_photoUrl != null) prefs.setString('photoUrl', _photoUrl!);
         prefs.setBool('hasCompletedOnboarding', true);
         
-        // Save token
-        if (token != null) {
-          await prefs.setString('userToken', token);
+        // Save token if available
+        if (token != null && token.isNotEmpty) {
+          await _saveToken(token);
         }
         
         notifyListeners();
@@ -164,73 +164,22 @@ class AuthService extends ChangeNotifier {
   
   // Méthode privée pour récupérer le token depuis SharedPreferences
   Future<String?> _getToken() async {
-    try {
-      // Vérifier d'abord si nous avons déjà le token en mémoire
-      if (_token != null && _token!.isNotEmpty) {
-        print('📋 _getToken: Utilisation du token mis en cache');
-        return _token;
-      }
-      
-      // Si le token n'est pas en mémoire, le récupérer depuis SharedPreferences
-      final prefs = await SharedPreferences.getInstance();
-      
-      // Essayer d'abord avec la clé 'token'
-      String? token = prefs.getString('token');
-      
-      // Si token est null, essayer avec 'userToken' (pour la compatibilité)
-      if (token == null || token.isEmpty) {
-        token = prefs.getString('userToken');
-        
-        // Si on trouve un token avec 'userToken', le migrer vers 'token' pour standardiser
-        if (token != null && token.isNotEmpty) {
-          print('🔄 _getToken: Migrating token from "userToken" to "token"');
-          await prefs.setString('token', token);
-        }
-      }
-      
-      // Mettre à jour le token en mémoire
-      _token = token;
-      
-      if (token != null && token.isNotEmpty) {
-        print('✅ _getToken: Token obtenu depuis SharedPreferences: ${token.substring(0, 10)}...');
-      } else {
-        print('⚠️ _getToken: Aucun token trouvé dans SharedPreferences');
-      }
-      
-      return token;
-    } catch (e) {
-      print('❌ _getToken: Erreur lors de la récupération du token: $e');
-      return null;
-    }
+    // Utilise le helper centralisé
+    final token = await TokenHelper.getToken();
+    _token = token;
+    return token;
   }
 
-  // Sauvegarder le token dans SharedPreferences
-  Future<bool> _saveToken(String? token) async {
-    try {
-      if (token == null || token.isEmpty) {
-        print('⚠️ _saveToken: Token null ou vide, suppression du token');
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.remove('token');
-        await prefs.remove('userToken');
-        _token = null;
-        return true;
-      }
-      
-      final prefs = await SharedPreferences.getInstance();
-      
-      // Sauvegarder sous les deux clés pour assurer la compatibilité
-      await prefs.setString('token', token);
-      await prefs.setString('userToken', token);
-      
-      // Mettre à jour le token en mémoire
-      _token = token;
-      
-      print('✅ _saveToken: Token sauvegardé avec succès');
-      return true;
-    } catch (e) {
-      print('❌ _saveToken: Erreur lors de la sauvegarde du token: $e');
-      return false;
-    }
+  // Méthode pour sauvegarder le token partout
+  Future<void> _saveToken(String token) async {
+    _token = token;
+    await TokenHelper.saveToken(token);
+  }
+
+  // Méthode pour supprimer le token partout
+  Future<void> _clearToken() async {
+    _token = null;
+    await TokenHelper.clearToken();
   }
 
   /// Récupère le token d'authentification
@@ -394,7 +343,9 @@ class AuthService extends ChangeNotifier {
         await prefs.setString('accountType', _accountType!);
         
         // Save token if available
-        await _saveToken(token);
+        if (token != null && token.isNotEmpty) {
+          await _saveToken(token);
+        }
         
         // Save additional user data
         if (_photoUrl != null) await prefs.setString('photoUrl', _photoUrl!);
@@ -529,7 +480,9 @@ class AuthService extends ChangeNotifier {
         await prefs.setStringList('likedTags', _likedTags);
         
         // Save token if available
-        await _saveToken(token);
+        if (token != null && token.isNotEmpty) {
+          await _saveToken(token);
+        }
         
         // New users always need onboarding
         notifyListeners();
@@ -981,5 +934,29 @@ class AuthService extends ChangeNotifier {
       print('❌ Exception lors de la récupération du profil utilisateur: $e');
       return null;
     }
+  }
+}
+
+// Helper pour la gestion du token JWT
+class TokenHelper {
+  static Future<void> saveToken(String token) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('auth_token', token);
+    await prefs.setString('userToken', token);
+    await prefs.setString('token', token);
+  }
+
+  static Future<String?> getToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('auth_token')
+        ?? prefs.getString('userToken')
+        ?? prefs.getString('token');
+  }
+
+  static Future<void> clearToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('auth_token');
+    await prefs.remove('userToken');
+    await prefs.remove('token');
   }
 } 
