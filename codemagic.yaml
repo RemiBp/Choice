@@ -16,7 +16,25 @@ workflows:
       - name: Configurer le fichier .env pour le build
         script: |
           echo "Génération du fichier .env pour l'environnement de build..."
-          cat > .env << EOL
+          # Récupérer le chemin du répertoire du projet
+          PROJECT_DIR=$(pwd)
+          
+          # S'assurer que le répertoire frontend existe
+          if [ -d "frontend" ]; then
+            # Si le répertoire frontend existe, on y accède
+            cd frontend
+            FRONTEND_DIR=$(pwd)
+          else
+            # Si on est déjà dans frontend ou il n'existe pas
+            FRONTEND_DIR=$(pwd)
+          fi
+          
+          # S'assurer que le répertoire assets/env existe
+          mkdir -p "$FRONTEND_DIR/assets/env"
+          
+          # Créer le fichier .env à l'emplacement approprié
+          echo "Création du fichier .env dans: $FRONTEND_DIR"
+          cat > "$FRONTEND_DIR/.env" << EOL
           # Configuration du serveur
           PORT=5000
           NODE_ENV=production
@@ -42,16 +60,52 @@ workflows:
           WEBSOCKET_URL=wss://api.choiceapp.fr
           EOL
           
-          echo "✅ Fichier .env créé avec succès pour l'environnement de build"
+          # Copier également dans assets/env pour la redondance
+          cp "$FRONTEND_DIR/.env" "$FRONTEND_DIR/assets/env/production.env"
           
-          # Vérifier que le fichier existe
-          if [ -f ".env" ]; then
-            echo "🔍 Le fichier .env a été créé correctement"
+          echo "✅ Fichiers .env créés avec succès pour l'environnement de build"
+          
+          # Vérifier que le fichier existe et afficher sa taille
+          if [ -f "$FRONTEND_DIR/.env" ]; then
+            echo "🔍 Le fichier .env a été créé correctement à: $FRONTEND_DIR/.env"
+            ls -la "$FRONTEND_DIR/.env"
             # Afficher uniquement les noms des variables (pas les valeurs)
-            grep -o "^[A-Z_]*=" .env | sort
+            grep -o "^[A-Z_]*=" "$FRONTEND_DIR/.env" | sort
+            
+            # Vérifier que le fichier est accessible
+            if [ -r "$FRONTEND_DIR/.env" ]; then
+              echo "✅ Le fichier .env est lisible"
+            else
+              echo "⚠️ Le fichier .env n'est pas lisible"
+            fi
+            
+            # Retourner au répertoire du projet
+            cd "$PROJECT_DIR"
           else
-            echo "❌ Erreur: Le fichier .env n'a pas été créé"
+            echo "❌ Erreur: Le fichier .env n'a pas été créé à: $FRONTEND_DIR/.env"
+            cd "$PROJECT_DIR"
             exit 1
+          fi
+
+      - name: Verify asset in pubspec.yaml
+        script: |
+          # Vérifier que .env est correctement déclaré dans le pubspec.yaml
+          if [ -d "frontend" ]; then
+            PUBSPEC_FILE="frontend/pubspec.yaml"
+          else
+            PUBSPEC_FILE="pubspec.yaml"
+          fi
+          
+          if [ -f "$PUBSPEC_FILE" ]; then
+            if grep -q "assets:" "$PUBSPEC_FILE" && grep -q "- .env" "$PUBSPEC_FILE"; then
+              echo "✅ .env est correctement déclaré comme asset dans pubspec.yaml"
+            else
+              echo "⚠️ .env n'est peut-être pas correctement déclaré comme asset dans pubspec.yaml"
+              echo "Contenu de la section assets:"
+              grep -A 10 "assets:" "$PUBSPEC_FILE"
+            fi
+          else
+            echo "❌ Fichier pubspec.yaml non trouvé: $PUBSPEC_FILE"
           fi
 
       - name: Clean and Get Dependencies
@@ -76,6 +130,13 @@ workflows:
           # Force des URLs HTTPS pour les dépendances Git
           git config --global url."https://".insteadOf "git://"
           git config --global url."https://github.com/".insteadOf "git@github.com:"
+          
+          # Copier .env dans le répertoire de build
+          if [ -f ".env" ]; then
+            mkdir -p build/app/intermediates/flutter/release/
+            cp .env build/app/intermediates/flutter/release/
+            echo "✅ .env copié vers le répertoire de build"
+          fi
           
           # Obtenir les dépendances proprement
           flutter pub get --verbose
@@ -133,6 +194,52 @@ workflows:
             echo "❌ Build Android échoué"
             exit 1
           fi
+
+      - name: Verify bundle structure (debug)
+        script: |
+          echo "Vérification de la structure du bundle..."
+          # Vérifier que .env existe dans les assets
+          if [ -f "build/app/intermediates/flutter/release/.env" ]; then
+            echo "✅ .env trouvé dans le répertoire des assets intermédiaires"
+          else
+            echo "⚠️ .env non trouvé dans le répertoire des assets intermédiaires"
+            echo "Contenu du répertoire des assets intermédiaires:"
+            ls -la build/app/intermediates/flutter/release/
+          fi
+          
+          # Vérifier que les fichiers .env existent dans les assets/env
+          if [ -d "build/app/intermediates/flutter/release/assets/env" ]; then
+            echo "✅ Dossier assets/env trouvé dans le répertoire des assets intermédiaires"
+            echo "Contenu du dossier assets/env:"
+            ls -la build/app/intermediates/flutter/release/assets/env/
+          else
+            echo "⚠️ Dossier assets/env non trouvé dans le répertoire des assets intermédiaires"
+          fi
+          
+          # Utiliser l'outil bundletool pour analyser le bundle
+          echo "Extraction du contenu du bundle pour vérification..."
+          mkdir -p bundle_analysis
+          if [ -f "${ANDROID_HOME}/cmdline-tools/latest/bin/bundletool" ]; then
+            BUNDLETOOL="${ANDROID_HOME}/cmdline-tools/latest/bin/bundletool"
+          else
+            # Télécharger bundletool si nécessaire
+            if [ ! -f "bundletool.jar" ]; then
+              echo "Téléchargement de bundletool..."
+              curl -L -o bundletool.jar https://github.com/google/bundletool/releases/download/1.15.6/bundletool-all-1.15.6.jar
+            fi
+            BUNDLETOOL="java -jar bundletool.jar"
+          fi
+          
+          # Convertir le bundle en APKs pour l'inspection
+          $BUNDLETOOL build-apks --bundle=build/app/outputs/bundle/release/app-release.aab --output=bundle_analysis/app.apks
+          
+          # Extraire les APKs pour l'inspection
+          mkdir -p bundle_analysis/extracted
+          unzip -q bundle_analysis/app.apks -d bundle_analysis/extracted
+          
+          # Vérifier la présence de .env dans les assets
+          echo "Recherche de .env dans les assets extraits..."
+          find bundle_analysis -name "*.env" -type f
 
     artifacts:
       - build/app/outputs/bundle/release/app-release.aab

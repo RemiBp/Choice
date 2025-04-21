@@ -31,7 +31,7 @@ dependencies:
   http: ^1.1.0
   provider: ^6.1.1
   dio: ^5.4.0
-  flutter_dotenv: ^5.1.0
+  flutter_dotenv: ^5.1.0  # Utilisé pour charger les variables d'environnement depuis .env
   flutter_riverpod: ^2.3.6 # Ajouté pour résoudre l'erreur
   
   # UI et Charts
@@ -160,6 +160,7 @@ flutter:
     - assets/images/custom_marker.svg
     - assets/images/google_logo.png
     - assets/translations/
+    - assets/env/
     - .env
 
 flutter_launcher_icons:

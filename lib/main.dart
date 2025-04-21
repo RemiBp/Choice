@@ -110,26 +110,35 @@ Future<void> main() async {
     print("✅ Fichier .env chargé avec succès");
   } catch (e) {
     print("⚠️ Erreur lors du chargement du fichier .env: $e");
-    print("💡 Utilisation des valeurs par défaut");
+    print("💡 Tentative de chargement du fichier d'environnement par défaut...");
     
-    // Définir des valeurs par défaut pour les variables critiques
-    Map<String, String> defaultEnvValues = {
-      'GOOGLE_MAPS_API_KEY': 'AIzaSyDRvEPM8JZ1Wpn_J6ku4c3r5LQIocFmzOE',
-      'API_BASE_URL': 'https://api.choiceapp.fr',
-      'WEBSOCKET_URL': 'wss://api.choiceapp.fr',
-      'MONGO_URI': '', // Vide car utilisé uniquement côté serveur
-      'JWT_SECRET': '', // Vide car utilisé uniquement côté serveur
-      'STRIPE_SECRET_KEY': '', // Vide car utilisé uniquement côté serveur
-      'OPENAI_API_KEY': '', // Vide car utilisé uniquement côté serveur
-    };
+    try {
+      // Essayer de charger le fichier par défaut
+      await dotenv.load(fileName: "assets/env/default.env");
+      print("✅ Fichier d'environnement par défaut chargé avec succès");
+    } catch (fallbackError) {
+      print("⚠️ Erreur lors du chargement du fichier d'environnement par défaut: $fallbackError");
+      print("💡 Utilisation des valeurs codées en dur");
+      
+      // Définir des valeurs par défaut pour les variables critiques
+      Map<String, String> defaultEnvValues = {
+        'GOOGLE_MAPS_API_KEY': 'AIzaSyDRvEPM8JZ1Wpn_J6ku4c3r5LQIocFmzOE',
+        'API_BASE_URL': 'https://api.choiceapp.fr',
+        'WEBSOCKET_URL': 'wss://api.choiceapp.fr',
+        'MONGO_URI': '', // Vide car utilisé uniquement côté serveur
+        'JWT_SECRET': '', // Vide car utilisé uniquement côté serveur
+        'STRIPE_SECRET_KEY': '', // Vide car utilisé uniquement côté serveur
+        'OPENAI_API_KEY': '', // Vide car utilisé uniquement côté serveur
+      };
+      
+      // Ajouter toutes les valeurs par défaut à l'environnement
+      defaultEnvValues.forEach((key, value) {
+        dotenv.env[key] = value;
+        print("📍 Défini $key avec une valeur par défaut");
+      });
+    }
     
-    // Ajouter toutes les valeurs par défaut à l'environnement
-    defaultEnvValues.forEach((key, value) {
-      dotenv.env[key] = value;
-      print("📍 Défini $key avec une valeur par défaut");
-    });
-    
-    print("✅ Variables d'environnement par défaut configurées");
+    print("✅ Variables d'environnement configurées");
   }
   
   // Vérifier que les variables essentielles sont présentes
