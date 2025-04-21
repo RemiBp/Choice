@@ -583,6 +583,16 @@ EOL
           plutil -replace MinimumOSVersion -string "14.0" Runner/Info.plist
           plutil -replace LSRequiresIPhoneOS -bool YES Runner/Info.plist
 
+      - name: Install certificate in keychain
+        script: |
+          echo $CM_CERTIFICATE | base64 --decode > ios_distribution.p12
+          security create-keychain -p "" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "" build.keychain
+          security import ios_distribution.p12 -k build.keychain -P "$CM_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
+          echo "✅ Certificat installé dans le keychain"
+
       - name: Build iOS IPA with Proper Signing
         script: |
           # Cette méthode utilise votre profil de provisionnement mis à jour
