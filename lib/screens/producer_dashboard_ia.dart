@@ -266,9 +266,46 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
           setState(() {
             _messages.insert(0, insightMessage);
         });
+      } else {
+        // Afficher un message d'erreur si l'API renvoie une erreur
+        final errorMessage = types.CustomMessage(
+          author: const types.User(id: 'assistant', firstName: 'Assistant AI'),
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          metadata: {
+            'text': "Je ne peux pas générer d'insights pour ce producteur pour le moment. Il est possible que les données soient insuffisantes ou que le producteur n'existe pas dans la base de données.",
+            'isError': true,
+          },
+        );
+
+        setState(() {
+          _messages.insert(0, errorMessage);
+        });
       }
     } catch (e) {
       print("❌ Erreur lors du chargement des insights d'entreprise: $e");
+      
+      // Supprimer tout message de chargement qui pourrait être affiché
+      setState(() {
+        _messages.removeWhere((msg) => 
+          msg.metadata != null && 
+          msg.metadata!['isLoading'] == true && 
+          (msg.id?.startsWith('loading_insights_') ?? false)
+        );
+      });
+      
+      // Afficher un message d'erreur plus explicite
+      final errorMessage = types.CustomMessage(
+        author: const types.User(id: 'assistant', firstName: 'Assistant AI'),
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        metadata: {
+          'text': "Désolé, je ne peux pas récupérer les insights pour le moment. Veuillez vérifier votre connexion ou réessayer plus tard.",
+          'isError': true,
+        },
+      );
+
+      setState(() {
+        _messages.insert(0, errorMessage);
+      });
     }
   }
 
@@ -389,44 +426,268 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
 
   Future<void> _fetchVisibilityStats() async {
     try {
+      // Afficher un message de chargement
+      final loadingMessage = types.CustomMessage(
+        author: const types.User(id: 'assistant', firstName: 'Assistant AI'),
+        id: 'loading_stats_${DateTime.now().millisecondsSinceEpoch}',
+        metadata: {
+          'isLoading': true,
+          'text': 'Analyse de la visibilité...',
+        },
+      );
+
+      setState(() {
+        _messages.insert(0, loadingMessage);
+      });
+      
       // Utilisation de l'endpoint d'insights pour obtenir des statistiques détaillées
       final insights = await _aiService.getProducerInsights(widget.producerId);
-      _handleSendPressed("Voici les statistiques de visibilité actuelles de votre établissement.");
       
-      // L'IA a maintenant accès à toutes les données en temps réel
-      // et peut fournir des analyses beaucoup plus détaillées
+      // Supprimer le message de chargement
+      setState(() {
+        _messages.removeWhere((msg) => msg.id == loadingMessage.id);
+      });
+      
+      if (!insights.hasError && insights.response.isNotEmpty) {
+        final statMessage = types.CustomMessage(
+          author: const types.User(id: 'assistant', firstName: 'Assistant AI'),
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          metadata: {
+            'text': insights.response,
+            'hasProfiles': insights.profiles.isNotEmpty,
+            'isInsight': true,
+          },
+        );
+        
+        if (insights.profiles.isNotEmpty) {
+          setState(() {
+            _extractedProfiles = insights.profiles;
+          });
+        }
+
+        setState(() {
+          _messages.insert(0, statMessage);
+        });
+      } else {
+        // Si l'API renvoie une erreur, afficher un message explicatif
+        final errorMessage = types.CustomMessage(
+          author: const types.User(id: 'assistant', firstName: 'Assistant AI'),
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          metadata: {
+            'text': "Je ne peux pas récupérer les statistiques de visibilité pour le moment. Il est possible que votre établissement n'ait pas encore suffisamment de données pour une analyse complète.",
+            'isError': true,
+          },
+        );
+
+        setState(() {
+          _messages.insert(0, errorMessage);
+        });
+      }
     } catch (e) {
-      _handleSendPressed("Donne-moi le nombre de choices que j'ai reçus depuis la dernière fois.");
+      print("❌ Erreur lors de la récupération des statistiques de visibilité: $e");
+      
+      // Supprimer tout message de chargement qui pourrait être affiché
+      setState(() {
+        _messages.removeWhere((msg) => 
+          msg.metadata != null && 
+          msg.metadata!['isLoading'] == true && 
+          (msg.id?.startsWith('loading_stats_') ?? false)
+        );
+      });
+      
+      // Message de secours
+      final errorMessage = types.CustomMessage(
+        author: const types.User(id: 'assistant', firstName: 'Assistant AI'),
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        metadata: {
+          'text': "Désolé, je ne peux pas accéder aux statistiques de visibilité pour le moment. Voici quelques conseils généraux pour améliorer votre visibilité : enrichissez vos données (images, menu), encouragez les avis et interactions, et maintenez vos informations à jour.",
+          'isError': true,
+        },
+      );
+
+      setState(() {
+        _messages.insert(0, errorMessage);
+      });
     }
   }
 
   Future<void> _fetchPerformanceStats() async {
     try {
+      // Afficher un message de chargement
+      final loadingMessage = types.CustomMessage(
+        author: const types.User(id: 'assistant', firstName: 'Assistant AI'),
+        id: 'loading_performance_${DateTime.now().millisecondsSinceEpoch}',
+        metadata: {
+          'isLoading': true,
+          'text': 'Analyse des performances...',
+        },
+      );
+
+      setState(() {
+        _messages.insert(0, loadingMessage);
+      });
+      
       // Demande spécifique pour analyser les performances
       final result = await _aiService.producerQuery(
         widget.producerId, 
         "Analyse ma performance en comparaison avec les autres établissements similaires dans mon quartier"
       );
       
-      // Ajouter la réponse complète au chat
-      _handleSendPressed(result.response);
+      // Supprimer le message de chargement
+      setState(() {
+        _messages.removeWhere((msg) => msg.id == loadingMessage.id);
+      });
+      
+      if (!result.hasError && result.response.isNotEmpty) {
+        final performanceMessage = types.CustomMessage(
+          author: const types.User(id: 'assistant', firstName: 'Assistant AI'),
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          metadata: {
+            'text': result.response,
+            'hasProfiles': result.profiles.isNotEmpty,
+            'isPerformance': true,
+          },
+        );
+        
+        if (result.profiles.isNotEmpty) {
+          setState(() {
+            _extractedProfiles = result.profiles;
+          });
+        }
+
+        setState(() {
+          _messages.insert(0, performanceMessage);
+        });
+      } else {
+        // Si l'API renvoie une erreur, afficher un message explicatif
+        final errorMessage = types.CustomMessage(
+          author: const types.User(id: 'assistant', firstName: 'Assistant AI'),
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          metadata: {
+            'text': "Je ne peux pas analyser vos performances pour le moment. Il est possible qu'il n'y ait pas assez de données comparatives disponibles.",
+            'isError': true,
+          },
+        );
+
+        setState(() {
+          _messages.insert(0, errorMessage);
+        });
+      }
     } catch (e) {
-      _handleSendPressed("Combien de fois suis-je apparu dans le feed récemment ?");
+      print("❌ Erreur lors de l'analyse des performances: $e");
+      
+      // Supprimer tout message de chargement qui pourrait être affiché
+      setState(() {
+        _messages.removeWhere((msg) => 
+          msg.metadata != null && 
+          msg.metadata!['isLoading'] == true && 
+          (msg.id?.startsWith('loading_performance_') ?? false)
+        );
+      });
+      
+      // Message de secours avec conseils généraux sur les performances
+      final errorMessage = types.CustomMessage(
+        author: const types.User(id: 'assistant', firstName: 'Assistant AI'),
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        metadata: {
+          'text': "Désolé, je ne peux pas accéder aux données de performance pour le moment. Voici quelques conseils généraux pour améliorer votre performance : analysez vos heures d'affluence, diversifiez votre offre, et soyez attentif aux avis clients pour identifier les points d'amélioration.",
+          'isError': true,
+        },
+      );
+
+      setState(() {
+        _messages.insert(0, errorMessage);
+      });
     }
   }
   
   Future<void> _fetchCompetitorInsights() async {
     try {
+      // Afficher un message de chargement
+      final loadingMessage = types.CustomMessage(
+        author: const types.User(id: 'assistant', firstName: 'Assistant AI'),
+        id: 'loading_competitors_${DateTime.now().millisecondsSinceEpoch}',
+        metadata: {
+          'isLoading': true,
+          'text': 'Analyse des concurrents...',
+        },
+      );
+
+      setState(() {
+        _messages.insert(0, loadingMessage);
+      });
+      
       // Demande spécifique pour analyser les concurrents
       final result = await _aiService.producerQuery(
         widget.producerId, 
         "Analyse mes concurrents directs et compare leurs performances avec la mienne"
       );
       
-      // Ajouter la réponse complète au chat
-      _handleSendPressed(result.response);
+      // Supprimer le message de chargement
+      setState(() {
+        _messages.removeWhere((msg) => msg.id == loadingMessage.id);
+      });
+      
+      if (!result.hasError && result.response.isNotEmpty) {
+        final competitorMessage = types.CustomMessage(
+          author: const types.User(id: 'assistant', firstName: 'Assistant AI'),
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          metadata: {
+            'text': result.response,
+            'hasProfiles': result.profiles.isNotEmpty,
+            'isCompetitor': true,
+          },
+        );
+        
+        if (result.profiles.isNotEmpty) {
+          setState(() {
+            _extractedProfiles = result.profiles;
+          });
+        }
+
+        setState(() {
+          _messages.insert(0, competitorMessage);
+        });
+      } else {
+        // Si l'API renvoie une erreur, afficher un message explicatif
+        final errorMessage = types.CustomMessage(
+          author: const types.User(id: 'assistant', firstName: 'Assistant AI'),
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          metadata: {
+            'text': "Je ne peux pas analyser vos concurrents pour le moment. Il est possible qu'il n'y ait pas assez d'établissements similaires dans votre zone pour une comparaison pertinente.",
+            'isError': true,
+          },
+        );
+
+        setState(() {
+          _messages.insert(0, errorMessage);
+        });
+      }
     } catch (e) {
-      _handleSendPressed("Qui sont mes principaux concurrents et comment puis-je me démarquer ?");
+      print("❌ Erreur lors de l'analyse des concurrents: $e");
+      
+      // Supprimer tout message de chargement qui pourrait être affiché
+      setState(() {
+        _messages.removeWhere((msg) => 
+          msg.metadata != null && 
+          msg.metadata!['isLoading'] == true && 
+          (msg.id?.startsWith('loading_competitors_') ?? false)
+        );
+      });
+      
+      // Message de secours avec conseils généraux sur la concurrence
+      final errorMessage = types.CustomMessage(
+        author: const types.User(id: 'assistant', firstName: 'Assistant AI'),
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        metadata: {
+          'text': "Désolé, je ne peux pas accéder aux données de vos concurrents pour le moment. Pour vous démarquer, concentrez-vous sur ce qui vous rend unique, étudiez les établissements similaires de votre quartier, et identifiez des opportunités de différenciation dans votre offre ou votre service client.",
+          'isError': true,
+        },
+      );
+
+      setState(() {
+        _messages.insert(0, errorMessage);
+      });
     }
   }
 

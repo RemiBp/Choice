@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../utils/map_colors.dart' as mapcolors;
 import '../services/map_service.dart';
+import '../utils.dart' show getImageProvider;
 
 class LeisureBookmarkWidget extends StatefulWidget {
   final Map<String, dynamic> venue;
@@ -493,12 +494,10 @@ class FollowingsInterestsList extends StatelessWidget {
                   margin: EdgeInsets.symmetric(vertical: 8),
                   child: ListTile(
                     leading: CircleAvatar(
-                      backgroundImage: photoUrl.isNotEmpty
-                          ? NetworkImage(photoUrl)
-                          : null,
-                      child: photoUrl.isEmpty
-                          ? Text(name.isNotEmpty ? name[0] : '?')
-                          : null,
+                      radius: 20,
+                      backgroundImage: getImageProvider(photoUrl) ?? const AssetImage('assets/images/default_avatar.png'),
+                      backgroundColor: Colors.grey[200],
+                      child: getImageProvider(photoUrl) == null ? Icon(Icons.person, color: Colors.grey[400]) : null,
                     ),
                     title: Text(
                       name,

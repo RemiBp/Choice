@@ -1682,6 +1682,59 @@ class ConversationService {
     }
   }
 
+  // Méthode pour démarrer une conversation avec un établissement
+  Future<Map<String, dynamic>> startConversationWithBusiness(
+    String userId,
+    String businessId,
+    String businessType,
+    String initialMessage
+  ) async {
+    try {
+      final token = await _getToken();
+      final baseUrl = getBaseUrl();
+      
+      final Map<String, dynamic> payload = {
+        'userId': userId,
+        'businessId': businessId,
+        'businessType': businessType,
+        'initialMessage': initialMessage,
+      };
+      
+      print('🚀 Démarrage d\'une conversation avec un établissement: $businessType');
+      print('🚀 Payload: ${json.encode(payload)}');
+      
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/conversations'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: json.encode(payload),
+      );
+      
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final result = json.decode(response.body);
+        print('✅ Conversation démarrée avec succès: ${result['conversation']?['_id'] ?? 'ID non disponible'}');
+        
+        // Formater la réponse pour l'interface utilisateur
+        Map<String, dynamic> conversation = result['conversation'] ?? {};
+        
+        // Assurer que certains champs sont présents
+        if (!conversation.containsKey('title') && conversation.containsKey('producerInfo')) {
+          conversation['title'] = conversation['producerInfo']['name'] ?? 'Nouvelle conversation';
+        }
+        
+        return conversation;
+      } else {
+        print('❌ Erreur démarrage conversation: ${response.statusCode}, body: ${response.body}');
+        throw Exception('Échec du démarrage de la conversation: ${response.body}');
+      }
+    } catch (e) {
+      print('❌ Exception démarrage conversation: $e');
+      throw Exception('Erreur lors du démarrage de la conversation: $e');
+    }
+  }
+
   // ---- File Upload & Group helpers ----
   Future<String?> uploadFile(File file) async {
     try {

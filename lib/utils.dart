@@ -117,8 +117,15 @@ const String PRIVACY_URL = 'https://choiceapp.fr/privacy';
 /// 
 /// Cette fonction gère également les erreurs de décodage et émet des logs appropriés.
 ImageProvider? getImageProvider(String? imageSource) {
-  if (imageSource == null || imageSource.isEmpty) {
-    return null; // No image source
+  // Liste de valeurs non valides à filtrer
+  final invalidValues = [
+    null, '', 'Exemple', 'N/A', 'null', 'undefined', 'none', 
+    'example', 'fake', 'test', 'placeholder', 'default'
+  ];
+  
+  if (imageSource == null || imageSource.isEmpty || invalidValues.contains(imageSource.trim().toLowerCase())) {
+    // Retourner une image de remplacement depuis internet (ne nécessite pas d'assets locaux)
+    return NetworkImage('https://images.unsplash.com/photo-1494253109108-2e30c049369b?w=500&q=80');
   }
 
   if (imageSource.startsWith('data:image')) {
@@ -130,11 +137,11 @@ ImageProvider? getImageProvider(String? imageSource) {
         return MemoryImage(bytes);
       } else {
         print('❌ Invalid Base64 Data URL format in getImageProvider');
-        return null; // Invalid format
+        return NetworkImage('https://images.unsplash.com/photo-1494253109108-2e30c049369b?w=500&q=80');
       }
     } catch (e) {
       print('❌ Error decoding Base64 image in getImageProvider: $e');
-      return null; // Decoding error
+      return NetworkImage('https://images.unsplash.com/photo-1494253109108-2e30c049369b?w=500&q=80');
     }
   } else if (imageSource.startsWith('http')) {
     // Assume it's a network URL
@@ -142,10 +149,10 @@ ImageProvider? getImageProvider(String? imageSource) {
       return NetworkImage(imageSource);
     } catch (e) {
       print('❌ Error creating NetworkImage in getImageProvider: $e');
-      return null;
+      return NetworkImage('https://images.unsplash.com/photo-1494253109108-2e30c049369b?w=500&q=80');
     }
   } else {
     print('❌ Unknown image source format in getImageProvider: $imageSource');
-    return null; // Unknown format
+    return NetworkImage('https://images.unsplash.com/photo-1494253109108-2e30c049369b?w=500&q=80');
   }
 }

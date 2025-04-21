@@ -11,7 +11,7 @@ import 'producerLeisure_screen.dart';
 
 class RelationDetailsScreen extends StatelessWidget {
   final String title;
-  final List<Map<String, dynamic>> profiles; // Liste des profils validés
+  final List<Map<String, dynamic>> profiles;
 
   const RelationDetailsScreen({
     Key? key,
@@ -24,207 +24,354 @@ class RelationDetailsScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: Text(title),
-        backgroundColor: Colors.teal, // Harmonize with ProducerScreen AppBar
-      ),
-      body: profiles.isNotEmpty
-          ? ListView.builder(
-              itemCount: profiles.length,
-              itemBuilder: (context, index) {
-                try {
-                  final profile = profiles[index];
-                  if (profile == null || profile is! Map<String, dynamic>) {
-                    print('❌ Profil invalide à l\'index $index');
-                    return const SizedBox.shrink(); // Ignore invalid entries
-                  }
-
-                  // --- Safe Data Extraction ---
-                  final userId = profile['_id']?.toString();
-                  // Check for producer-specific ID fields (like place_id or a dedicated producerId field)
-                  final producerId = profile['producerId']?.toString() ??
-                                      profile['place_id']?.toString() ??
-                                      (profile['type'] == 'producer' || profile['type'] == 'restaurant' || profile['type'] == 'leisure' ? profile['_id']?.toString() : null); // Infer producerId if type matches
-
-                  // Check if producerData exists and is a Map
-                  final producerData = profile['producerData'] is Map
-                      ? profile['producerData'] as Map<String, dynamic>
-                      : null; // Used for leisure producers specifically
-
-                   // Determine profile type more robustly
-                   final profileType = profile['type']?.toString()?.toLowerCase();
-                   final bool isUser = profileType == 'user' || (userId != null && producerId == null && producerData == null);
-                   final bool isProducer = profileType == 'producer' || profileType == 'restaurant' || (producerId != null && !isUser);
-                   final bool isLeisureProducer = profileType == 'leisure' || (producerData != null && !isUser && !isProducer);
-
-
-                  // Get photo URL safely
-                  String photoUrl = 'https://via.placeholder.com/150';
-                  List<String> photoKeys = ['photo', 'photo_url', 'avatar', 'image'];
-                  // Special handling for Google Places photo references
-                  if (profile['photos'] is List && (profile['photos'] as List).isNotEmpty) {
-                      var firstPhoto = (profile['photos'] as List)[0];
-                      if (firstPhoto is Map && firstPhoto['photo_reference'] != null) {
-                           photoUrl = 'https://maps.googleapis.com/maps/api/place/photo?maxwidth=150&photoreference=${firstPhoto['photo_reference']}&key=${constants.getGoogleApiKey()}'; // Use constant for key
-                      } else if (firstPhoto is String && firstPhoto.isNotEmpty) {
-                         photoUrl = firstPhoto;
-                      }
-                  }
-                   // Fallback to standard keys if no Google photo ref found
-                  if (photoUrl == 'https://via.placeholder.com/150') {
-                     for (var key in photoKeys) {
-                        if (profile[key] != null && profile[key].toString().isNotEmpty) {
-                          photoUrl = profile[key].toString();
-                          break;
-                        }
-                     }
-                  }
-
-
-                  // Get name safely
-                  String name = 'Nom inconnu';
-                  List<String> nameKeys = ['name', 'username', 'displayName', 'title', 'nom'];
-                  for (var key in nameKeys) {
-                    if (profile[key] != null && profile[key].toString().isNotEmpty) {
-                      name = profile[key].toString();
-                      break;
-                    }
-                  }
-
-                  // Get description safely
-                  String description = ''; // Default to empty for cleaner look
-                  List<String> descKeys = ['description', 'bio', 'about', 'summary', 'category'];
-                   if (isProducer && profile['category'] is List && (profile['category'] as List).isNotEmpty) {
-                     description = (profile['category'] as List).join(', '); // Use categories for producers
-                   } else {
-                      for (var key in descKeys) {
-                        if (profile[key] != null && profile[key].toString().isNotEmpty) {
-                           description = profile[key].toString();
-                           break;
-                         }
-                       }
-                   }
-
-
-                  // Basic validation check
-                  if ((!isUser && !isProducer && !isLeisureProducer) || (isUser && userId == null) || (isProducer && producerId == null) || (isLeisureProducer && producerData == null)) {
-                    print('❌ Profil non valide ou données manquantes à l\'index $index');
-                    return const SizedBox.shrink(); // Ignore invalid entries
-                  }
-
-                  // --- Build ListTile ---
-                  return Card(
-                    margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    elevation: 1,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      side: BorderSide(color: Colors.grey[200]!),
-                    ),
-                    child: ListTile(
-                      leading: CircleAvatar(
-                        radius: 25,
-                        backgroundImage: getImageProvider(photoUrl),
-                        onBackgroundImageError: (_, __) {
-                          print('⚠️ Erreur de chargement d\'image pour le profil: $name');
-                        },
-                        backgroundColor: Colors.grey[200],
-                        child: getImageProvider(photoUrl) == null
-                            ? Icon(Icons.person, color: Colors.grey[400])
-                            : null,
-                      ),
-                      title: Text(
-                        name,
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                      ),
-                      subtitle: Text(
-                        description,
-                        style: TextStyle(color: Colors.grey[600]),
-                        maxLines: 1, // Keep it concise
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
-                      onTap: () => _navigateToProfile(context, userId, producerId, profile, isUser, isProducer, isLeisureProducer), // Pass full profile data
-                    ),
-                  );
-                } catch (e) {
-                  print('❌ Erreur de rendu pour le profil à l\'index $index: $e');
-                  return const SizedBox.shrink(); // Handle potential errors gracefully
-                }
-              },
-            )
-          : Center(
-              child: Text(
-                'Aucun profil disponible.',
-                style: TextStyle(fontSize: 16, color: Colors.grey[600]),
-              ),
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.orange.shade700, Colors.orangeAccent],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
             ),
+          ),
+        ),
+      ),
+      body: profiles.isEmpty
+          ? _buildEmptyState()
+          : _buildProfilesList(context),
     );
   }
 
-  // --- Navigation Logic ---
-  void _navigateToProfile(
-    BuildContext context,
-    String? userId,
-    String? producerId,
-    Map<String, dynamic> profileData, // Pass the full profile map
-    bool isUser,
-    bool isProducer,
-    bool isLeisureProducer
-  ) async {
-     final String? currentUserId = Provider.of<AuthService>(context, listen: false).userId;
-
-    try {
-      if (isUser && userId != null) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ProfileScreen(userId: userId),
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            _getIconForTitle(),
+            size: 80,
+            color: Colors.grey[300],
           ),
-        );
-        return;
-      }
+          const SizedBox(height: 16),
+          Text(
+            'Aucun profil à afficher',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              color: Colors.grey[700],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _getEmptyStateMessage(),
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey[600],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
-      if (isProducer && producerId != null) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ProducerScreen(
-              producerId: producerId,
-              userId: currentUserId, // Pass current user ID
+  Widget _buildProfilesList(BuildContext context) {
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      itemCount: profiles.length,
+      itemBuilder: (context, index) {
+        final profile = profiles[index];
+        final userId = profile['_id'] ?? '';
+        final name = profile['name'] ?? profile['username'] ?? 'Sans nom';
+        final description = profile['description'] ?? profile['bio'] ?? '';
+        final photoUrl = profile['photo'] ?? profile['profile_picture'];
+        final isVerified = profile['verified'] == true;
+        final isFeatured = profile['featured'] == true;
+        final isProducer = profile['place_id'] != null;
+        final isLeisureProducer = isProducer && 
+            (profile['category'] as List<dynamic>?)?.contains('leisure') == true;
+
+                  return Card(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    elevation: 1,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () => _navigateToProfile(context, profile),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  // Avatar avec badge selon type de profil
+                  Stack(
+                    children: [
+                      Container(
+                        width: 60,
+                        height: 60,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: _getProfileColor(isProducer, isLeisureProducer),
+                            width: 2,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.1),
+                              blurRadius: 4,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: ClipOval(
+                          child: photoUrl != null
+                            ? Image(
+                                image: getImageProvider(photoUrl) ??
+                                    NetworkImage('https://via.placeholder.com/60'),
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, error, stackTrace) {
+                                  return Container(
+                                    color: Colors.grey[200],
+                                    child: Icon(
+                                      _getProfileIcon(isProducer, isLeisureProducer),
+                                      color: Colors.grey[400],
+                                    ),
+                                  );
+                                },
+                              )
+                            : Container(
+                                color: Colors.grey[200],
+                                child: Icon(
+                                  _getProfileIcon(isProducer, isLeisureProducer),
+                                  color: Colors.grey[400],
+                                ),
+                              ),
+                        ),
+                      ),
+                      if (isVerified)
+                        Positioned(
+                          right: 0,
+                          bottom: 0,
+                          child: Container(
+                            padding: const EdgeInsets.all(2),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white, width: 1.5),
+                            ),
+                            child: Icon(
+                              Icons.verified,
+                              size: 16,
+                              color: _getProfileColor(isProducer, isLeisureProducer),
+                            ),
+                          ),
+                        ),
+                      if (isFeatured && !isVerified)
+                        Positioned(
+                          right: 0,
+                          bottom: 0,
+                          child: Container(
+                            padding: const EdgeInsets.all(2),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white, width: 1.5),
+                            ),
+                            child: const Icon(
+                              Icons.star,
+                              size: 16,
+                              color: Colors.amber,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(width: 16),
+                  // Infos profil
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                        name,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            Icon(
+                              _getProfileIcon(isProducer, isLeisureProducer),
+                              size: 16,
+                              color: _getProfileColor(isProducer, isLeisureProducer),
+                            ),
+                          ],
+                        ),
+                        if (description.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Text(
+                        description,
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey[600],
+                              ),
+                              maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                          ),
+                        // Chips pour afficher des infos
+                        if (isProducer)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Wrap(
+                              spacing: 8,
+                              children: [
+                                if (profile['ratings'] != null)
+                                  _buildInfoChip(
+                                    Icons.star,
+                                    Colors.amber,
+                                    (profile['rating'] ?? 0.0).toString(),
+                                  ),
+                                if (profile['followers'] != null)
+                                  _buildInfoChip(
+                                    Icons.people,
+                                    Colors.blue,
+                                    '${profile['followers']['count'] ?? 0}',
+                                  ),
+                                if (profile['address'] != null)
+                                  _buildInfoChip(
+                                    Icons.location_on,
+                                    Colors.red,
+                                    'Voir',
+                                  ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  Icon(
+                    Icons.chevron_right,
+                    color: Colors.grey[400],
+                  ),
+                ],
+              ),
             ),
           ),
         );
-        return;
-      }
+      },
+    );
+  }
 
-      if (isLeisureProducer && producerId != null) { // Leisure producers might also have an ID
+  Widget _buildInfoChip(IconData icon, Color color, String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
+            size: 12,
+            color: color,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Helper pour naviguer vers le profil approprié
+  void _navigateToProfile(BuildContext context, Map<String, dynamic> profile) {
+    final userId = profile['_id'] ?? '';
+    if (userId.isEmpty) return;
+
+    final isProducer = profile['place_id'] != null;
+    final isLeisureProducer = isProducer && 
+        (profile['category'] as List<dynamic>?)?.contains('leisure') == true;
+
+    if (isProducer) {
+      if (isLeisureProducer) {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => ProducerLeisureScreen(
-               // Pass ID if available, otherwise the full data might suffice depending on LeisureScreen implementation
-               producerId: producerId,
-               producerData: profileData,
-               userId: currentUserId, // Pass current user ID
-            ),
+            builder: (context) => ProducerLeisureScreen(producerId: userId),
           ),
         );
-        return;
+      } else {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ProducerScreen(producerId: userId),
+          ),
+        );
       }
+    } else {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ProfileScreen(userId: userId),
+        ),
+      );
+    }
+  }
 
-      // Fallback error message
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Impossible d\'ouvrir ce profil: type inconnu ou données manquantes'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    } catch (e) {
-      print('❌ Erreur de navigation: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Erreur lors de la navigation: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+  // Helpers pour la UI et UX
+  IconData _getProfileIcon(bool isProducer, bool isLeisureProducer) {
+    if (isProducer) {
+      return isLeisureProducer ? Icons.attractions : Icons.restaurant;
+    }
+    return Icons.person;
+  }
+
+  Color _getProfileColor(bool isProducer, bool isLeisureProducer) {
+    if (isProducer) {
+      return isLeisureProducer ? Colors.purple : Colors.orange;
+    }
+    return Colors.blue;
+  }
+
+  IconData _getIconForTitle() {
+    switch (title.toLowerCase()) {
+      case 'followers':
+        return Icons.people;
+      case 'following':
+        return Icons.person_add;
+      case 'interested':
+        return Icons.emoji_objects;
+      case 'choices':
+        return Icons.check_circle;
+      default:
+        return Icons.people;
+    }
+  }
+
+  String _getEmptyStateMessage() {
+    switch (title.toLowerCase()) {
+      case 'followers':
+        return 'Vous n\'avez pas encore de followers.\nPartagez votre profil pour en obtenir !';
+      case 'following':
+        return 'Vous ne suivez personne pour le moment.\nExplorez et suivez des profils qui vous intéressent !';
+      case 'interested':
+        return 'Personne n\'a encore marqué son intérêt.\nContinuez à partager du contenu attractif !';
+      case 'choices':
+        return 'Personne n\'a encore fait de vous son choix.\nContinuez à offrir une expérience de qualité !';
+      default:
+        return 'Aucun profil n\'est disponible actuellement.';
     }
   }
 } 

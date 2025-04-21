@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../utils.dart' show getImageProvider;
 
 class TenorGifPicker extends StatefulWidget {
   @override
@@ -111,7 +112,19 @@ class _TenorGifPickerState extends State<TenorGifPicker> {
                     onTap: () => Navigator.pop(context, url),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(8),
-                      child: Image.network(url, fit: BoxFit.cover),
+                      child: getImageProvider(url) != null
+                          ? Image(
+                              image: getImageProvider(url)!,
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, error, stackTrace) => Container(
+                                color: Colors.grey[200],
+                                child: const Icon(Icons.broken_image, color: Colors.grey),
+                              ),
+                            )
+                          : Container(
+                              color: Colors.grey[200],
+                              child: const Icon(Icons.broken_image, color: Colors.grey),
+                            ),
                     ),
                   );
                 },

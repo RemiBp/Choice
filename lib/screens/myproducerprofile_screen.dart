@@ -1318,13 +1318,11 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
                         color: Colors.grey[200],
                         image: selectedImagePath != null
                             ? DecorationImage(
-                                image: kIsWeb
-                                    ? NetworkImage(selectedImagePath!)
-                                    : FileImage(File(selectedImagePath!)) as ImageProvider,
+                                image: getImageProvider(selectedImagePath!) ?? const AssetImage('assets/images/default_background.png'),
                                 fit: BoxFit.cover,
                               )
                             : DecorationImage(
-                                image: NetworkImage(data['photo'] ?? 'https://via.placeholder.com/100'),
+                                image: getImageProvider(data['photo'] ?? 'https://via.placeholder.com/100') ?? const AssetImage('assets/images/default_avatar.png'),
                                 fit: BoxFit.cover,
                               ),
                         boxShadow: [

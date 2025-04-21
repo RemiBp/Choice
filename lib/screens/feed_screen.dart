@@ -2026,16 +2026,16 @@ class _FeedScreenState extends State<FeedScreen> with SingleTickerProviderStateM
                             if (imageProvider != null) {
                               return Image(
                                 image: imageProvider,
-                                fit: BoxFit.cover,
+                            fit: BoxFit.cover,
                                 height: 300,
                                 width: double.infinity,
                                 errorBuilder: (context, error, stackTrace) => Container(
-                                  color: Colors.grey[200],
-                                  height: 300,
-                                  child: const Center(
-                                    child: Icon(Icons.error, color: Colors.grey),
-                                  ),
-                                ),
+                              color: Colors.grey[200],
+                              height: 300,
+                              child: const Center(
+                                child: Icon(Icons.error, color: Colors.grey),
+                              ),
+                            ),
                               );
                             } else {
                               return Container(
@@ -2081,7 +2081,7 @@ class _FeedScreenState extends State<FeedScreen> with SingleTickerProviderStateM
                                 if (imageProvider != null) {
                                   return Image(
                                     image: imageProvider,
-                                    fit: BoxFit.contain,
+                                fit: BoxFit.contain,
                                     errorBuilder: (context, error, stackTrace) => const Center(child: Icon(Icons.error)),
                                   );
                                 } else {
@@ -2558,16 +2558,16 @@ class _FeedScreenState extends State<FeedScreen> with SingleTickerProviderStateM
                             if (imageProvider != null) {
                               return Image(
                                 image: imageProvider,
-                                fit: BoxFit.cover,
+                            fit: BoxFit.cover,
                                 height: 300,
                                 width: double.infinity,
                                 errorBuilder: (context, error, stackTrace) => Container(
-                                  color: Colors.grey[200],
-                                  height: 300,
-                                  child: const Center(
-                                    child: Icon(Icons.error, color: Colors.grey),
-                                  ),
-                                ),
+                              color: Colors.grey[200],
+                              height: 300,
+                              child: const Center(
+                                child: Icon(Icons.error, color: Colors.grey),
+                              ),
+                            ),
                               );
                             } else {
                               return Container(
@@ -2613,7 +2613,7 @@ class _FeedScreenState extends State<FeedScreen> with SingleTickerProviderStateM
                                 if (imageProvider != null) {
                                   return Image(
                                     image: imageProvider,
-                                    fit: BoxFit.contain,
+                                fit: BoxFit.contain,
                                     errorBuilder: (context, error, stackTrace) => const Center(child: Icon(Icons.error)),
                                   );
                                 } else {

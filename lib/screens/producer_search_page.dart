@@ -2771,12 +2771,15 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> with SingleTick
   String _getRestaurantImage(dynamic item) {
     String image = '';
     
+    // Liste de valeurs invalides à filtrer
+    final invalidValues = ["N/A", "null", "undefined", "none", "Exemple", "example", "fake", "test", "placeholder", "default"];
+    
     // Priorité 1: Tableau photos - prendre la première photo
     if (item['photos'] != null && item['photos'] is List && (item['photos'] as List).isNotEmpty) {
       var firstPhoto = (item['photos'] as List)[0];
       if (firstPhoto != null && firstPhoto.toString().trim().isNotEmpty) {
         String photoUrl = firstPhoto.toString().trim();
-        if (photoUrl != "N/A" && photoUrl != "null" && photoUrl != "undefined" && photoUrl != "none") {
+        if (!invalidValues.contains(photoUrl.toLowerCase())) {
           image = _formatImageUrl(photoUrl);
           print('🍽️ Image de restaurant trouvée (photos[0]): $image');
           return image;
@@ -2787,7 +2790,7 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> with SingleTick
     // Priorité 2: Champ photo unique
     if (item['photo'] != null && item['photo'].toString().trim().isNotEmpty) {
       String photoUrl = item['photo'].toString().trim();
-      if (photoUrl != "N/A" && photoUrl != "null" && photoUrl != "undefined" && photoUrl != "none") {
+      if (!invalidValues.contains(photoUrl.toLowerCase())) {
         image = _formatImageUrl(photoUrl);
         print('🍽️ Image de restaurant trouvée (photo): $image');
         return image;
@@ -2799,7 +2802,7 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> with SingleTick
     for (final field in imageFields) {
       if (item[field] != null && item[field].toString().trim().isNotEmpty) {
         String photoUrl = item[field].toString().trim();
-        if (photoUrl != "N/A" && photoUrl != "null" && photoUrl != "undefined" && photoUrl != "none") {
+        if (!invalidValues.contains(photoUrl.toLowerCase())) {
           image = _formatImageUrl(photoUrl);
           print('🍽️ Image de restaurant trouvée ($field): $image');
           return image;
@@ -2813,6 +2816,9 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> with SingleTick
   
   /// Obtient l'image standard pour tous les types de producteurs
   String _getStandardImage(dynamic item, String type, String id) {
+    // Liste de valeurs invalides à filtrer
+    final invalidValues = ["N/A", "null", "undefined", "none", "Exemple", "example", "fake", "test", "placeholder", "default"];
+    
     List<String> possibleImages = [];
     final imageFields = [
       'photo', 'photos', 'image', 'images', 'photo_url', 'image_url', 
@@ -2839,7 +2845,7 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> with SingleTick
     // Trouver la première image valide
     for (String img in possibleImages) {
       if (img.isEmpty) continue;
-      if (img == "N/A" || img == "null" || img == "undefined" || img == "none") continue;
+      if (invalidValues.contains(img.toLowerCase())) continue;
       
       return _formatImageUrl(img);
     }

@@ -182,11 +182,9 @@ class _FollowingsInterestsListState extends State<FollowingsInterestsList> with 
                 // Avatar
                 CircleAvatar(
                   radius: 24,
+                  backgroundImage: imageUrl.isNotEmpty ? getImageProvider(imageUrl) ?? const AssetImage('assets/images/default_avatar.png') : null,
                   backgroundColor: Colors.grey[200],
-                  backgroundImage: imageUrl.isNotEmpty ? NetworkImage(imageUrl) : null,
-                  child: imageUrl.isEmpty 
-                      ? Icon(Icons.person, color: Colors.grey)
-                      : null,
+                  child: imageUrl.isEmpty ? Icon(Icons.person, color: Colors.grey[400]) : null,
                 ),
                 
                 SizedBox(width: 16),

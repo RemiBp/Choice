@@ -244,11 +244,10 @@ class ActivityDetailSheet extends StatelessWidget {
                     CircleAvatar(
                       radius: 24,
                       backgroundImage: friendAvatar.isNotEmpty 
-                          ? NetworkImage(friendAvatar) 
-                          : null,
-                      child: friendAvatar.isEmpty 
-                          ? const Icon(Icons.person) 
-                          : null,
+                        ? getImageProvider(friendAvatar) ?? const AssetImage('assets/images/default_avatar.png')
+                        : const AssetImage('assets/images/default_avatar.png'),
+                      backgroundColor: Colors.grey[200],
+                      child: friendAvatar.isEmpty ? Icon(Icons.person, color: Colors.grey[400]) : null,
                     ),
                     const SizedBox(width: 12),
                     Expanded(

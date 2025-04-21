@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/comment.dart';
+import '../../utils.dart' show getImageProvider;
 
 class CommentTile extends StatelessWidget {
   final Comment comment;
@@ -21,14 +22,14 @@ class CommentTile extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           CircleAvatar(
-            radius: 18,
-            backgroundColor: Colors.grey[300],
-            backgroundImage: comment.authorAvatar?.isNotEmpty == true 
-                ? NetworkImage(comment.authorAvatar!) 
-                : null,
-            child: comment.authorAvatar?.isEmpty == true 
-                ? Icon(Icons.person, color: Colors.grey[700])
-                : null,
+            radius: 16,
+            backgroundImage: comment.authorAvatar != null && comment.authorAvatar!.isNotEmpty
+              ? getImageProvider(comment.authorAvatar!) ?? const AssetImage('assets/images/default_avatar.png')
+              : const AssetImage('assets/images/default_avatar.png'),
+            backgroundColor: Colors.grey[200],
+            child: (comment.authorAvatar == null || comment.authorAvatar!.isEmpty)
+              ? Icon(Icons.person, color: Colors.grey[400])
+              : null,
           ),
           const SizedBox(width: 12),
           Expanded(

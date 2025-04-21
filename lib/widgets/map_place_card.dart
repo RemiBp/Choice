@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../models/map_filter.dart';
+import '../utils.dart' show getImageProvider;
 
 /// Carte affichant les détails d'un lieu sélectionné sur la carte
 class MapPlaceCard extends StatelessWidget {
@@ -61,29 +62,15 @@ class MapPlaceCard extends StatelessWidget {
                   topLeft: Radius.circular(16),
                   topRight: Radius.circular(16),
                 ),
-                child: imageUrl.isNotEmpty
-                    ? CachedNetworkImage(
-                        imageUrl: imageUrl,
-                        height: 150,
-                        width: double.infinity,
+                child: getImageProvider(imageUrl) != null
+                    ? Image(
+                        image: getImageProvider(imageUrl)!,
                         fit: BoxFit.cover,
-                        placeholder: (context, url) => Container(
+                        width: double.infinity,
                           height: 150,
-                          color: Colors.grey.shade200,
-                          child: Center(
-                            child: CircularProgressIndicator(
-                              valueColor: AlwaysStoppedAnimation<Color>(themeColor),
-                            ),
-                          ),
-                        ),
-                        errorWidget: (context, url, error) => Container(
-                          height: 150,
-                          color: themeColor.withOpacity(0.2),
-                          child: Icon(
-                            Icons.image_not_supported,
-                            color: themeColor,
-                            size: 48,
-                          ),
+                        errorBuilder: (context, error, stackTrace) => Container(
+                          color: Colors.grey[200],
+                          child: const Icon(Icons.broken_image, color: Colors.grey),
                         ),
                       )
                     : Container(

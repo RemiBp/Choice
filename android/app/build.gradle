@@ -40,6 +40,10 @@ android {
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            
+            // Keep mappings for debugging
+            testProguardFiles 'proguard-rules.pro'
+            proguardFile "${project.buildDir}/outputs/mapping/release/missing_rules.txt"
         }
     }
 }

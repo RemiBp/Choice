@@ -781,8 +781,8 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> wit
                   : null,
               child: CircleAvatar(
                 radius: 20,
-                backgroundImage: CachedNetworkImageProvider(widget.recipientAvatar),
-                backgroundColor: Colors.grey[200],
+                backgroundImage: getImageProvider(widget.recipientAvatar) ?? const AssetImage('assets/images/default_avatar.png'),
+                child: getImageProvider(widget.recipientAvatar) == null ? Icon(Icons.person, color: Colors.grey[400]) : null,
               ),
             ),
             const SizedBox(width: 12),
@@ -1120,9 +1120,7 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> wit
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(8),
                           image: DecorationImage(
-                            image: _mediaToSend[index].startsWith('http')
-                                ? NetworkImage(_mediaToSend[index])
-                                : FileImage(File(_mediaToSend[index])) as ImageProvider,
+                            image: getImageProvider(_mediaToSend[index]) ?? const AssetImage('assets/images/default_image.png'),
                             fit: BoxFit.cover,
                           ),
                         ),

@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../services/conversation_service.dart';
 import '../utils/api_config.dart';
+import '../utils.dart' show getImageProvider;
 
 class GroupDetailsScreen extends StatefulWidget {
   final String conversationId;
@@ -104,7 +105,8 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
               children: [
                 CircleAvatar(
                   radius: 50,
-                  backgroundImage: CachedNetworkImageProvider(_avatarUrl),
+                  backgroundImage: getImageProvider(_avatarUrl) ?? const AssetImage('assets/images/default_avatar.png'),
+                  child: getImageProvider(_avatarUrl) == null ? Icon(Icons.group, color: Colors.grey[400]) : null,
                 ),
                 Positioned(
                   bottom: 0,
@@ -134,8 +136,8 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
           const SizedBox(height: 10),
           ...widget.participants.map((p) => ListTile(
                 leading: CircleAvatar(
-                  backgroundImage: CachedNetworkImageProvider(
-                      p['avatar'] ?? 'https://via.placeholder.com/100'),
+                  backgroundImage: getImageProvider(p['avatar'] ?? '') ?? const AssetImage('assets/images/default_avatar.png'),
+                  child: getImageProvider(p['avatar'] ?? '') == null ? Icon(Icons.person, color: Colors.grey[400]) : null,
                 ),
                 title: Text(p['name'] ?? 'Utilisateur'),
                 trailing: p['id'] != widget.currentUserId
@@ -145,8 +147,8 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                           final confirm = await showDialog<bool>(
                             context: context,
                             builder: (_) => AlertDialog(
-                              title: const Text('Retirer du groupe ?'),
-                              content: Text('Retirer ${p['name']} du groupe ?'),
+                              title: const Text('Retirer du groupe ?'),
+                              content: Text('Retirer ${p['name']} du groupe ?'),
                               actions: [
                                 TextButton(
                                     onPressed: () => Navigator.pop(context, false),
@@ -225,7 +227,8 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                     final u = results[i];
                     return ListTile(
                       leading: CircleAvatar(
-                        backgroundImage: CachedNetworkImageProvider(u['avatar'] ?? ''),
+                        backgroundImage: getImageProvider(u['avatar'] ?? '') ?? const AssetImage('assets/images/default_avatar.png'),
+                        child: getImageProvider(u['avatar'] ?? '') == null ? Icon(Icons.person, color: Colors.grey[400]) : null,
                       ),
                       title: Text(u['name'] ?? ''),
                       trailing: IconButton(

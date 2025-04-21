@@ -6,6 +6,9 @@ import 'dart:convert';
 import '../services/conversation_service.dart';
 import '../models/contact.dart';
 import 'conversation_detail_screen.dart';
+import 'package:http/http.dart' as http;
+import '../utils/constants.dart' as constants;
+import '../utils.dart' show getImageProvider;
 
 class GroupCreationScreen extends StatefulWidget {
   final String userId;
@@ -265,10 +268,11 @@ class _GroupCreationScreenState extends State<GroupCreationScreen> with SingleTi
                           children: [
                             CircleAvatar(
                               radius: 25,
-                              backgroundImage: CachedNetworkImageProvider(
-                                user.avatar ?? 'https://via.placeholder.com/150',
-                              ),
+                              backgroundImage: getImageProvider(user.avatar ?? '') ?? const AssetImage('assets/images/default_avatar.png'),
                               backgroundColor: contactColor.withOpacity(0.2),
+                              child: (user.avatar == null || user.avatar!.isEmpty)
+                                ? Icon(Icons.person, color: Colors.grey[400])
+                                : null,
                             ),
                             Positioned(
                               right: 0,
@@ -366,10 +370,11 @@ class _GroupCreationScreenState extends State<GroupCreationScreen> with SingleTi
                           
                           return ListTile(
                             leading: CircleAvatar(
-                              backgroundImage: CachedNetworkImageProvider(
-                                contact.avatar ?? 'https://via.placeholder.com/150',
-                              ),
+                              backgroundImage: getImageProvider(contact.avatar ?? '') ?? const AssetImage('assets/images/default_avatar.png'),
                               backgroundColor: contactColor.withOpacity(0.2),
+                              child: (contact.avatar == null || contact.avatar!.isEmpty)
+                                ? Icon(Icons.person, color: Colors.grey[400])
+                                : null,
                             ),
                             title: Text(contact.name ?? 'Contact'),
                             subtitle: contact.address != null && contact.address!.isNotEmpty

@@ -10,6 +10,7 @@ import 'utils.dart'; // Utilise le mécanisme d'exports conditionnels pour la bo
 import 'package:intl/intl.dart';
 import '../utils/leisureHelpers.dart';
 import '../utils/constants.dart' as constants;
+import '../utils.dart' show getImageProvider;
 
 class EventLeisureScreen extends StatefulWidget {
   final dynamic eventData;
@@ -518,17 +519,21 @@ class _EventLeisureScreenState extends State<EventLeisureScreen> {
                           ),
                           child: ClipRRect(
                             borderRadius: BorderRadius.circular(12),
-                            child: Image.network(
-                              imageUrl,
-                              fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) => 
-                                Container(
-                                  color: Colors.grey[200],
-                                  child: const Center(
-                                    child: Icon(Icons.person, size: 40, color: Colors.grey),
+                            child: getImageProvider(imageUrl) != null
+                              ? Image(
+                                  image: getImageProvider(imageUrl)!,
+                                  width: double.infinity,
+                                  height: double.infinity,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (context, error, stackTrace) => Container(
+                                    color: Colors.grey[200],
+                                    child: const Icon(Icons.event, color: Colors.grey, size: 40),
                                   ),
+                                )
+                              : Container(
+                                  color: Colors.grey[200],
+                                  child: const Icon(Icons.event, color: Colors.grey, size: 40),
                                 ),
-                            ),
                           ),
                         ),
                         
@@ -816,8 +821,8 @@ class _EventLeisureScreenState extends State<EventLeisureScreen> {
                                     bottomLeft: Radius.circular(12),
                                   ),
                                   child: event['image'] != null
-                                    ? Image.network(
-                                        event['image'],
+                                    ? Image(
+                                        image: getImageProvider(event['image'])!,
                                         width: 100,
                                         height: 100,
                                         fit: BoxFit.cover,
@@ -2407,8 +2412,8 @@ class _EventLeisureScreenState extends State<EventLeisureScreen> {
                         ),
                         child: ListTile(
                           leading: event['image'] != null
-                              ? Image.network(
-                                  event['image'],
+                              ? Image(
+                                  image: getImageProvider(event['image'])!,
                                   width: 50,
                                   height: 50,
                                   fit: BoxFit.cover,

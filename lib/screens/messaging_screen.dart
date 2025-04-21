@@ -23,6 +23,7 @@ import 'package:choice_app/screens/wellness_producer_profile_screen.dart';
 import '../utils/api_config.dart';
 import '../utils/constants.dart' as constants;
 import 'package:socket_io_client/socket_io_client.dart' as IO;
+import '../widgets/messaging_search_widget.dart';
 
 class MessagingScreen extends StatefulWidget {
   final String userId;
@@ -284,6 +285,12 @@ class _MessagingScreenState extends State<MessagingScreen>
           onPressed: () => Navigator.pop(context),
         ),
         actions: [
+          // Nouveau bouton pour démarrer une nouvelle conversation
+          IconButton(
+            icon: Icon(Icons.add_comment, color: textColor),
+            onPressed: _showNewMessageOptions,
+            tooltip: 'Nouveau message',
+          ),
           // Bouton de thème sombre/clair
           IconButton(
             icon: Icon(
@@ -373,9 +380,8 @@ class _MessagingScreenState extends State<MessagingScreen>
                                     children: [
                                       CircleAvatar(
                                         radius: 30,
-                                        backgroundImage: CachedNetworkImageProvider(
-                                          follower['avatar'] ?? 'https://via.placeholder.com/150',
-                                        ),
+                                        backgroundImage: getImageProvider(follower['avatar']) ?? const AssetImage('assets/images/default_avatar.png'),
+                                        child: getImageProvider(follower['avatar']) == null ? Icon(Icons.person, color: Colors.grey[400]) : null,
                                       ),
                                       Positioned(
                                         right: 0,
@@ -469,11 +475,6 @@ class _MessagingScreenState extends State<MessagingScreen>
                       ),
           ),
         ],
-      ),
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: primaryColor,
-        child: const Icon(Icons.add_comment, color: Colors.white),
-        onPressed: _showNewMessageOptions,
       ),
     );
   }
@@ -581,7 +582,7 @@ class _MessagingScreenState extends State<MessagingScreen>
     final String finalAvatarUrl = (avatarUrl.isNotEmpty && (avatarUrl.startsWith('http') || avatarUrl.startsWith('data:image'))) 
       ? avatarUrl 
       : 'https://ui-avatars.com/api/?name=${Uri.encodeComponent(defaultAvatarName)}&background=random&bold=true&color=ffffff';
-    final imageProvider = _getImageProvider(finalAvatarUrl);
+    final imageProvider = getImageProvider(finalAvatarUrl);
     final bool isTyping = _typingStatus[conversationId] ?? false;
     final String heroTag = 'avatar_$conversationId';
     final Key dismissibleKey = Key('conversation_$conversationId');
@@ -691,9 +692,9 @@ class _MessagingScreenState extends State<MessagingScreen>
                         tag: heroTag,
                         child: CircleAvatar(
                           radius: 28,
-                          backgroundImage: imageProvider,
+                          backgroundImage: imageProvider ?? const AssetImage('assets/images/default_avatar.png'),
                           backgroundColor: Colors.grey[300],
-                          child: imageProvider == null ? Icon(isGroup ? Icons.group : Icons.person, color: Colors.grey[600]) : null,
+                          child: imageProvider == null ? Icon(Icons.person, color: Colors.grey[400]) : null,
                         ),
                       ),
                       // Indicateur "En ligne" plus visible
@@ -901,92 +902,82 @@ class _MessagingScreenState extends State<MessagingScreen>
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
+      isScrollControlled: true,
       builder: (context) {
-        return SafeArea(
-          child: Container(
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
+        return DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.85,
+          minChildSize: 0.6,
+          maxChildSize: 0.95,
+          builder: (context, scrollController) {
+            return Column(
               children: [
-                ListTile(
-                  leading: const Icon(Icons.person_add, color: Colors.blue),
-                  title: Text(
-                    'Nouveau message',
-                    style: TextStyle(
-                      color: _isDarkMode ? Colors.white : Colors.black,
-                    ),
-                  ),
-                  onTap: () {
-                    Navigator.pop(context);
-                    _searchFollowers('');
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.group_add, color: Colors.green),
-                  title: Text(
-                    'Créer un groupe',
-                    style: TextStyle(
-                      color: _isDarkMode ? Colors.white : Colors.black,
-                    ),
-                  ),
-                  onTap: () {
-                    Navigator.pop(context);
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => GroupCreationScreen(
-                          userId: widget.userId,
-                          producerType: 'user', // Valeur par défaut pour le type de producteur
+                // Barre de titre avec poignée de glissement
+                Container(
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  child: Column(
+                    children: [
+                      // Poignée
+                      Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: _isDarkMode ? Colors.grey[700] : Colors.grey[300],
+                          borderRadius: BorderRadius.circular(2),
                         ),
                       ),
-                    );
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.store_mall_directory, color: Colors.orange),
-                  title: Text(
-                    'Contacter un restaurateur',
-                    style: TextStyle(
-                      color: _isDarkMode ? Colors.white : Colors.black,
-                    ),
+                      const SizedBox(height: 10),
+                      Text(
+                        'Nouveau message',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: _isDarkMode ? Colors.white : Colors.black,
+                        ),
+                      ),
+                    ],
                   ),
-                  onTap: () {
-                    Navigator.pop(context);
-                    _showProducerSearchModal('restaurant');
-                  },
                 ),
-                ListTile(
-                  leading: const Icon(Icons.sports_esports, color: Colors.teal),
-                  title: Text(
-                    'Contacter un lieu de loisir',
-                    style: TextStyle(
-                      color: _isDarkMode ? Colors.white : Colors.black,
-                    ),
+                
+                // Widget de recherche
+                Expanded(
+                  child: MessagingSearchWidget(
+                    userId: widget.userId,
+                    isDarkMode: _isDarkMode,
+                    onConversationCreated: (conversation) {
+                      // Fermer la modale
+                      Navigator.pop(context);
+                      
+                      // Naviguer vers la conversation
+                      _navigateToConversation(conversation);
+                      
+                      // Rafraîchir la liste des conversations
+                      _fetchConversations();
+                    },
                   ),
-                  onTap: () {
-                    Navigator.pop(context);
-                    _showProducerSearchModal('leisure');
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.spa, color: Colors.pinkAccent),
-                  title: Text(
-                    'Contacter un lieu de bien‑être',
-                    style: TextStyle(
-                      color: _isDarkMode ? Colors.white : Colors.black,
-                    ),
-                  ),
-                  onTap: () {
-                    Navigator.pop(context);
-                    _showProducerSearchModal('wellness');
-                  },
                 ),
               ],
-            ),
-          ),
+            );
+          },
         );
       },
     );
+  }
+
+  void _navigateToConversation(Map<String, dynamic> conversation) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ConversationDetailScreen(
+          conversationId: conversation['_id'],
+          userId: widget.userId,
+          recipientName: conversation['title'] ?? conversation['name'] ?? 'Nouvelle conversation',
+          recipientAvatar: conversation['avatar'] ?? '',
+          isGroup: conversation['isGroup'] ?? false,
+          participants: conversation['participants'],
+        ),
+      ),
+    ).then((_) => _fetchConversations());
   }
 
   void _startConversationWithUser(Map<String, dynamic> user) {
@@ -1096,7 +1087,7 @@ class _MessagingScreenState extends State<MessagingScreen>
     return DateFormat('dd/MM').format(date);
   }
 
-  ImageProvider? _getImageProvider(String? src) {
+  ImageProvider? getImageProvider(String? src) {
     if (src == null || src.isEmpty) return null;
     if (src.startsWith('http')) return NetworkImage(src);
     if (src.startsWith('data:image')) {
@@ -1381,7 +1372,7 @@ class _MessagingScreenState extends State<MessagingScreen>
                           final item = _producerSearchResults[index];
                           return ListTile(
                             leading: CircleAvatar(
-                              backgroundImage: NetworkImage(item['avatar'] ?? 'https://via.placeholder.com/150'),
+                              backgroundImage: getImageProvider(item['avatar']) ?? const AssetImage('assets/images/default_avatar.png'),
                             ),
                             title: Text(item['name'] ?? ''),
                             onTap: () {

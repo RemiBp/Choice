@@ -42,6 +42,9 @@ import 'screens/wellness_profile_screen.dart';
 import 'screens/wellness_list_screen.dart';
 import 'screens/mywellness_producer_profile_screen.dart';
 import 'screens/language_selection_screen.dart'; // Import de l'écran de sélection de langue
+import 'screens/video_call_screen.dart';
+import 'utils.dart' show getImageProvider;
+
 import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'screens/producer_screen.dart';
@@ -75,7 +78,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'services/location_tracking_service.dart'; // Import the new service
 import 'package:flutter/material.dart';
 import 'package:choice_app/services/notification_service.dart';
-import 'package:choice_app/screens/video_call_screen.dart';
+import 'utils.dart' show getImageProvider;
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
@@ -850,10 +853,8 @@ class _LandingPageState extends State<LandingPage> with SingleTickerProviderStat
                                     return ListTile(
                                       leading: result['image'] != null && result['image'].toString().isNotEmpty
                                         ? CircleAvatar(
-                                            backgroundImage: NetworkImage(result['image']),
-                                            onBackgroundImageError: (_, __) {
-                                              print("Error loading image");
-                                            },
+                                            backgroundImage: getImageProvider(result['image']) ?? const AssetImage('assets/images/default_image.png'),
+                                            child: getImageProvider(result['image']) == null ? Icon(Icons.place, color: Colors.grey[400]) : null,
                                           )
                                         : CircleAvatar(
                                             backgroundColor: Colors.grey[200],
