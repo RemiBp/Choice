@@ -935,6 +935,47 @@ class AuthService extends ChangeNotifier {
       return null;
     }
   }
+
+  /// Vérifie si l'utilisateur est actuellement connecté
+  bool get isLoggedIn => userId != null && _token != null;
+
+  /// Renvoie le token d'authentification
+  String? get _authToken => _token;
+
+  /// Met à jour l'ID client Stripe de l'utilisateur connecté
+  Future<bool> updateStripeCustomerId(String stripeCustomerId) async {
+    try {
+      if (!isLoggedIn || userId == null) {
+        print("❌ Impossible de mettre à jour l'ID client Stripe : utilisateur non connecté");
+        return false;
+      }
+
+      final url = Uri.parse('${constants.getBaseUrl()}/api/users/stripe-customer-id');
+      final response = await http.put(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $_authToken'
+        },
+        body: json.encode({
+          'stripeCustomerId': stripeCustomerId
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        // Mettre à jour les données utilisateur en mémoire si nécessaire
+        final userData = json.decode(response.body);
+        print("✅ ID client Stripe mis à jour avec succès");
+        return true;
+      } else {
+        print("❌ Échec de la mise à jour de l'ID client Stripe: ${response.statusCode}");
+        return false;
+      }
+    } catch (e) {
+      print("❌ Erreur lors de la mise à jour de l'ID client Stripe: $e");
+      return false;
+    }
+  }
 }
 
 // Helper pour la gestion du token JWT

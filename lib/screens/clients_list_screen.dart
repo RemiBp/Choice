@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../utils/constants.dart' as constants;
+import '../utils.dart' show getImageProvider;
 
 class ClientsListScreen extends StatefulWidget {
   final String producerId;
@@ -194,7 +195,11 @@ class _ClientsListScreenState extends State<ClientsListScreen> {
         contentPadding: const EdgeInsets.all(12),
         leading: CircleAvatar(
           radius: 24,
-          backgroundImage: NetworkImage(client['avatar']),
+          backgroundImage: getImageProvider(client['avatar']),
+          backgroundColor: Colors.grey[200],
+          child: getImageProvider(client['avatar']) == null
+            ? Icon(Icons.person, color: Colors.grey[400])
+            : null,
         ),
         title: Text(
           client['name'],

@@ -317,6 +317,16 @@ class PaymentService {
           customerId: customerId,
           customerEphemeralKeySecret: paymentIntentData['ephemeralKey'],
           style: ThemeMode.dark,
+          // Configuration d'Apple Pay
+          applePay: PaymentSheetApplePay(
+            merchantCountryCode: 'FR',
+          ),
+          // Configuration de Google Pay
+          googlePay: PaymentSheetGooglePay(
+            merchantCountryCode: 'FR',
+            testEnv: true, // Mettre à false en production
+          ),
+          returnURL: 'choiceapp://stripe-redirect',
         ),
       );
 

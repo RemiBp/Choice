@@ -5,6 +5,7 @@ import '../services/wellness_service.dart';
 import '../models/wellness_producer.dart';
 import 'wellness_profile_screen.dart';
 import '../utils/api_config.dart';
+import '../utils.dart' show getImageProvider;
 
 class WellnessListScreen extends StatefulWidget {
   const WellnessListScreen({Key? key}) : super(key: key);
@@ -164,7 +165,11 @@ class _WellnessListScreenState extends State<WellnessListScreen> {
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: ListTile(
         leading: CircleAvatar(
-          backgroundImage: NetworkImage(producer.profilePhoto),
+          backgroundImage: getImageProvider(producer.profilePhoto),
+          backgroundColor: Colors.grey[200],
+          child: getImageProvider(producer.profilePhoto) == null
+              ? Icon(Icons.spa, color: Colors.grey[400])
+              : null,
           radius: 30,
         ),
         title: Text(producer.name),

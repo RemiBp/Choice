@@ -89,7 +89,7 @@ class _ProducerDetailScreenState extends State<ProducerDetailScreen> {
               color: Colors.grey[300],
               image: _producerData?['photos'] != null && _producerData!['photos'].isNotEmpty
                   ? DecorationImage(
-                      image: NetworkImage(_producerData!['photos'][0]),
+                      image: getImageProvider(_producerData!['photos'][0]),
                       fit: BoxFit.cover,
                     )
                   : null,

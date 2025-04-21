@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:provider/provider.dart'; // Import for Provider
 import '../services/auth_service.dart';   // Import for AuthService
 import '../utils/constants.dart' as constants;
+import '../utils.dart' show getImageProvider;
 import 'profile_screen.dart';
 import 'producer_screen.dart';
 import 'producerLeisure_screen.dart';
@@ -120,13 +121,13 @@ class RelationDetailsScreen extends StatelessWidget {
                     child: ListTile(
                       leading: CircleAvatar(
                         radius: 25,
-                        backgroundImage: NetworkImage(photoUrl),
+                        backgroundImage: getImageProvider(photoUrl),
                         onBackgroundImageError: (_, __) {
                           print('⚠️ Erreur de chargement d\'image pour le profil: $name');
                         },
-                        backgroundColor: Colors.grey[300],
-                        child: photoUrl == 'https://via.placeholder.com/150'
-                            ? const Icon(Icons.person, color: Colors.grey)
+                        backgroundColor: Colors.grey[200],
+                        child: getImageProvider(photoUrl) == null
+                            ? Icon(Icons.person, color: Colors.grey[400])
                             : null,
                       ),
                       title: Text(

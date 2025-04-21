@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../services/api_service.dart';
+import '../utils.dart' show getImageProvider;
 
 class ReelsViewScreen extends StatefulWidget {
   final int initialIndex;
@@ -354,29 +355,26 @@ class _ReelsViewScreenState extends State<ReelsViewScreen> {
                         ),
                       ),
                     )
-              : CachedNetworkImage(
-                  imageUrl: videoUrl.isNotEmpty ? videoUrl : thumbnailUrl,
-                  fit: BoxFit.cover,
-                  width: double.infinity,
-                  height: double.infinity,
-                  placeholder: (context, url) => Container(
-                    color: Colors.black,
-                    child: const Center(
-                      child: CircularProgressIndicator(
-                        color: Colors.white,
-                      ),
+              : (() {
+                final imageProvider = getImageProvider(thumbnailUrl);
+                if (imageProvider != null) {
+                  return Image(
+                    image: imageProvider,
+                    fit: BoxFit.cover,
+                    width: double.infinity,
+                    height: double.infinity,
+                    errorBuilder: (context, error, stackTrace) => Container(
+                      color: Colors.black,
+                      child: const Center(child: Icon(Icons.broken_image, color: Colors.white70)),
                     ),
-                  ),
-                  errorWidget: (context, url, error) => Container(
+                  );
+                } else {
+                  return Container(
                     color: Colors.black,
-                    child: const Center(
-                      child: Icon(
-                        Icons.error,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-          ),
+                    child: const Center(child: Icon(Icons.broken_image, color: Colors.white70)),
+                  );
+                }
+              })(),
         ),
         
         // Info overlay (Author info, description, etc.)
@@ -616,10 +614,10 @@ class _ReelsViewScreenState extends State<ReelsViewScreen> {
                 child: CircleAvatar(
                   radius: 20,
                   backgroundColor: Colors.grey[300],
-                  backgroundImage: authorAvatar.isNotEmpty ? NetworkImage(authorAvatar) : null,
-                  child: authorAvatar.isEmpty ? Icon(Icons.person, color: Colors.grey[600]) : null,
-                        ),
+                  backgroundImage: getImageProvider(authorAvatar) ?? const AssetImage('assets/images/default_avatar.png'),
+                  child: getImageProvider(authorAvatar) == null ? Icon(Icons.person, color: Colors.grey[400]) : null,
                 ),
+              ),
               const SizedBox(width: 12),
               
               // Author name and location

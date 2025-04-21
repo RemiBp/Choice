@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../utils/constants.dart' as constants;
+import '../utils.dart' show getImageProvider;
 
 class WellnessProducer {
   final String id;
@@ -161,7 +162,7 @@ class _WellnessProducerScreenState extends State<WellnessProducerScreen> {
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(12),
                 image: DecorationImage(
-                  image: NetworkImage(_producer!.mainPhoto!),
+                  image: getImageProvider(_producer!.mainPhoto!) ?? NetworkImage('https://via.placeholder.com/300x200?text=No+Image'),
                   fit: BoxFit.cover,
                 ),
               ),

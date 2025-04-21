@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../utils/map_colors.dart' as mapcolors;
+import '../utils.dart' show getImageProvider;
 
 class FollowingsInterestsList extends StatelessWidget {
   final Map<String, dynamic> followingsData;
@@ -171,13 +172,11 @@ class FollowingsInterestsList extends StatelessWidget {
           child: ListTile(
             contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             leading: CircleAvatar(
-              backgroundImage: photoUrl != null && photoUrl.isNotEmpty
-                  ? NetworkImage(photoUrl)
-                  : null,
-              backgroundColor: mapcolors.MapColors.leisurePrimary.withOpacity(0.2),
-              child: photoUrl == null || photoUrl.isEmpty
-                  ? Icon(Icons.person, color: mapcolors.MapColors.leisurePrimary)
-                  : null,
+              backgroundImage: getImageProvider(photoUrl),
+              backgroundColor: Colors.grey[200],
+              child: getImageProvider(photoUrl) == null
+                ? Icon(Icons.person, color: Colors.grey[400])
+                : null,
             ),
             title: Text(
               name ?? 'Utilisateur',

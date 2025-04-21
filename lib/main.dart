@@ -200,7 +200,16 @@ Future<void> main() async {
     if (!kIsWeb) {
       try {
         stripe_pkg.Stripe.publishableKey = "pk_test_51QmFfDLwsHOKmNitM0g9UclfHTAhpEz366Ko7ff0NjoDICwnxT6wi1W4yfC1YV9QhLQUFeRrc0xnwrpCK7OLhYRF00tOrudArz";
-        await stripe_pkg.Stripe.instance.applySettings();
+        // Configurer Apple Pay pour iOS
+        if (Platform.isIOS) {
+          stripe_pkg.Stripe.merchantIdentifier = "merchant.fr.choiceapp.app";
+          stripe_pkg.Stripe.urlScheme = "choiceapp";
+          await stripe_pkg.Stripe.instance.applySettings();
+          print("✅ Stripe initialisé avec support Apple Pay");
+        } else {
+          await stripe_pkg.Stripe.instance.applySettings();
+          print("✅ Stripe initialisé sur Android");
+        }
       } catch (e) {
         print("❌ Erreur d'initialisation Stripe : $e");
       }

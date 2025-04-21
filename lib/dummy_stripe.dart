@@ -2,6 +2,8 @@
 // It will be imported under the 'stripe_pkg' namespace in main.dart
 class Stripe {
   static String publishableKey = "";
+  static String? merchantIdentifier;
+  static String? urlScheme;
   static final instance = Stripe();
 
   Future<void> applySettings() async {

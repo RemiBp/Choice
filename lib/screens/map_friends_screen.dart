@@ -43,6 +43,7 @@ import '../widgets/activity_detail_sheet.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../models/map_filter.dart';
 import '../main.dart';
+import '../utils.dart' show getImageProvider;
 
 // Définir une classe MapConfig locale pour éviter les conflits
 class MapConfig {
@@ -720,7 +721,7 @@ class _MapFriendsScreenState extends State<MapFriendsScreen> {
                         topRight: Radius.circular(12),
                       ),
                       image: DecorationImage(
-                        image: getImageProvider(imageUrl),
+                        image: getImageProvider(imageUrl) ?? AssetImage('assets/images/default_profile.png'),
                         fit: BoxFit.cover,
                       ),
                     ),
@@ -798,7 +799,7 @@ class _MapFriendsScreenState extends State<MapFriendsScreen> {
                       children: [
                         CircleAvatar(
                           radius: 16,
-                          backgroundImage: getImageProvider(activity['friendAvatar']),
+                          backgroundImage: getImageProvider(activity['friendAvatar']) ?? const AssetImage('assets/images/default_avatar.png'),
                           backgroundColor: Colors.grey[200],
                           child: getImageProvider(activity['friendAvatar']) == null
                             ? Icon(Icons.person, color: Colors.grey[400])
@@ -1335,7 +1336,7 @@ class _MapFriendsScreenState extends State<MapFriendsScreen> {
                     CircleAvatar(
                       radius: 30,
                       backgroundColor: mapcolors.MapColors.friendsSecondary,
-                      backgroundImage: getImageProvider(friend['avatar']),
+                      backgroundImage: getImageProvider(friend['avatar']) ?? const AssetImage('assets/images/default_avatar.png'),
                       child: getImageProvider(friend['avatar']) == null
                           ? Icon(Icons.person, color: Colors.grey[400])
                           : null,

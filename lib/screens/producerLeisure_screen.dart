@@ -13,6 +13,8 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../widgets/profile_post_card.dart';  // Import du widget ProfilePostCard
 import 'dart:typed_data';
 import 'leisure_events_calendar_screen.dart';
+import '../utils/constants.dart' as constants;
+import '../utils.dart' show getImageProvider;
 
 // Rendre createUriFromBaseUrl disponible globalement dans la classe
 Future<Uri> createUriFromBaseUrl(String path, {Map<String, dynamic>? queryParameters}) async {
@@ -655,10 +657,8 @@ class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> with Sing
                     // Avatar du producteur
                     CircleAvatar(
                       radius: 20,
-                      backgroundImage: CachedNetworkImageProvider(
-                        authorAvatar,
-                      ),
-                      backgroundColor: Colors.grey.shade200,
+                      backgroundImage: getImageProvider(authorAvatar) ?? const AssetImage('assets/images/default_avatar.png'),
+                      backgroundColor: Colors.grey[200],
                     ),
                     const SizedBox(width: 12),
                     // Nom et date
@@ -853,18 +853,12 @@ class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> with Sing
                       ),
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(12),
-                        child: CachedNetworkImage(
-                          imageUrl: url,
+                        child: Image(
+                          image: getImageProvider(url) ?? const AssetImage('assets/images/default_image.png'),
                           fit: BoxFit.cover,
-                          placeholder: (context, url) => Container(
-                            color: Colors.grey[300],
-                            child: const Center(
-                              child: CircularProgressIndicator(),
-                            ),
-                          ),
-                          errorWidget: (context, url, error) => Container(
-                            color: Colors.grey[300],
-                            child: const Icon(Icons.error),
+                          errorBuilder: (context, error, stackTrace) => Container(
+                            color: Colors.grey[200],
+                            child: const Icon(Icons.broken_image, color: Colors.grey),
                           ),
                         ),
                       ),
@@ -874,48 +868,48 @@ class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> with Sing
               ),
             ),
             
-          // Section événement référencé si présent
-          if (eventId != null)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16.0, 8.0, 16.0, 16.0),
-              child: InkWell(
-                onTap: () => _navigateToEventDetails(eventId),
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.purple.withOpacity(0.05),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: Colors.purple.withOpacity(0.3),
-                      width: 1,
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.event,
-                        color: Colors.purple.shade700,
+            // Section événement référencé si présent
+            if (eventId != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16.0, 8.0, 16.0, 16.0),
+                child: InkWell(
+                  onTap: () => _navigateToEventDetails(eventId),
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.purple.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: Colors.purple.withOpacity(0.3),
+                        width: 1,
                       ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'Voir l\'événement associé',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: Colors.purple.shade700,
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.event,
+                          color: Colors.purple.shade700,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Voir l\'événement associé',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              color: Colors.purple.shade700,
+                            ),
                           ),
                         ),
-                      ),
-                      Icon(
-                        Icons.arrow_forward_ios,
-                        size: 16,
-                        color: Colors.purple.shade700,
-                      ),
-                    ],
+                        Icon(
+                          Icons.arrow_forward_ios,
+                          size: 16,
+                          color: Colors.purple.shade700,
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
             
           // Barre d'interactions (compteurs)
           Padding(
@@ -1450,30 +1444,13 @@ class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> with Sing
                     Row(
                       children: [
                         // Profile Photo with border
-                        Container(
-                          height: 70,
-                          width: 70,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white, width: 2),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.3),
-                                blurRadius: 8,
-                                offset: const Offset(0, 3),
-                              ),
-                            ],
-                          ),
-                          child: ClipOval(
-                            child: Image.network(
-                              getProducerImageUrl(data),
-                              fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) {
-                                return Container(
-                                  color: Colors.deepPurple.withOpacity(0.5),
-                                  child: const Icon(Icons.person, size: 40, color: Colors.white),
-                                );
-                              },
+                        ClipOval(
+                          child: Image(
+                            image: getImageProvider(backgroundImage) ?? const AssetImage('assets/images/default_avatar.png'),
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) => Container(
+                              color: Colors.grey[200],
+                              child: const Icon(Icons.broken_image, color: Colors.grey),
                             ),
                           ),
                         ),
@@ -1848,9 +1825,6 @@ class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> with Sing
     required Map<String, dynamic> event,
     required Function(dynamic) onEventTap,
   }) {
-    // Safely get the image URL using the helper
-    final imageUrl = getEventImageUrl(event); // Use helper from leisureHelpers.dart
-
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -1858,61 +1832,71 @@ class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> with Sing
       child: InkWell(
         onTap: () => onEventTap(event),
         borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Image de l'événement using CachedNetworkImage
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8), // Apply radius to the image
-                child: CachedNetworkImage(
-                  imageUrl: imageUrl ?? 'https://via.placeholder.com/100x100?text=Event',
-                  height: 80,
-                  width: 80,
-                  fit: BoxFit.cover,
-                  placeholder: (context, url) => Container(
-                    height: 80,
-                    width: 80,
-                    color: Colors.grey[300],
-                    child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
-                  ),
-                  errorWidget: (context, url, error) => Container(
-                    height: 80,
-                    width: 80,
-                    color: Colors.grey[300],
-                    child: Icon(Icons.event_busy, size: 40, color: Colors.grey[400]),
-                  ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Image de l'événement
+            ClipRRect(
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+              child: Image(
+                image: getImageProvider(event['photo']) ?? const AssetImage('assets/images/default_event.png'),
+                width: double.infinity,
+                height: 150,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => Container(
+                  width: double.infinity,
+                  height: 150,
+                  color: Colors.grey[200],
+                  child: const Icon(Icons.event, color: Colors.grey, size: 40),
                 ),
               ),
-              const SizedBox(width: 16), // Add spacing between image and text
-              
-              // Informations sur l'événement
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        event['title'] ?? event['intitulé'] ?? 'Événement sans titre',
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+            ),
+            
+            // Informations sur l'événement
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      event['title'] ?? event['intitulé'] ?? 'Événement sans titre',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
                       ),
-                      const SizedBox(height: 4),
-                      
-                      // Date
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    
+                    // Date
+                    Row(
+                      children: [
+                        Icon(Icons.calendar_today, size: 14, color: Colors.grey[600]),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            event['date'] ?? event['prochaines_dates'] ?? 'Date non spécifiée',
+                            style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                    
+                    const SizedBox(height: 4),
+                    
+                    // Catégorie
+                    if (event['category'] != null || event['catégorie'] != null)
                       Row(
                         children: [
-                          Icon(Icons.calendar_today, size: 14, color: Colors.grey[600]),
+                          Icon(Icons.category, size: 14, color: Colors.grey[600]),
                           const SizedBox(width: 4),
                           Expanded(
                             child: Text(
-                              event['date'] ?? event['prochaines_dates'] ?? 'Date non spécifiée',
+                              event['category'] ?? event['catégorie'] ?? '',
                               style: TextStyle(fontSize: 14, color: Colors.grey[600]),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
@@ -1920,31 +1904,11 @@ class _ProducerLeisureScreenState extends State<ProducerLeisureScreen> with Sing
                           ),
                         ],
                       ),
-                      
-                      const SizedBox(height: 4),
-                      
-                      // Catégorie
-                      if (event['category'] != null || event['catégorie'] != null)
-                        Row(
-                          children: [
-                            Icon(Icons.category, size: 14, color: Colors.grey[600]),
-                            const SizedBox(width: 4),
-                            Expanded(
-                              child: Text(
-                                event['category'] ?? event['catégorie'] ?? '',
-                                style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
-                    ],
-                  ),
+                  ],
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -2340,18 +2304,17 @@ class EventCard extends StatelessWidget {
             // Image de l'événement
             ClipRRect(
               borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
-              child: Image.network(
-                event['image'] ?? 'https://via.placeholder.com/300x150?text=Événement',
-                height: 120,
+              child: Image(
+                image: getImageProvider(event['photo']) ?? const AssetImage('assets/images/default_event.png'),
                 width: double.infinity,
+                height: 150,
                 fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => 
-                  Container(
-                    height: 120,
-                    width: double.infinity,
-                    color: Colors.grey[300],
-                    child: Icon(Icons.event, size: 40, color: Colors.grey[400]),
-                  ),
+                errorBuilder: (context, error, stackTrace) => Container(
+                  width: double.infinity,
+                  height: 150,
+                  color: Colors.grey[200],
+                  child: const Icon(Icons.event, color: Colors.grey, size: 40),
+                ),
               ),
             ),
             

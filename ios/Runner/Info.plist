@@ -45,5 +45,31 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+
+	<!-- Configuration pour Apple Pay -->
+	<key>NSCameraUsageDescription</key>
+	<string>Cette application souhaite accéder à votre caméra pour scanner votre carte de paiement</string>
+	
+	<!-- Domaines nécessaires pour Apple Pay -->
+	<key>com.apple.developer.in-app-payments</key>
+	<array>
+		<string>merchant.fr.choiceapp.app</string>
+	</array>
+	
+	<!-- Configuration pour les URL schemes -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>fr.choiceapp.app</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>choiceapp</string>
+			</array>
+		</dict>
+	</array>
+
 </dict>
 </plist>

@@ -230,10 +230,13 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> with SingleTick
         );
         customerId = customerResponse['customerId'];
         
-        // TODO: Implement backend route and frontend method to save stripeCustomerId
-        // // Temporarily commented out:
-        // await _authServiceInstance.updateStripeCustomerId(customerId);
-        print("⚠️ TODO: Implement saving Stripe Customer ID ($customerId) to user profile.");
+        // Sauvegarder l'ID client Stripe dans le profil utilisateur
+        final savedCustomerId = await _authServiceInstance.updateStripeCustomerId(customerId);
+        if (savedCustomerId) {
+          print("✅ ID client Stripe ($customerId) sauvegardé dans le profil utilisateur");
+        } else {
+          print("⚠️ Impossible de sauvegarder l'ID client Stripe dans le profil utilisateur");
+        }
       }
       
       // Créer un intent de paiement pour l'abonnement

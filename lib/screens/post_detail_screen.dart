@@ -13,6 +13,7 @@ import '../services/analytics_service.dart';
 import '../widgets/comment_tile.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../utils.dart' show getImageProvider;
 
 class PostDetailScreen extends StatefulWidget {
   final String postId;
@@ -79,6 +80,9 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     },
     // Ajoutez d'autres commentaires fictifs au besoin
   ];
+  
+  // Variables ajoutées
+  bool _showControls = true;
   
   @override
   void initState() {
@@ -353,11 +357,12 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                             children: [
                               CircleAvatar(
                                 radius: 24,
-                                backgroundImage: CachedNetworkImageProvider(
-                                  _postData.authorAvatar?.isNotEmpty == true
-                                      ? _postData.authorAvatar!
-                                      : 'assets/images/default_avatar.png',
-                                ),
+                                backgroundImage: _postData.authorAvatar?.isNotEmpty == true
+                                  ? getImageProvider(_postData.authorAvatar!) ?? const AssetImage('assets/images/default_avatar.png')
+                                  : const AssetImage('assets/images/default_avatar.png'),
+                                child: _postData.authorAvatar == null || _postData.authorAvatar!.isEmpty
+                                  ? Icon(Icons.person, color: Colors.grey[400])
+                                  : null,
                               ),
                               const SizedBox(width: 12),
                               Expanded(
@@ -423,20 +428,31 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                                 color: Colors.black,
                                 child: media.type == 'video'
                                     ? _buildVideoPlayer(mediaId, media.url)
-                                    : CachedNetworkImage(
-                                        imageUrl: media.url,
-                                        fit: BoxFit.contain,
-                                        placeholder: (context, url) => const Center(
-                                          child: CircularProgressIndicator(),
-                                        ),
-                                        errorWidget: (context, url, error) => const Center(
-                                          child: Icon(
-                                            Icons.error,
-                                            color: Colors.white60,
-                                            size: 48,
+                                    : (() {
+                                      final imageProvider = getImageProvider(media.url);
+                                      if (imageProvider != null) {
+                                        return GestureDetector(
+                                          onTap: _toggleControlsVisibility,
+                                          child: InteractiveViewer(
+                                            minScale: 0.5,
+                                            maxScale: 4.0,
+                                            child: Image(
+                                              image: imageProvider,
+                                              fit: BoxFit.contain,
+                                              errorBuilder: (context, error, stackTrace) => Container(
+                                                color: Colors.black,
+                                                child: const Center(child: Icon(Icons.broken_image, color: Colors.white70, size: 50)),
+                                              ),
+                                            ),
                                           ),
-                                        ),
-                                      ),
+                                        );
+                                      } else {
+                                        return Container(
+                                          color: Colors.black,
+                                          child: const Center(child: Icon(Icons.broken_image, color: Colors.white70, size: 50)),
+                                        );
+                                      }
+                                    })(),
                               );
                             },
                           ),
@@ -923,8 +939,8 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         _postData = _postData.copyWith(
           isChoice: !isCurrentlyChoice,
           choiceCount: _postData.choiceCount != null 
-              ? (_postData.isChoice ?? false ? (_postData.choiceCount! - 1) : (_postData.choiceCount! + 1))
-              : (_postData.isChoice ?? false ? 0 : 1),
+              ? (isCurrentlyChoice ? (_postData.choiceCount! - 1) : (_postData.choiceCount! + 1))
+              : (isCurrentlyChoice ? 0 : 1),
         );
       });
       
@@ -940,8 +956,8 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         _postData = _postData.copyWith(
           isChoice: !isCurrentlyChoice,
           choiceCount: _postData.choiceCount != null 
-              ? (_postData.isChoice ?? false ? (_postData.choiceCount! - 1) : (_postData.choiceCount! + 1))
-              : (_postData.isChoice ?? false ? 0 : 1),
+              ? (isCurrentlyChoice ? (_postData.choiceCount! - 1) : (_postData.choiceCount! + 1))
+              : (isCurrentlyChoice ? 0 : 1),
         );
       });
       
@@ -1062,6 +1078,12 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     } else {
       return '${timestamp.day}/${timestamp.month}/${timestamp.year}';
     }
+  }
+
+  void _toggleControlsVisibility() {
+    setState(() {
+      _showControls = !_showControls;
+    });
   }
 }
 

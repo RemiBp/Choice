@@ -29,7 +29,8 @@ import 'widgets/filtered_items_list.dart';
 import 'widgets/global_menus_list.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/services.dart';
-import 'widgets/post_card.dart'; // Import for PostCard
+import '../widgets/feed/post_card.dart'; // Import for PostCard
+import '../utils.dart' show getImageProvider;
 
 class MyProducerProfileScreen extends StatefulWidget {
   final String producerId;
@@ -3493,6 +3494,18 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
         ],
       ),
     );
+  }
+
+  void _handleLike(dynamic post) {
+    // Implémenter la logique de like pour les posts producteur
+    // Vous pouvez utiliser la même logique que dans feed_screen.dart
+    print('Like post: ${post.id}');
+  }
+
+  void _openComments(dynamic post) {
+    // Implémenter la logique d'ouverture des commentaires
+    // Vous pouvez utiliser la même logique que dans feed_screen.dart
+    print('Open comments for post: ${post.id}');
   }
 }
 
