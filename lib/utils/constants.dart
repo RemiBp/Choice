@@ -10,7 +10,7 @@ const bool useNgrok = false; // Désactivé
 const String ngrokUrl = "https://cfae-195-220-106-83.ngrok-free.app"; // Non utilisé
 const String localUrl = "http://10.0.2.2:5000"; // Pour émulateur Android
 const String directUrl = "http://localhost:5000"; // Pour Windows/Web
-const String localNetworkUrl = "http://192.168.1.23:5000"; // IP locale réseau Wi-Fi maison
+const String localNetworkUrl = "http://192.168.1.20:5000"; // IP locale réseau Wi-Fi maison
 const String cloudUrl = "https://api.choiceapp.fr"; // Pour les appareils physiques
 
 // Déterminer si l'application est en mode production

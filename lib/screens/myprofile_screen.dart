@@ -21,6 +21,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../utils/utils.dart'; // Import utils pour getBaseUrl()
 import 'CreatePostScreen.dart';
 import '../utils.dart' show getImageProvider;
+import 'edit_profile_screen.dart'; // Import EditProfileScreen
+import 'post_detail_screen.dart'; // Import PostDetailScreen
+import 'dart:io'; // Pour File (utilisé dans _ChoiceForm)
+import 'package:choice_app/screens/choice_detail_screen.dart'; // Importer le nouvel écran
 
 /// Classe delegate pour TabBar persistant
 class _SliverAppBarDelegate extends SliverPersistentHeaderDelegate {
@@ -58,839 +62,452 @@ class MyProfileScreen extends StatefulWidget {
   State<MyProfileScreen> createState() => _MyProfileScreenState();
 }
 
-class _MyProfileScreenState extends State<MyProfileScreen> with AutomaticKeepAliveClientMixin, SingleTickerProviderStateMixin {
+class _MyProfileScreenState extends State<MyProfileScreen> with AutomaticKeepAliveClientMixin {
+  // State pour les données du profil et des posts
   late Future<Map<String, dynamic>> _userFuture;
   late Future<List<dynamic>> _postsFuture;
-  bool _isLoading = true;
-  String? _errorMessage;
-  late TabController _tabController; // Contrôleur pour les onglets
 
-  // Ajouter une variable pour la langue utilisateur
-  String userLanguage = 'fr';
-  
-  // Fonction d'utilité pour obtenir l'URL de base via utils.dart
-  String getBaseUrlFromUtils() {
-    // Utiliser la fonction importée depuis utils.dart
-    return getBaseUrl();
-  }
-
+  // Garder l'état de la page
   @override
   bool get wantKeepAlive => true;
 
   @override
   void initState() {
     super.initState();
-    _userFuture = _fetchUserProfile(widget.userId);
-    _userFuture.then((user) {
-      _postsFuture = _fetchUserPosts(widget.userId);
-    });
+    _fetchData(); // Lancer la récupération des données
   }
 
-  /// Récupère le profil utilisateur
+  // Fonction principale pour récupérer les données utilisateur et posts
+  void _fetchData() {
+    // Créer le Future pour l'utilisateur
+    _userFuture = _fetchUserProfile(widget.userId);
+
+    // Créer le Future pour les posts, qui dépend du résultat de _userFuture
+    _postsFuture = _userFuture.then((user) {
+      // Vérifier si l'utilisateur a été chargé correctement
+      if (user['_id'] != null && user['_id'] == widget.userId) {
+        // Lancer la récupération des posts seulement si l'utilisateur est valide
+        return _fetchUserPosts(user['_id']);
+      } else {
+        // Si l'utilisateur n'a pas pu être chargé ou ID incorrect, retourner une liste vide
+        print("⚠️ Utilisateur non chargé ou ID incorrect, impossible de récupérer les posts.");
+        return Future.value(<dynamic>[]); // Retourner un Future<List> vide
+      }
+    }).catchError((error) {
+      // Gérer les erreurs lors de la récupération de l'utilisateur
+      print("❌ Erreur lors de la récupération initiale de l'utilisateur: $error");
+      return Future.value(<dynamic>[]); // Retourner un Future<List> vide en cas d'erreur
+    });
+
+    // Mettre à jour l'état pour reconstruire avec les Futures initialisés
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Fonctions de récupération de données (API Calls)
+  // ---------------------------------------------------------------------------
+
+  /// Récupère le profil utilisateur complet
   Future<Map<String, dynamic>> _fetchUserProfile(String userId) async {
-    final authService = provider_pkg.Provider.of<AuthService>(context, listen: false);
+    // Ne pas appeler si le widget n'est plus monté
+    if (!mounted) return _getDefaultUserData(userId);
     
-    try {
-      // Essayer d'obtenir un token, mais continuer même s'il n'y en a pas
+    final authService = provider_pkg.Provider.of<AuthService>(context, listen: false);
       final token = await authService.getTokenInstance(forceRefresh: false);
-      final baseUrl = getBaseUrlFromUtils();
+    final baseUrl = getBaseUrlFromUtils(); // Utiliser l'utilitaire local
       
-      // Construire les en-têtes en fonction de la disponibilité du token
       final headers = {
         'Content-Type': 'application/json',
-      };
-      
-      // Ajouter le token seulement s'il existe
-      if (token != null && token.isNotEmpty) {
-        headers['Authorization'] = 'Bearer $token';
-      }
-      
-      // Faire la requête avec ou sans token
-      final url = Uri.parse('${constants.getBaseUrl()}/api/users/$userId');
-      final response = await http.get(url, headers: headers);
+      if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+    };
+
+    try {
+      print("🔄 Fetching user profile for $userId...");
+      final url = Uri.parse('$baseUrl/api/users/$userId');
+      final response = await http.get(url, headers: headers).timeout(const Duration(seconds: 10));
+
+      if (!mounted) return _getDefaultUserData(userId);
 
       if (response.statusCode == 200) {
-        try {
+        print("✅ User profile fetched successfully for $userId.");
           Map<String, dynamic> userData = json.decode(response.body);
-          print('✅ Données utilisateur récupérées avec succès');
-          
-          // Ensure critical fields exist to prevent null errors
-          if (!userData.containsKey('followers')) {
-            userData['followers'] = [];
-          }
-          if (!userData.containsKey('following')) {
-            userData['following'] = [];
-          }
-          if (!userData.containsKey('posts')) {
-            userData['posts'] = [];
-          }
-          
-          // Convertir les listes dynamiques en listes de type spécifique pour Flutter
-          // Utiliser la méthode _ensureStringList pour garantir la conversion correcte
+        // Normalisation des données (s'assurer que les listes existent etc.)
+        return _normalizeUserData(userData, userId);
+      } else {
+        print('❌ Erreur récupération profil utilisateur $userId (${response.statusCode}): ${response.body}');
+        return _getDefaultUserData(userId); // Retourner données par défaut en cas d'erreur
+      }
+    } catch (e) {
+      print('❌ Exception lors de la récupération du profil $userId: $e');
+      return _getDefaultUserData(userId); // Retourner données par défaut en cas d'exception
+    }
+  }
+
+   /// Normalise les données utilisateur reçues de l'API
+   Map<String, dynamic> _normalizeUserData(Map<String, dynamic> userData, String originalUserId) {
+     // Assurer l'existence des champs clés
+     userData['_id'] ??= originalUserId;
+     userData['name'] ??= 'Utilisateur inconnu';
           userData['followers'] = _ensureStringList(userData['followers']);
           userData['following'] = _ensureStringList(userData['following']);
           userData['posts'] = _ensureStringList(userData['posts']);
-          userData['liked_tags'] = _ensureStringList(userData['liked_tags']);
           userData['interests'] = _ensureStringList(userData['interests']);
+     userData['liked_tags'] = _ensureStringList(userData['liked_tags']);
           userData['conversations'] = _ensureStringList(userData['conversations']);
-          
+     // Assurer que choices est une liste (peut contenir des objets ou des IDs)
+     userData['choices'] = (userData['choices'] is List) ? userData['choices'] : [];
+     userData['bio'] ??= ''; // Assurer que bio existe
+     userData['profilePicture'] ??= userData['photo_url']; // Fallback photo_url
           return userData;
-        } catch (e) {
-          print('❌ Erreur de parsing JSON: ${response.body}');
-          return _getDefaultUserData(userId);
-        }
-      } else if (response.statusCode == 401 || response.statusCode == 403) {
-        // En cas d'erreur d'authentification, retourner des données par défaut
-        print('⚠️ Erreur d\'authentification pour le profil - Utilisation des données par défaut');
-        return _getDefaultUserData(userId);
-      } else {
-        print('❌ Erreur de récupération utilisateur (${response.statusCode}): ${response.body}');
-        return _getDefaultUserData(userId);
-      }
-    } catch (e) {
-      print('❌ Exception lors de la récupération du profil: $e');
-      // Retourner des données par défaut pour éviter les erreurs d'UI
-      return _getDefaultUserData(userId);
-    }
-  }
+   }
 
-  /// Convertit les listes dynamiques en listes typées pour éviter les erreurs de casting
-  List<String> _ensureStringList(dynamic list) {
-    if (list == null) return <String>[];
-    if (list is List<String>) return list;
-    
-    // Convertir une liste dynamique en liste de strings
-    if (list is List) {
-      return list.map((item) => item.toString()).toList();
-    }
-    
-    return <String>[];
-  }
 
   /// Récupère les posts associés à l'utilisateur
   Future<List<dynamic>> _fetchUserPosts(String userId) async {
-    final authService = provider_pkg.Provider.of<AuthService>(context, listen: false);
+    if (!mounted) return [];
     
-    try {
-      // Valider le token avant de faire l'appel API
+    final authService = provider_pkg.Provider.of<AuthService>(context, listen: false);
       final token = await authService.getTokenInstance();
+    final baseUrl = getBaseUrlFromUtils();
+
+    // Pour les profils publics, on pourrait éventuellement essayer sans token,
+    // mais la route actuelle semble protégée.
       if (token == null || token.isEmpty) {
-        print('❌ Token manquant pour _fetchUserPosts');
+      print('ℹ️ Pas de token pour récupérer les posts du profil $userId. Affiche une liste vide.');
         return [];
       }
       
-      final baseUrl = getBaseUrlFromUtils();
       final headers = {
         'Authorization': 'Bearer $token',
         'Content-Type': 'application/json'
       };
       
-      print('🔍 Récupération des posts pour userId: $userId');
-      
-      // Utiliser la route API correcte /api/users/:id/posts
-      final response = await http.get(
-        Uri.parse('$baseUrl/api/users/$userId/posts'),
-        headers: headers,
-      ).timeout(const Duration(seconds: 10));  // Timeout augmenté à 10 secondes
+    try {
+      print("🔄 Fetching posts for user $userId...");
+      final url = Uri.parse('$baseUrl/api/users/$userId/posts');
+      final response = await http.get(url, headers: headers).timeout(const Duration(seconds: 15));
+
+      if (!mounted) return [];
   
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         List<dynamic> postsList = [];
         
-        // Vérifier le format de la réponse (basé sur le code backend)
         if (data is Map<String, dynamic> && data.containsKey('posts')) {
-          final posts = data['posts'];
-          if (posts is List) {
-            postsList = posts;
-          }
+          postsList = data['posts'] is List ? data['posts'] : [];
         } else if (data is List) {
-          // Si les données sont déjà une liste, les utiliser directement
           postsList = data;
         }
         
         if (postsList.isEmpty) {
-          print('⚠️ Aucun post trouvé ou format non reconnu');
+          print('✅ Aucun post trouvé pour $userId.');
           return [];
         }
         
-        print('✅ Posts utilisateur récupérés avec succès: ${postsList.length} posts');
-        
-        // Convertir les données pour assurer la cohérence des types
-        final processedPosts = postsList.map((post) {
-          if (post is Map<String, dynamic>) {
-            // S'assurer que _id et id sont en String
-            if (post.containsKey('_id')) post['_id'] = post['_id'].toString();
-            if (post.containsKey('id')) post['id'] = post['id'].toString();
-            
-            // Traiter les champs qui peuvent être différents formats selon le backend
-            _ensurePostFields(post);
-            
-            // Convertir les listes dynamiques en listes typées
-            if (post.containsKey('likes') && post['likes'] is List) {
-              post['likes'] = (post['likes'] as List).map((item) => item.toString()).toList();
-            } else if (!post.containsKey('likes')) {
-              post['likes'] = <String>[];
-            }
-            
-            if (post.containsKey('comments') && post['comments'] is List) {
-              post['comments'] = (post['comments'] as List).map((item) {
-                if (item is Map<String, dynamic>) return item;
-                return {'text': item.toString()};
-              }).toList();
-            } else if (!post.containsKey('comments')) {
-              post['comments'] = [];
-            }
-            
-            // Vérifier et traiter d'autres champs potentiellement problématiques
-            if (post.containsKey('location') && post['location'] != null) {
-              // Uniformiser le format de location
-              if (post['location'] is String) {
-                // Convertir en objet si c'est une chaîne
-                post['location'] = {'name': post['location']};
-              }
-            }
-          }
-          return post;
-        }).toList();
-        
-        return processedPosts;
+        print('✅ ${postsList.length} posts récupérés pour $userId.');
+        // Normaliser chaque post
+        return postsList.map((post) => _normalizePostData(post)).toList();
       } else if (response.statusCode == 401 || response.statusCode == 403) {
-        // En cas d'erreur d'authentification, déconnecter l'utilisateur
-        print('⚠️ Erreur d\'authentification (${response.statusCode}) lors de la récupération des posts');
-        authService.logout();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Session expirée. Veuillez vous reconnecter.'))
-          );
-        }
+         // Correction: Utiliser des guillemets doubles pour la chaîne contenant une apostrophe
+         // Correction: Utiliser un caractère ASCII pour l'icône d'avertissement
+         print("⚠️ Erreur d'authentification (${response.statusCode}) lors de la recuperation des posts de $userId");
+         if (widget.isCurrentUser) {
+           authService.logout();
+           if (mounted) {
+             ScaffoldMessenger.of(context).showSnackBar(
+               // Correction: Utiliser des guillemets doubles
+               const SnackBar(content: Text("Session expiree. Veuillez vous reconnecter."))
+             );
+             Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+           }
+         }
         return [];
       } else {
-        print('❌ Erreur (${response.statusCode}) lors de la récupération des posts: ${response.body}');
+        print('❌ Erreur recuperation posts $userId (${response.statusCode}): ${response.body}');
         return [];
       }
     } catch (e) {
-      print('❌ Exception lors de la récupération des posts: $e');
+      print('❌ Exception lors de la recuperation des posts de $userId: $e');
       return [];
     }
   }
   
-  /// S'assure que tous les champs nécessaires sont présents dans un post
-  void _ensurePostFields(Map<String, dynamic> post) {
-    // Liste des champs à vérifier et leurs valeurs par défaut
-    final defaults = {
-      'content': '',
-      'image': '',
-      'createdAt': DateTime.now().toIso8601String(),
-      'likes': <String>[],
-      'comments': <Map<String, dynamic>>[],
-      'author': {'name': 'Utilisateur', 'photo': ''},
-      'location': null,
-    };
-    
-    // Ajouter les champs manquants avec leurs valeurs par défaut
-    defaults.forEach((key, defaultValue) {
-      if (!post.containsKey(key)) {
-        post[key] = defaultValue;
-      }
-    });
-    
-    // Si l'auteur est juste un ID, le convertir en objet
-    if (post['author'] is String) {
-      post['author'] = {'_id': post['author'], 'name': 'Utilisateur'};
-    }
-  }
+   /// Normalise les données d'un post reçu de l'API
+   Map<String, dynamic> _normalizePostData(dynamic postData) {
+     if (postData is! Map<String, dynamic>) {
+       // Si ce n'est pas un map, retourner un objet vide ou une structure par défaut
+       return {'_id': UniqueKey().toString(), 'title': 'Post invalide', 'content': '', 'media': [], 'likes': [], 'comments': [], 'author': {}, 'createdAt': DateTime.now().toIso8601String()};
+     }
 
-  /// Navigation vers les détails d'un producteur ou événement
-  Future<void> _navigateToDetails(String id, String type) async {
-    print('🔍 Navigation vers l\'ID : $id (Type : $type)');
+     // Copie pour éviter de modifier l'original directement
+     final post = Map<String, dynamic>.from(postData);
+
+     // Assurer les champs de base
+     post['_id'] = post['_id']?.toString() ?? UniqueKey().toString();
+     post['title'] ??= '';
+     post['content'] ??= '';
+     post['createdAt'] = post['createdAt'] ?? DateTime.now().toIso8601String();
+     post['likes'] = _ensureStringList(post['likes']);
+     post['media'] = (post['media'] is List) ? post['media'] : [];
+
+     // Normaliser les commentaires (assurer format Map)
+     if (post['comments'] is List) {
+       post['comments'] = (post['comments'] as List).map((c) {
+         if (c is Map<String, dynamic>) return c;
+         return {'content': c.toString()}; // Format minimal si ce n'est pas un Map
+       }).toList();
+     } else {
+       post['comments'] = <Map<String, dynamic>>[];
+     }
+
+     // Normaliser l'auteur
+    if (post['author'] is String) {
+       post['author'] = {'_id': post['author'], 'name': 'Auteur inconnu'};
+     } else if (post['author'] is Map<String, dynamic>) {
+       post['author']['_id'] ??= '';
+       post['author']['name'] ??= 'Auteur inconnu';
+     } else {
+       post['author'] = {'_id': '', 'name': 'Auteur inconnu'};
+     }
+
+     // Normaliser la localisation
+     if (post['location'] is Map<String, dynamic>) {
+       post['location']['_id'] = post['location']['_id']?.toString(); // Assurer string ou null
+       post['location']['name'] ??= 'Lieu associé';
+       post['location']['type'] ??= 'unknown';
+     } else {
+       post['location'] = null; // Mettre à null si pas un Map valide
+     }
+
+     return post;
+   }
+
+
+  /// Récupère les informations minimales d'un utilisateur par son ID
+  Future<Map<String, dynamic>> _fetchMinimalUserInfo(String userId) async {
+    if (!mounted) return {'_id': userId, 'name': '...', 'profilePicture': null};
+
+        final authService = provider_pkg.Provider.of<AuthService>(context, listen: false);
+    final token = await authService.getTokenInstance(forceRefresh: false);
+    final baseUrl = getBaseUrlFromUtils();
+        
+    final headers = {
+          'Content-Type': 'application/json',
+      if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+    };
 
     try {
-      // Déterminer le bon endpoint et l'écran cible en fonction du type
-      String endpoint;
-      Widget? targetScreen;
-      Map<String, dynamic>? data;
-      
-      switch (type) {
-        case 'restaurant':
-          endpoint = 'producers';
-          // Pour les restaurants, on peut naviguer directement
-          targetScreen = ProducerScreen(producerId: id);
-          break;
-        case 'leisureProducer':
-          endpoint = 'leisureProducers';
-          break;
-        case 'event':
-          endpoint = 'events';
-          break;
-        case 'wellness':
-          endpoint = 'wellnessProducers';
-          break;
-        default:
-          // Essayer avec l'API unifiée pour identifier le type
-          endpoint = 'unified';
-          break;
-      }
+      // Utiliser l'endpoint /info qui est plus léger
+      final url = Uri.parse('$baseUrl/api/users/$userId/info');
+      final response = await http.get(url, headers: headers).timeout(const Duration(seconds: 5));
 
-      // Si on n'a pas déjà construit l'écran cible (comme pour les restaurants)
-      if (targetScreen == null) {
-        // Construire l'URL et effectuer la requête
-        final url = Uri.parse('${constants.getBaseUrl()}/api/$endpoint/$id');
-        // Récupérer le token pour l'autorisation si disponible
-        final authService = provider_pkg.Provider.of<AuthService>(context, listen: false);
-        final token = await authService.getTokenInstance();
-        
-        // Préparer les en-têtes avec ou sans token
-        final headers = <String, String>{
-          'Content-Type': 'application/json',
-        };
-        
-        if (token != null && token.isNotEmpty) {
-          headers['Authorization'] = 'Bearer $token';
-        }
-        
-        final response = await http.get(url, headers: headers);
+      if (!mounted) return {'_id': userId, 'name': 'Erreur', 'profilePicture': null};
       
       if (response.statusCode == 200) {
-          // Analyser les données de réponse
-          data = json.decode(response.body);
-          
-          // Construire l'écran approprié selon le type
-          switch (type) {
-            case 'leisureProducer':
-              targetScreen = ProducerLeisureScreen(producerData: data);
-              break;
-            case 'event':
-              targetScreen = EventLeisureScreen(eventData: data);
-              break;
-            case 'wellness':
-              // Ajouter l'écran de bien-être si disponible
-              // targetScreen = WellnessScreen(wellnessData: data);
-              break;
-            default:
-              // Si le type n'est pas spécifié, essayer de déterminer par les données
-              if (data?.containsKey('category') == true && (data?['category'] == 'leisure' || data?.containsKey('events') == true)) {
-                targetScreen = ProducerLeisureScreen(producerData: data!);
-              } else if (data?.containsKey('date_debut') == true || data?.containsKey('start_date') == true) {
-                targetScreen = EventLeisureScreen(eventData: data!);
+        final data = json.decode(response.body);
+        // Retourner un map normalisé avec les clés attendues
+        return {
+          '_id': data['_id']?.toString() ?? userId,
+          'name': data['name'] ?? 'Utilisateur',
+          'profilePicture': data['profilePicture'] ?? data['avatar'], // Gérer les deux clés possibles
+        };
               } else {
-                // Par défaut, considérer comme un restaurant
-                targetScreen = ProducerScreen(producerId: id);
-              }
-              break;
-          }
-        } else {
-          print("❌ Erreur lors de la récupération des détails : ${response.statusCode} - ${response.body}");
-          // Afficher un message d'erreur à l'utilisateur
-          if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text("Impossible de charger les détails. Erreur ${response.statusCode}"))
-            );
-          }
-          return;
-        }
-      }
-      
-      // Naviguer vers l'écran cible si disponible
-      if (mounted && targetScreen != null) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => targetScreen!),
-        );
+        print('❌ Erreur récupération info utilisateur ($userId): ${response.statusCode}');
+        return {'_id': userId, 'name': 'Erreur ${response.statusCode}', 'profilePicture': null};
       }
     } catch (e) {
-      print("❌ Erreur réseau : $e");
-      if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Erreur de connexion : $e"))
-        );
-      }
+      print('❌ Exception récupération info utilisateur ($userId): $e');
+       if (!mounted) return {'_id': userId, 'name': 'Erreur réseau', 'profilePicture': null};
+      return {'_id': userId, 'name': 'Erreur réseau', 'profilePicture': null};
     }
   }
 
-  Future<void> _startConversation(String recipientId) async {
-    // Vérifier si l'ID de l'utilisateur est le même que celui du destinataire
-    if (widget.userId == recipientId) {
-      print('Les IDs sont identiques ! Impossible de commencer une conversation.');
-      return; // Retourner si l'ID de l'utilisateur et du destinataire sont identiques
+    /// Récupère les détails d'un ensemble de lieux (restaurants, events, etc.)
+    Future<Map<String, dynamic>> _fetchPlaceDetails(List<String> placeIds) async {
+       if (!mounted) return {};
+       if (placeIds.isEmpty) return {};
+
+       // Filtrer les IDs invalides
+       List<String> validPlaceIds = placeIds
+           .where((id) => id.isNotEmpty && mongoose.isValidObjectId(id))
+           .toList();
+       if (validPlaceIds.isEmpty) return {};
+
+       print("🔄 Fetching details for ${validPlaceIds.length} places...");
+
+       Map<String, dynamic> results = {};
+       final authService = provider_pkg.Provider.of<AuthService>(context, listen: false);
+       final token = await authService.getTokenInstance();
+       final headers = <String, String>{'Content-Type': 'application/json'};
+       if (token != null && token.isNotEmpty) {
+          headers['Authorization'] = 'Bearer $token';
+       }
+       final baseUrl = getBaseUrlFromUtils();
+
+       // TODO: Utiliser un endpoint batch /api/unified/batch?ids=id1,id2,... si disponible
+
+       // Fallback: appels individuels
+       for (String placeId in validPlaceIds) {
+         try {
+           final url = Uri.parse('$baseUrl/api/unified/$placeId'); // Utiliser l'API unifiée
+           final response = await http.get(url, headers: headers).timeout(const Duration(seconds: 5));
+           if (response.statusCode == 200) {
+             results[placeId] = json.decode(response.body);
+           } else {
+             print("❓ Détails non trouvés ou erreur pour $placeId (${response.statusCode})");
+             results[placeId] = {'_id': placeId, 'name': 'Détails indisponibles', 'error': true};
+      }
+    } catch (e) {
+           print("⚠️ Erreur fetch détails pour $placeId: $e");
+           results[placeId] = {'_id': placeId, 'name': 'Erreur réseau', 'error': true};
+         }
+         // Petite pause pour éviter de surcharger le serveur (si appels individuels)
+         await Future.delayed(const Duration(milliseconds: 50));
+          if (!mounted) return results; // Arrêter si le widget est démonté
+       }
+
+       print("✅ Fin fetchPlaceDetails.");
+       return results;
     }
 
-    try {
-      // Obtenir l'ID de l'utilisateur et du destinataire
-      final senderId = widget.userId;
-      // Nous utilisons directement recipientId qui est déjà un paramètre
-      // final recipientId = user['_id'].toString();
 
-      // Créer une nouvelle conversation
-      try {
-        final url = Uri.parse('${constants.getBaseUrl()}/api/conversations/check-or-create');
-        final response = await http.post(
-          url,
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: json.encode({
-            'participants': [senderId, recipientId],
-          }),
+  // ---------------------------------------------------------------------------
+  // Fonctions de Navigation
+  // ---------------------------------------------------------------------------
+
+  /// Navigation vers les détails d'un producteur, événement, etc.
+  Future<void> _navigateToDetails(String targetId, String targetType) async {
+     if (!mounted) return;
+     print('➡️ Navigating to details: ID=$targetId, Type=$targetType');
+
+     // Valider l'ID
+     if (!mongoose.isValidObjectId(targetId)) {
+        print("❌ ID cible invalide: $targetId");
+        ScaffoldMessenger.of(context).showSnackBar(
+           const SnackBar(content: Text("Impossible d'ouvrir les détails (ID invalide)."))
         );
+        return;
+     }
 
-        if (response.statusCode == 201) {
-          final data = json.decode(response.body);
-          final conversationId = data['conversationId'];
-          print('Conversation commencée avec succès, ID : $conversationId');
+     Widget? targetScreen;
 
-          // Navigation vers l'écran de messagerie avec la conversation
+     // Déterminer l'écran cible en fonction du type
+     // Note: On pourrait aussi récupérer les détails ici et ensuite choisir l'écran,
+     // mais pour l'instant on se base sur le type fourni.
+     switch (targetType.toLowerCase()) {
+       case 'restaurant':
+       case 'producer': // Accepter les deux termes
+         targetScreen = ProducerScreen(producerId: targetId);
+         break;
+       case 'leisureproducer':
+       case 'leisure': // Accepter les deux termes
+         // ProducerLeisureScreen attend les données, il faudrait les fetcher ici
+         // ou modifier ProducerLeisureScreen pour accepter seulement l'ID.
+         // Pour l'instant, on navigue vers le ProducerScreen générique.
+          print("ℹ️ Navigation vers ProducerScreen (ID seulement) pour leisureProducer $targetId");
+          targetScreen = ProducerScreen(producerId: targetId);
+         // TODO: Remplacer par: targetScreen = ProducerLeisureScreen(producerId: targetId);
+         break;
+       case 'event':
+         // EventLeisureScreen attend les données.
+         // Pour l'instant, on navigue vers ProducerScreen.
+          print("ℹ️ Navigation vers ProducerScreen (ID seulement) pour event $targetId");
+         targetScreen = ProducerScreen(producerId: targetId);
+         // TODO: Remplacer par: targetScreen = EventLeisureScreen(eventId: targetId);
+         break;
+       case 'wellness':
+          print("ℹ️ Navigation vers ProducerScreen (ID seulement) pour wellness $targetId");
+          targetScreen = ProducerScreen(producerId: targetId);
+          // TODO: Créer et utiliser WellnessScreen(wellnessId: targetId);
+         break;
+       default:
+         print("❓ Type de cible inconnu '$targetType' pour $targetId. Tentative ProducerScreen.");
+         targetScreen = ProducerScreen(producerId: targetId);
+     }
+
+     // Naviguer si un écran a été déterminé
+     if (targetScreen != null && mounted) {
           Navigator.push(
             context,
-            MaterialPageRoute(
-              builder: (context) => MessagingScreen(
-                userId: widget.userId,
-              ),
-            ),
-          );
-        } else {
-          print('Erreur lors de la création de la conversation : ${response.body}');
-        }
-      } catch (e) {
-        print('Erreur réseau : $e');
-      }
-    } catch (e) {
-      print('Erreur réseau : $e');
-    }
+         MaterialPageRoute(builder: (context) => targetScreen!),
+       );
+     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return DefaultTabController(
-      length: 3, // Trois onglets : Posts, Interests, Choices
-      child: Scaffold(
-        backgroundColor: Colors.grey[100], // Fond légèrement plus clair
-        body: FutureBuilder<Map<String, dynamic>>(
-          future: _userFuture,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            } else if (snapshot.hasError) {
-              return Center(child: Text('Erreur : ${snapshot.error}'));
-            }
+  /// Navigation vers l'écran de détail d'un post
+  void _navigateToPostDetail(Map<String, dynamic> post) {
+     if (!mounted) return;
+     final postId = post['_id']?.toString();
+     if (postId == null) {
+        print("❌ ID de post manquant, impossible de naviguer.");
+        return;
+     }
 
-            final user = snapshot.data!;
+     Navigator.push(
+       context,
+       MaterialPageRoute(
+         builder: (context) => PostDetailScreen(
+           // Correction: Passer postId au lieu de l'objet post complet (Hypothèse)
+           postId: postId,
+           userId: widget.userId // ID de l'utilisateur dont on voit le profil
+         ),
+       ),
+     ).then((_) {
+        // Optionnel: Rafraîchir les posts après retour de PostDetailScreen?
+        // _fetchData();
+     });
+  }
 
-            return NestedScrollView(
-              headerSliverBuilder: (context, innerBoxIsScrolled) {
-                return [
-                  // AppBar avec profil et actions
-                  SliverAppBar(
-                    expandedHeight: 200.0,
-                    floating: false,
-                    pinned: true,
-                    backgroundColor: Colors.teal,
-                    flexibleSpace: FlexibleSpaceBar(
-                      background: Container(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              Colors.teal.shade800,
-                              Colors.teal.shade500,
-                            ],
-                          ),
-                        ),
-                        child: Stack(
-                          children: [
-                            // Background effet with local fallback
-                            Positioned.fill(
-                              child: Opacity(
-                                opacity: 0.1,
-                                child: user['photo_url'] != null && user['photo_url'].toString().isNotEmpty
-                                  ? Image.network(
-                                      user['photo_url'],
-                                      fit: BoxFit.cover,
-                                      errorBuilder: (context, error, stackTrace) => Container(
-                                        color: Colors.teal.shade200,
-                                      ),
-                                    )
-                                  : Container(
-                                      color: Colors.teal.shade200,
-                                    ),
-                              ),
-                            ),
-                            // Contenu du header
-                            Padding(
-                              padding: const EdgeInsets.fromLTRB(20, 70, 20, 20),
-                              child: Row(
-                                children: [
-                                  // Photo de profil
-                                  Container(
-                                    width: 80,
-                                    height: 80,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      border: Border.all(color: Colors.white, width: 3),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Colors.black.withOpacity(0.2),
-                                          blurRadius: 8,
-                                          offset: const Offset(0, 3),
-                                        ),
-                                      ],
-                                    ),
-                                    child: ClipRRect(
-                                      borderRadius: BorderRadius.circular(40),
-                                      child: user['photo_url'] != null && user['photo_url'].toString().isNotEmpty
-                                        ? CachedNetworkImage(
-                                            imageUrl: user['photo_url'],
-                                            fit: BoxFit.cover,
-                                            placeholder: (context, url) => Container(
-                                              color: Colors.grey[300],
-                                              child: const Center(child: CircularProgressIndicator()),
-                                            ),
-                                            errorWidget: (context, url, error) => Container(
-                                              color: Colors.grey[300],
-                                              child: const Icon(Icons.person, size: 40, color: Colors.white),
-                                            ),
-                                          )
-                                        : Container(
-                                            color: Colors.grey[300],
-                                            child: const Icon(Icons.person, size: 40, color: Colors.white),
-                                          ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 20),
-                                  // Info utilisateur
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Text(
-                                          user['name'] ?? 'Nom non spécifié',
-                                          style: const TextStyle(
-                                            fontSize: 22,
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.white,
-                                            shadows: [
-                                              Shadow(
-                                                offset: Offset(0, 1),
-                                                blurRadius: 3,
-                                                color: Colors.black26,
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          user['bio'] ?? 'Bio non spécifiée',
-                                          style: const TextStyle(
-                                            fontSize: 14,
-                                            color: Colors.white,
-                                            fontWeight: FontWeight.w300,
-                                          ),
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-  actions: [
-    IconButton(
-      icon: const Icon(Icons.edit, color: Colors.white),
-      onPressed: () {
-        // Modifier le profil (à implémenter)
+  /// Navigation vers l'écran de détail d'un Choice
+  void _navigateToChoiceDetail(Map<String, dynamic> choiceData, Map<String, dynamic>? placeDetails) {
+     if (!mounted) return;
+     // Vérifier si choiceData est valide (au cas où)
+     if (choiceData['_id'] == null) {
+        print("❌ Données de choice invalides pour la navigation détail.");
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Édition de profil à venir')),
+           const SnackBar(content: Text("Impossible d'ouvrir les détails du choice."))
         );
-      },
-    ),
-    IconButton(
-      icon: const Icon(Icons.add_a_photo, color: Colors.white),
-      onPressed: () {
-        // Naviguer vers la page de création de post
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => CreatePostScreen(userId: widget.userId),
+        return;
+     }
+     
+     Navigator.push(
+            context,
+        MaterialPageRoute(
+          builder: (context) => ChoiceDetailScreen(
+             choiceData: choiceData,     // Passer les données complètes du choice
+             placeDetails: placeDetails, // Passer les détails du lieu déjà récupérés
           ),
-        );
-      },
-    ),
-    IconButton(
-      icon: const Icon(Icons.menu, color: Colors.white),
-      onPressed: () {
-        // Afficher le menu hamburger
-        showModalBottomSheet(
-          context: context,
-          isScrollControlled: true,
-          backgroundColor: Colors.transparent,
-          builder: (context) {
-            return Container(
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.only(
-                  topLeft: Radius.circular(20),
-                  topRight: Radius.circular(20),
-                ),
-              ),
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 40,
-                    height: 4,
-                    margin: const EdgeInsets.only(bottom: 20),
-                    decoration: BoxDecoration(
-                      color: Colors.grey[300],
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  const Text(
-                    'Menu',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  _buildMenuOption(
-                    icon: Icons.bookmark,
-                    text: 'Publications sauvegardées',
-                    onTap: () {
-                      Navigator.pop(context);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Publications sauvegardées à venir')),
-                      );
-                    },
-                  ),
-                  _buildMenuOption(
-                    icon: Icons.dark_mode,
-                    text: 'Mode sombre',
-                    isToggle: true,
-                    onTap: () {
-                      Navigator.pop(context);
-                      // Toggle theme logic
-                      // Cela devrait être connecté à votre système de thème
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Basculement du thème')),
-                      );
-                    },
-                  ),
-                  _buildMenuOption(
-                    icon: Icons.block,
-                    text: 'Profils bloqués',
-                    onTap: () {
-                      Navigator.pop(context);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Profils bloqués à venir')),
-                      );
-                    },
-                  ),
-                  _buildMenuOption(
-                    icon: Icons.logout,
-                    text: 'Déconnexion',
-                    color: Colors.red,
-                    onTap: () async {
-                      Navigator.pop(context);
-                      // Déconnecter l'utilisateur via AuthService
-                      await AuthService().logout();
-                      // Forcer la navigation vers la page d'accueil en effaçant la pile de navigation
-                      if (context.mounted) {
-                        Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
-                      }
-                    },
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    ),
-  ],
-                  ),
-                  
-                  // Stats et tags
-                  SliverToBoxAdapter(
-                    child: Container(
-                      color: Colors.white,
-                      child: Column(
-                        children: [
-                          _buildStatsSection(user),
-                          const Divider(height: 1),
-                          _buildLikedTags(user),
-                        ],
-                      ),
-                    ),
-                  ),
-                  
-                  // TabBar
-                  SliverPersistentHeader(
-                    delegate: _SliverAppBarDelegate(
-                      TabBar(
-                        tabs: const [
-                          Tab(text: 'POSTS', icon: Icon(Icons.article_outlined, size: 20)),
-                          Tab(text: 'CHOICES', icon: Icon(Icons.check_circle_outline, size: 20)),
-                          Tab(text: 'INTÉRÊTS', icon: Icon(Icons.favorite_border, size: 20)),
-                        ],
-                        labelColor: Colors.teal,
-                        unselectedLabelColor: Colors.grey,
-                        indicatorColor: Colors.teal,
-                        indicatorWeight: 3,
-                      ),
-                    ),
-                    pinned: true,
-                  ),
-                ];
-              },
-              body: TabBarView(
-                children: [
-                  // Section Posts
-                  _buildPostsSection(),
-                  
-                  // Section Choices
-                  _buildChoicesSection(user),
-                  
-                  // Section Interests
-                  _buildInterestsSection(user),
-                ],
-              ),
-            );
-          },
-      ),
-      floatingActionButton: FloatingActionButton(
-          onPressed: () {
-            // Ouvrir la page de création de Choice avec le logo amélioré
-            showModalBottomSheet(
-              context: context,
-              isScrollControlled: true,
-              backgroundColor: Colors.transparent,
-              useSafeArea: true,
-              isDismissible: true,
-              enableDrag: true,
-              builder: (BuildContext dialogContext) {
-                return FractionallySizedBox(
-                  heightFactor: 0.95,
-                  child: Container(
-                    decoration: const BoxDecoration(
-                      color: Colors.white,
-                borderRadius: BorderRadius.only(
-                  topLeft: Radius.circular(20),
-                  topRight: Radius.circular(20),
-                ),
-                ),
-                child: SafeArea(
-                      child: CreatePostScreen(userId: widget.userId),
-                ),
-              ),
-                );
-              },
-            );
-          },
-          backgroundColor: Colors.teal,
-          child: const Icon(Icons.check, size: 30), // Logo Choice (check mark)
-          tooltip: "Déposez votre choice",
-        ),
       ),
     );
   }
 
-  // Removed duplicate _SliverAppBarDelegate class
-
-  Widget _buildStatsSection(Map<String, dynamic> user) {
-    final followers = user['followers'] ?? [];
-    final following = user['following'] ?? [];
-    final postsCount = user['posts']?.length ?? 0;
-    final choices = user['choices'] ?? [];
-
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-          _buildStatButton(
-            context,
-            icon: Icons.people,
-            label: 'Abonnés',
-            count: followers.length,
-            onTap: () => _showUserListModal(context, followers, 'Abonnés'),
-          ),
-          _verticalDivider(),
-          _buildStatButton(
-            context,
-            icon: Icons.person_add_alt_1,
-            label: 'Abonnements',
-            count: following.length,
-            onTap: () => _showUserListModal(context, following, 'Abonnements'),
-          ),
-          _verticalDivider(),
-          _buildStatButton(
-            context,
-            icon: Icons.article_outlined,
-            label: 'Posts',
-            count: postsCount,
-            onTap: null,
-          ),
-          _verticalDivider(),
-          _buildStatButton(
-            context,
-            icon: Icons.check_circle_outline,
-            label: 'Choices',
-            count: choices.length,
-            onTap: () => _showChoicesModal(context, choices),
-          ),
-        ],
-      ),
-    );
+  // --- AJOUT: Fonction manquante ---
+  void _startConversation(String targetUserId) {
+    if (!mounted) return;
+    print("TODO: Implement start conversation with user $targetUserId");
+    // Exemple de navigation (à adapter)
+    // Navigator.push(context, MaterialPageRoute(builder: (context) => MessagingScreen(targetUserId: targetUserId)));
+     ScaffoldMessenger.of(context).showSnackBar(
+       const SnackBar(content: Text('Fonctionnalite de messagerie a implementer.')),
+     );
   }
 
-  Widget _verticalDivider() {
-    return Container(
-      height: 40,
-      width: 1,
-      color: Colors.grey[300],
-    );
-  }
+  // ---------------------------------------------------------------------------
+  // Fonctions d'affichage des Modals (BottomSheet)
+  // ---------------------------------------------------------------------------
 
-  Widget _buildStatButton(BuildContext context, {required IconData icon, required String label, required int count, VoidCallback? onTap}) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              child: Column(
-                children: [
-            Icon(icon, color: Colors.teal, size: 22),
-            const SizedBox(height: 2),
-            Text(
-              count.toString(),
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Colors.teal,
-              ),
-            ),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey[700],
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+   /// Affiche la liste des utilisateurs (abonnés/abonnements)
+   void _showUserListModal(BuildContext context, List<String> userIds, String title) {
+       if (!mounted) return;
+       if (userIds.isEmpty) {
+         ScaffoldMessenger.of(context).showSnackBar(
+           SnackBar(content: Text('Liste "$title" vide.')),
+         );
+         return;
+       }
 
-  void _showUserListModal(BuildContext context, List<dynamic> users, String title) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -898,7 +515,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> with AutomaticKeepAli
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) => DraggableScrollableSheet(
+         builder: (modalContext) => DraggableScrollableSheet(
         initialChildSize: 0.7,
         minChildSize: 0.5,
         maxChildSize: 0.9,
@@ -912,30 +529,64 @@ class _MyProfileScreenState extends State<MyProfileScreen> with AutomaticKeepAli
                 style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
               ),
             ),
+               const Divider(height: 1),
             Expanded(
               child: ListView.builder(
                 controller: scrollController,
-                itemCount: users.length,
+                   itemCount: userIds.length,
                 itemBuilder: (context, index) {
-                  final user = users[index];
-                  return ListTile(
-                    leading: CircleAvatar(
-                          backgroundImage: user['photo_url'] != null && user['photo_url'].toString().isNotEmpty
-                              ? NetworkImage(user['photo_url'])
+                     final userId = userIds[index];
+                     // Utiliser FutureBuilder pour charger les infos de chaque user
+                     return FutureBuilder<Map<String, dynamic>>(
+                       future: _fetchMinimalUserInfo(userId),
+                       builder: (context, snapshot) {
+                         Widget leadingWidget = CircleAvatar(backgroundColor: Colors.grey[300]);
+                         Widget titleWidget = Container(height: 10, width: 100, color: Colors.grey[300]);
+                         Widget? subtitleWidget = Container(height: 8, width: 60, color: Colors.grey[200]);
+                         VoidCallback? onTapAction = null;
+
+                         if (snapshot.connectionState == ConnectionState.done) {
+                           if (snapshot.hasError || !snapshot.hasData || snapshot.data == null) {
+                             leadingWidget = const CircleAvatar(child: Icon(Icons.error_outline, color: Colors.red));
+                             titleWidget = Text('Erreur chargement');
+                             subtitleWidget = Text('ID: $userId', style: TextStyle(fontSize: 10, color: Colors.red));
+                           } else {
+                             final userInfo = snapshot.data!;
+                             final profilePic = userInfo['profilePicture'];
+                             final userName = userInfo['name'] ?? 'Utilisateur inconnu';
+                             leadingWidget = CircleAvatar(
+                               backgroundColor: Colors.grey[200],
+                               backgroundImage: (profilePic != null && profilePic is String && profilePic.isNotEmpty)
+                                   ? CachedNetworkImageProvider(profilePic) // Utiliser CachedNetwork
                               : null,
-                          child: user['photo_url'] == null || user['photo_url'].toString().isEmpty
+                               child: (profilePic == null || !(profilePic is String) || profilePic.isEmpty)
                           ? const Icon(Icons.person, color: Colors.grey)
                               : null,
-                        ),
-                    title: Text(user['name'] ?? 'Utilisateur'),
-                    onTap: () {
-                      Navigator.pop(context);
-                      // Navigation vers le profil utilisateur
+                             );
+                             titleWidget = Text(userName);
+                             subtitleWidget = null; // Pas de sous-titre par défaut
+                             onTapAction = () {
+                               Navigator.pop(modalContext); // Fermer la modale
+                               // Naviguer vers le profil seulement si ce n'est pas le profil actuel
+                               if (userId != widget.userId) {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (context) => MyProfileScreen(userId: user['_id'], isCurrentUser: false),
-                        ),
+                                     builder: (context) => MyProfileScreen(userId: userId, isCurrentUser: false),
+                                   ),
+                                 );
+                               } else {
+                                 print("ℹ️ Clic sur l'utilisateur courant dans la liste.");
+                               }
+                             };
+                           }
+                         }
+
+                         return ListTile(
+                           leading: leadingWidget,
+                           title: titleWidget,
+                           subtitle: subtitleWidget,
+                           onTap: onTapAction,
                       );
                     },
                   );
@@ -948,7 +599,10 @@ class _MyProfileScreenState extends State<MyProfileScreen> with AutomaticKeepAli
     );
   }
 
+    /// Affiche la liste des choices de l'utilisateur
   void _showChoicesModal(BuildContext context, List<dynamic> choices) {
+        if (!mounted) return;
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -956,7 +610,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> with AutomaticKeepAli
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) => DraggableScrollableSheet(
+          builder: (modalContext) => DraggableScrollableSheet(
         initialChildSize: 0.7,
         minChildSize: 0.5,
         maxChildSize: 0.9,
@@ -970,23 +624,53 @@ class _MyProfileScreenState extends State<MyProfileScreen> with AutomaticKeepAli
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
               ),
             ),
+                 const Divider(height: 1),
             Expanded(
-              child: ListView.builder(
+                  child: choices.isEmpty
+                   ? const Center(child: Text("Aucun choice pour l'instant."))
+                   : ListView.builder(
                 controller: scrollController,
                 itemCount: choices.length,
                 itemBuilder: (context, index) {
                   final choice = choices[index];
-                  return ListTile(
-                    leading: const Icon(Icons.check_circle, color: Colors.teal),
-                    title: Text(choice['targetName'] ?? 'Lieu'),
-                    subtitle: Text(choice['type'] ?? ''),
-                    onTap: () {
-                      Navigator.pop(context);
-                      // Navigation vers le détail du lieu/choice
-                      _navigateToDetails(choice['targetId'].toString(), choice['type'] ?? 'restaurant');
-                    },
-                  );
-                },
+                        // Valider et extraire les données du choice
+                        if (choice is Map<String, dynamic> &&
+                            choice.containsKey('targetId') &&
+                            choice.containsKey('targetName') &&
+                            mongoose.isValidObjectId(choice['targetId']?.toString()))
+                        {
+                           final String targetId = choice['targetId'].toString();
+                           final String targetName = choice['targetName'].toString();
+                           final String targetType = choice['targetType']?.toString() ?? 'unknown';
+
+                           // Déterminer l'icône en fonction du type
+                           IconData icon = Icons.place;
+                           switch (targetType.toLowerCase()) {
+                              case 'restaurant': case 'producer': icon = Icons.restaurant; break;
+                              case 'event': icon = Icons.event; break;
+                              case 'leisureproducer': case 'leisure': icon = Icons.museum; break;
+                              case 'wellness': icon = Icons.spa; break;
+                           }
+
+                           return ListTile(
+                             leading: Icon(icon, color: Colors.teal),
+                             title: Text(targetName),
+                             subtitle: Text(targetType != 'unknown' ? 'Type: $targetType' : 'Type inconnu'),
+                             trailing: const Icon(Icons.chevron_right),
+                             onTap: () {
+                               Navigator.pop(modalContext); // Fermer la modale
+                               _navigateToDetails(targetId, targetType);
+                             },
+                           );
+                        } else {
+                          // Afficher une tuile d'erreur si les données sont invalides
+                          return ListTile(
+                            leading: Icon(Icons.error, color: Colors.red),
+                            title: Text('Donnée Choice invalide #$index'),
+                            subtitle: Text(choice.toString()),
+                          );
+                        }
+                      },
               ),
             ),
           ],
@@ -995,515 +679,400 @@ class _MyProfileScreenState extends State<MyProfileScreen> with AutomaticKeepAli
     );
   }
 
-  Widget _buildLikedTags(Map<String, dynamic> user) {
-    final tags = user['liked_tags'] ?? [];
-    return Container(
-      color: Colors.white,
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-                    children: [
-              Icon(Icons.label, size: 18, color: Colors.teal.shade700),
-              const SizedBox(width: 8),
-              Text(
-                'Centres d\'intérêt',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.teal.shade700,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: tags.map<Widget>((tag) {
-              return Chip(
-                label: Text(tag),
-                backgroundColor: Colors.teal.withOpacity(0.1),
-                labelStyle: TextStyle(color: Colors.teal.shade700, fontSize: 13),
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                  side: BorderSide(color: Colors.teal.withOpacity(0.2)),
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: 2),
-              );
-            }).toList(),
-          ),
-        ],
-      ),
-    );
-  }
-  Widget _buildPostsSection() {
-    return FutureBuilder<List<dynamic>>(
-      future: _postsFuture,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        } else if (snapshot.hasError) {
-          return Center(child: Text('Erreur : ${snapshot.error}'));
-        }
+   /// Affiche la modal pour ajouter un commentaire
+   void _showCommentsBottomSheet(BuildContext context, String postId) async {
+     if (!mounted) return;
 
-        final posts = snapshot.data ?? [];
-        if (posts.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.post_add, size: 60, color: Colors.grey[400]),
-                const SizedBox(height: 16),
-                Text(
-                  'Aucune publication',
-                  style: TextStyle(
-                    fontSize: 18,
-                    color: Colors.grey[600],
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                ElevatedButton.icon(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => CreatePostScreen(userId: widget.userId),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.add),
-                  label: const Text('Créer un post'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.teal,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                  ),
-                ),
-              ],
-      ),
-    );
-  }
+     // Afficher un indicateur de chargement pendant la récupération des commentaires
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Chargement des commentaires...'), duration: Duration(seconds: 1)));
 
-        return ListView.builder(
-          padding: const EdgeInsets.all(8),
-          itemCount: posts.length,
-          itemBuilder: (context, index) {
-            final post = posts[index];
-            return _buildPostCard(post);
-          },
-        );
-      },
-    );
-  }
-  Widget _buildPostCard(Map<String, dynamic> post) {
-    return GestureDetector(
-      onTap: () => _navigateToPostDetail(post),
-      child: Card(
-        margin: const EdgeInsets.only(bottom: 16),
-        elevation: 2,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-      child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Contenu du post
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-                    post['title'] ?? 'Sans titre',
-            style: const TextStyle(
-              fontWeight: FontWeight.bold,
-                      fontSize: 18,
-            ),
-          ),
-                  const SizedBox(height: 8),
-          Text(
-                    post['content'] ?? 'Aucun contenu',
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-            // Actions
-            Padding(
-              padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.thumb_up_outlined),
-                    onPressed: () {
-                      // Ajouter la logique de like ici
-                    },
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.comment_outlined),
-                    onPressed: () {
-                      // Ajouter la logique de commentaire ici
-                    },
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.star_outline),
-                    onPressed: () {
-                      // Ajouter la logique d'intérêt ici
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // Affiche les utilisateurs qui ont aimé un post
-  void _showLikesBottomSheet(BuildContext context, String postId) async {
-    try {
-      final url = Uri.parse('${constants.getBaseUrl()}/api/posts/$postId/likes');
-      final response = await http.get(url);
-      
-      if (response.statusCode == 200) {
-        final List<dynamic> likesData = json.decode(response.body);
+     try {
+       final url = Uri.parse('${constants.getBaseUrl()}/api/posts/$postId/comments');
+       final authService = provider_pkg.Provider.of<AuthService>(context, listen: false);
+       final token = await authService.getTokenInstance();
+       final headers = <String, String>{'Content-Type': 'application/json'};
+       if (token != null && token.isNotEmpty) {
+          headers['Authorization'] = 'Bearer $token';
+       }
+       final response = await http.get(url, headers: headers).timeout(const Duration(seconds: 8));
         
         if (!mounted) return;
+
+       if (response.statusCode == 200) {
+         List<dynamic> commentsData = [];
+         try {
+            final decodedBody = json.decode(response.body);
+            if (decodedBody is List) {
+               commentsData = decodedBody;
+            } else {
+                print("⚠️ Format de réponse des commentaires inattendu: pas une liste.");
+            }
+         } catch(e) {
+            print("❌ Erreur parsing commentaires: $e");
+         }
         
         showModalBottomSheet(
           context: context,
-          shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-          ),
-          builder: (context) {
-            return Container(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'Aimé par ${likesData.length} personne${likesData.length > 1 ? 's' : ''}',
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.close),
-                        onPressed: () => Navigator.pop(context),
-                      ),
-                    ],
-                  ),
-                  const Divider(),
-                  Expanded(
-                    child: likesData.isEmpty
-                      ? const Center(child: Text('Personne n\'a encore aimé ce post'))
-                      : ListView.builder(
-                          itemCount: likesData.length,
-                          itemBuilder: (context, index) {
-                            final user = likesData[index];
-                            return ListTile(
-                              leading: CircleAvatar(
-                                backgroundImage: user['photo_url'] != null
-                                  ? NetworkImage(user['photo_url'])
-                                  : null,
-                                child: user['photo_url'] == null
-                                  ? const Icon(Icons.person)
-                                  : null,
-                              ),
-                              title: Text(user['name'] ?? 'Utilisateur'),
-                              subtitle: user['bio'] != null ? Text(
-                                user['bio'],
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ) : null,
-                              onTap: () {
-                                Navigator.pop(context);
-                                // Navigation vers le profil de l'utilisateur si nécessaire
-                              },
-                            );
-                          },
-                        ),
-                  ),
-                ],
-              ),
+           isScrollControlled: true,
+           backgroundColor: Colors.transparent, // Pour coins arrondis du DraggableScrollableSheet
+           builder: (modalContext) {
+             return _CommentsBottomSheet(
+               postId: postId,
+               initialComments: commentsData.whereType<Map<String, dynamic>>().toList(),
+               currentUserId: widget.userId, // ID de l'utilisateur affiché
+               onCommentAdded: (newComment) {
+                  // Rafraîchir les données pour voir le nouveau commentaire
+                  _fetchData();
+               },
+               navigateToProfile: (userId) {
+                   Navigator.pop(modalContext); // Fermer la modale avant de naviguer
+                   if (userId != widget.userId) {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => MyProfileScreen(userId: userId, isCurrentUser: false)),
+                    );
+                  }
+               }
             );
           },
         );
       } else {
+          print("Erreur chargement commentaires: ${response.statusCode}");
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Impossible de charger les likes')),
+           SnackBar(content: Text('Impossible de charger les commentaires (${response.statusCode})')),
         );
       }
     } catch (e) {
+       print("Exception chargement commentaires: $e");
+       if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur: $e')),
-      );
-    }
-  }
+           SnackBar(content: Text('Erreur réseau commentaires: $e')),
+         );
+       }
+     }
+   }
 
-  // Affiche les commentaires d'un post
-  void _showCommentsBottomSheet(BuildContext context, String postId) async {
-    try {
-      final url = Uri.parse('${constants.getBaseUrl()}/api/posts/$postId/comments');
-      final response = await http.get(url);
-      
-      if (response.statusCode == 200) {
-        final List<dynamic> commentsData = json.decode(response.body);
-        
-        if (!mounted) return;
+    /// Affiche la modal pour ajouter un Choice à un post
+    void _showChoiceDialog(BuildContext context, Map<String, dynamic> post) {
+      if (!mounted) return;
+
+      final location = post['location'];
+      if (location == null || location is! Map || !mongoose.isValidObjectId(location['_id']?.toString())) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          // Correction: Utiliser des guillemets doubles
+          const SnackBar(content: Text("Ce post n'est pas associe a un lieu valide pour ajouter un Choice.")),
+        );
+        return;
+      }
+
+      final String locationId = location['_id'].toString();
+      final String locationType = location['type']?.toString() ?? 'unknown';
+      final String locationName = location['name']?.toString() ?? 'Lieu inconnu';
         
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-          builder: (context) {
+        backgroundColor: Colors.transparent,
+        builder: (dialogContext) {
             return DraggableScrollableSheet(
-              initialChildSize: 0.6,
-              minChildSize: 0.4,
-        maxChildSize: 0.9,
+            initialChildSize: 0.9,
+            minChildSize: 0.5,
+            maxChildSize: 0.95,
         expand: false,
-              builder: (context, scrollController) {
+            builder: (_, scrollController) {
                 return Container(
-              padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            '${commentsData.length} commentaire${commentsData.length > 1 ? 's' : ''}',
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.close),
-                            onPressed: () => Navigator.pop(context),
-                          ),
-                        ],
-                      ),
-                      const Divider(),
-            Expanded(
-                        child: commentsData.isEmpty
-                          ? const Center(child: Text('Aucun commentaire'))
-                          : ListView.builder(
-                controller: scrollController,
-                              itemCount: commentsData.length,
-                itemBuilder: (context, index) {
-                                final comment = commentsData[index];
-                                final user = comment['user_id'] ?? {};
-                                final content = comment['content'] ?? '';
-                                final timestamp = comment['timestamp'] != null
-                                  ? DateTime.parse(comment['timestamp'])
-                                  : null;
-                                
-                  return ListTile(
-                    leading: CircleAvatar(
-                                    backgroundImage: user['photo_url'] != null
-                                      ? NetworkImage(user['photo_url'])
-                          : null,
-                                    child: user['photo_url'] == null
-                                      ? const Icon(Icons.person)
-                          : null,
-                    ),
-                                  title: Row(
-                                    children: [
-                                      Text(
-                                        user['name'] ?? 'Utilisateur',
-                                        style: const TextStyle(fontWeight: FontWeight.bold),
-                                      ),
-                                      if (timestamp != null) ...[
-                                        const SizedBox(width: 8),
-                                        Text(
-                                          _formatTimestamp(timestamp),
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: Colors.grey[600],
-                                          ),
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                                  subtitle: Text(content),
-                                  isThreeLine: content.length > 40,
-                                );
-                              },
-                            ),
-                      ),
-                      const Divider(),
-                      // Add comment input field
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              decoration: InputDecoration(
-                                hintText: 'Ajouter un commentaire...',
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(20),
-                                  borderSide: BorderSide.none,
-                                ),
-                                filled: true,
-                                fillColor: Colors.grey[200],
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 8,
-                                ),
-                              ),
-                            ),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.send, color: Colors.teal),
-                            onPressed: () {
-                              // Ajouter un commentaire
-                      Navigator.pop(context);
-                              // Rediriger vers la page de détail du post pour commenter
-                              _navigateToPostDetail({"_id": postId});
-                            },
-                          ),
-                        ],
-                      ),
-                    ],
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.only(
+                    topLeft: Radius.circular(20),
+                    topRight: Radius.circular(20),
+                  ),
+                ),
+                child: _ChoiceForm( // Utiliser le widget _ChoiceForm
+                  locationId: locationId,
+                  locationType: locationType,
+                  locationName: locationName,
+                  currentUserId: widget.userId, // L'ID de l'utilisateur du profil affiché
+                  scrollController: scrollController,
+                  onSubmitSuccess: () {
+                      // Rafraîchir les données après succès
+                      _fetchData();
+                  },
                   ),
                 );
               },
             );
           },
         );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Impossible de charger les commentaires')),
-        );
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur: $e')),
-      );
     }
-  }
 
-  String _formatTimestamp(DateTime timestamp) {
-    final now = DateTime.now();
-    final difference = now.difference(timestamp);
-    
-    if (difference.inDays > 365) {
-      return '${(difference.inDays / 365).floor()} an${(difference.inDays / 365).floor() > 1 ? 's' : ''}';
-    } else if (difference.inDays > 30) {
-      return '${(difference.inDays / 30).floor()} mois';
-    } else if (difference.inDays > 0) {
-      return '${difference.inDays} jour${difference.inDays > 1 ? 's' : ''}';
-    } else if (difference.inHours > 0) {
-      return '${difference.inHours} heure${difference.inHours > 1 ? 's' : ''}';
-    } else if (difference.inMinutes > 0) {
-      return '${difference.inMinutes} min';
-    } else {
-      return 'à l\'instant';
-    }
-  }
 
-  // Like un post
+  // ---------------------------------------------------------------------------
+  // Fonctions d'Action (Like, etc.)
+  // ---------------------------------------------------------------------------
+
+  /// Gère le like/unlike d'un post
   Future<void> _likePost(String postId) async {
+     if (!mounted) return;
+
+     final authService = provider_pkg.Provider.of<AuthService>(context, listen: false);
+     final token = await authService.getTokenInstance();
+     // Correction: Utiliser getCurrentUserId() (Hypothèse)
+     final currentUserId = authService.userId; // ID de l'utilisateur connecté
+
+     if (token == null || currentUserId == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          // Correction: Utiliser des guillemets doubles
+          const SnackBar(content: Text("Veuillez vous reconnecter pour liker.")),
+        );
+        return;
+     }
+
+     print("🔄 Liking/Unliking post $postId by user $currentUserId...");
+
     try {
       final url = Uri.parse('${constants.getBaseUrl()}/api/posts/$postId/like');
       final response = await http.post(
         url,
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({'user_id': widget.userId}),
-      );
-      
-      if (response.statusCode == 200) {
-        // Rafraîchir les posts en utilisant _userFuture
-        _userFuture.then((userData) {
-          setState(() {
-            _postsFuture = _fetchUserPosts(userData['posts'] ?? []);
-          });
-        });
-        
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Post liké !'),
-            duration: Duration(seconds: 1),
-          ),
-        );
+         headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token'
+         },
+         // Le backend devrait utiliser l'ID du token, mais on peut l'envoyer si nécessaire
+         body: json.encode({'user_id': currentUserId}),
+       ).timeout(const Duration(seconds: 8));
+
+       if (!mounted) return;
+
+       if (response.statusCode == 200) {
+         print("✅ Like/Unlike success for post $postId");
+         // Rafraîchir les données pour mettre à jour l'UI (compteur, icône)
+         // C'est simple mais pas optimal. Idéalement, on mettrait à jour l'état local du post.
+         _fetchData();
       } else {
+         print("❌ Erreur like post $postId (${response.statusCode}): ${response.body}");
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Impossible de liker ce post')),
+           SnackBar(content: Text('Impossible de liker (${response.statusCode})')),
         );
       }
     } catch (e) {
+       print("❌ Exception like post $postId: $e");
+       if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur: $e')),
-      );
-    }
+           SnackBar(content: Text('Erreur réseau like: $e')),
+         );
+       }
+     }
+   }
+
+
+  // ---------------------------------------------------------------------------
+  // Fonctions Utilitaires
+  // ---------------------------------------------------------------------------
+
+  /// Retourne l'URL de base de l'API
+  String getBaseUrlFromUtils() {
+    return constants.getBaseUrlSync(); // Utiliser la version synchrone
   }
-  
-  Widget _buildActionButton({
+
+  /// Convertit une liste dynamique en liste de strings, filtrant les nulls
+  List<String> _ensureStringList(dynamic list) {
+    if (list == null) return <String>[];
+    if (list is List<String>) return list;
+    if (list is List) {
+      return list.where((item) => item != null).map((item) => item.toString()).toList();
+    }
+    return <String>[];
+  }
+
+  /// Retourne des données utilisateur par défaut en cas d'erreur de fetch
+  Map<String, dynamic> _getDefaultUserData(String userId) {
+    return {
+      '_id': userId,
+      'name': 'Utilisateur indisponible',
+      'bio': 'Erreur lors du chargement.',
+      'profilePicture': null,
+      'photo_url': null,
+      'followers': <String>[],
+      'following': <String>[],
+      'posts': <String>[],
+      'interests': <String>[],
+      'choices': [],
+      'liked_tags': <String>[],
+      'conversations': <String>[]
+    };
+  }
+
+  /// Formate un timestamp pour affichage (ex: '2h', '3j')
+  String _formatTimestamp(DateTime timestamp) {
+      final now = DateTime.now();
+      final difference = now.difference(timestamp);
+
+      if (difference.inSeconds < 60) return 'maintenant';
+      if (difference.inMinutes < 60) return '${difference.inMinutes}min';
+      if (difference.inHours < 24) return '${difference.inHours}h';
+      if (difference.inDays < 7) return '${difference.inDays}j';
+      // Afficher date complète si plus vieux
+      return '${timestamp.day}/${timestamp.month}/${timestamp.year % 100}';
+    }
+
+   /// Construit une option de menu pour les BottomSheets
+   Widget _buildMenuOption({
     required IconData icon,
-    required String label,
-    required VoidCallback onPressed,
+     required String text,
+     required VoidCallback onTap,
     Color? color,
-  }) {
-    return TextButton.icon(
-      onPressed: onPressed,
-      icon: Icon(icon, size: 18, color: color ?? Colors.grey[700]),
-      label: Text(
-        label,
+     bool isToggle = false,
+   }) {
+      return ListTile(
+        leading: Icon(icon, color: color ?? Colors.grey[800]),
+        title: Text(
+          text,
         style: TextStyle(
-          fontSize: 12,
-          color: color ?? Colors.grey[700],
+            color: color ?? Colors.grey[800],
+            fontWeight: FontWeight.w500,
+          ),
         ),
-      ),
-      style: TextButton.styleFrom(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        minimumSize: Size.zero,
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      ),
-    );
-  }
-  
-  void _showChoiceDialog(BuildContext context, Map<String, dynamic> post) {
-    if (post['location'] == null || post['location']['_id'] == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Ce post n\'est pas associé à un lieu')),
+        trailing: isToggle
+            ? Switch(
+                value: Theme.of(context).brightness == Brightness.dark,
+                onChanged: (_) => onTap(),
+                activeColor: Colors.teal,
+              )
+            : (color == Colors.red ? null : const Icon(Icons.chevron_right)),
+        onTap: isToggle ? null : onTap,
       );
-      return;
-    }
+   }
 
-    final String locationId = post['location']['_id'];
-    final String locationType = post['location']['type'] ?? 'unknown';
-    final String locationName = post['location']['name'] ?? 'Lieu inconnu';
 
+  // ---------------------------------------------------------------------------
+  // Build Method
+  // ---------------------------------------------------------------------------
+
+  @override
+  Widget build(BuildContext context) {
+    // Nécessaire pour AutomaticKeepAliveClientMixin
+    super.build(context);
+
+    return DefaultTabController(
+      length: 3, // Intérêts, Choices, Posts
+      child: Scaffold(
+        backgroundColor: Colors.grey[100],
+        body: FutureBuilder<Map<String, dynamic>>(
+          future: _userFuture,
+          builder: (context, userSnapshot) {
+            if (userSnapshot.connectionState == ConnectionState.waiting && !userSnapshot.hasData) {
+              // Afficher un loader simple pendant le tout premier chargement
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (userSnapshot.hasError || !userSnapshot.hasData || userSnapshot.data == null) {
+              // Afficher une erreur si le chargement initial échoue
+              print("❌ Erreur FutureBuilder _userFuture: ${userSnapshot.error}");
+              return Scaffold(
+                  appBar: AppBar(title: const Text("Erreur Profil")),
+                  body: Center(child: Text('Erreur de chargement du profil: ${userSnapshot.error ?? "Données indisponibles"}'))
+              );
+            }
+
+            // Données utilisateur disponibles
+            final user = userSnapshot.data!;
+
+            return NestedScrollView(
+              headerSliverBuilder: (context, innerBoxIsScrolled) {
+                return [
+                  // === Header ===
+                  _ProfileHeader(
+                    user: user,
+                    isCurrentUser: widget.isCurrentUser,
+                    // Passer le callback pour la navigation vers l'édition
+                    onEditProfile: () {
+                      if (widget.isCurrentUser && mounted) {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => EditProfileScreen(userId: widget.userId)),
+                        ).then((result) {
+                           // Si l'édition a réussi (retourne true), rafraîchir les données
+                           if (result == true) {
+                              print("🔄 Refreshing profile data after edit...");
+                              _fetchData();
+                           }
+                        });
+                      }
+                    },
+                    // Passer le callback pour démarrer une conversation
+                    onStartConversation: () => _startConversation(widget.userId),
+                    // Passer le callback pour le menu principal
+                    onShowMainMenu: () => _showMainMenu(context),
+                     // Passer le callback pour les options de profil externe
+                    onShowExternalProfileOptions: () => _showExternalProfileOptions(context, user),
+                  ),
+
+                  // === Stats & Tags ===
+                  SliverToBoxAdapter(
+                    child: _ProfileStats(
+                       user: user,
+                       onNavigateToDetails: _navigateToDetails,
+                       onShowUserList: _showUserListModal,
+                       onShowChoicesList: () => _showChoicesModal(context, user['choices'] ?? []),
+                    ),
+                  ),
+
+                  // === TabBar ===
+                  SliverPersistentHeader(
+                    delegate: _SliverAppBarDelegate(
+                      TabBar(
+                        tabs: const [
+                           Tab(text: 'INTÉRÊTS', icon: Icon(Icons.star_border, size: 20)),
+                           Tab(text: 'CHOICES', icon: Icon(Icons.check_circle_outline, size: 20)),
+                           Tab(text: 'POSTS', icon: Icon(Icons.article_outlined, size: 20)),
+                        ],
+                        labelColor: Colors.teal,
+                        unselectedLabelColor: Colors.grey[600],
+                        indicatorColor: Colors.teal,
+                        indicatorWeight: 3,
+                      ),
+                    ),
+                    pinned: true,
+                  ),
+                ];
+              },
+              // === Contenu des Onglets ===
+              body: FutureBuilder<List<dynamic>>(
+                  future: _postsFuture, // Utiliser le Future des posts ici
+                  builder: (context, postsSnapshot) {
+                      // Gérer l'état de chargement des posts séparément
+                      // (on peut afficher les onglets même si les posts chargent encore)
+                     return _ProfileTabs(
+                       user: user,
+                       postsFuture: _postsFuture, // Passer le future
+                       postsSnapshot: postsSnapshot, // Passer aussi le snapshot pour état chargement/erreur
+                       onNavigateToDetails: _navigateToDetails,
+                       onNavigateToPostDetail: _navigateToPostDetail,
+                       onNavigateToChoiceDetail: _navigateToChoiceDetail,
+                       userId: widget.userId,
+                       fetchPlaceDetails: _fetchPlaceDetails,
+                       likePost: _likePost, // Passer la fonction like
+                       showComments: _showCommentsBottomSheet, // Passer la fonction comments
+                       showChoiceDialog: _showChoiceDialog, // Passer la fonction choice
+                       formatTimestamp: _formatTimestamp, // Passer la fonction de formatage
+                     );
+                  },
+              ),
+            );
+          },
+        ),
+        // === Floating Action Button ===
+        floatingActionButton: widget.isCurrentUser ? FloatingActionButton(
+            onPressed: () {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setState) {
-            return DraggableScrollableSheet(
-              initialChildSize: 0.85,
-              minChildSize: 0.5,
-              maxChildSize: 0.95,
-              builder: (_, scrollController) {
-                return Container(
+                useSafeArea: true,
+                builder: (BuildContext dialogContext) {
+                  return FractionallySizedBox(
+                    heightFactor: 0.95,
+                    child: Container(
                   decoration: const BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.only(
@@ -1511,548 +1080,543 @@ class _MyProfileScreenState extends State<MyProfileScreen> with AutomaticKeepAli
                       topRight: Radius.circular(20),
                     ),
                   ),
-                  child: _buildChoiceForm(context, locationId, locationType, locationName),
+                      child: SafeArea(
+                            child: CreatePostScreen(userId: widget.userId),
+                      ),
+                    ),
                 );
               },
             );
           },
-        );
-      },
+            backgroundColor: Colors.teal,
+            child: const Icon(Icons.add, size: 30),
+            tooltip: "Créer un post ou un choice",
+          ) : null,
+      ),
     );
   }
 
-  Widget _buildChoiceForm(BuildContext context, String locationId, String locationType, String locationName) {
-    double qualiteGenerale = 5.0;
-    double interet = 5.0;
-    double originalite = 5.0;
-    String appreciationGlobale = '';
-    
-    return StatefulBuilder(
-      builder: (context, setState) {
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // En-tête
-              Row(
-                children: [
-                  CircleAvatar(
-                    backgroundColor: Colors.teal,
-                    child: Icon(
-                      locationType == 'restaurant' ? Icons.restaurant : Icons.event,
+    // --- Modals spécifiques à ce Screen State ---
+
+    /// Affiche le menu principal pour l'utilisateur courant
+    void _showMainMenu(BuildContext context) {
+        if (!mounted) return;
+        final authService = provider_pkg.Provider.of<AuthService>(context, listen: false);
+        showModalBottomSheet(
+          context: context,
+          backgroundColor: Colors.transparent,
+          builder: (modalContext) {
+            return Container(
+              decoration: const BoxDecoration(
                       color: Colors.white,
+                borderRadius: BorderRadius.only(
+                  topLeft: Radius.circular(20),
+                  topRight: Radius.circular(20),
                     ),
                   ),
-                  const SizedBox(width: 16),
-                  Expanded(
+              padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewPadding.bottom),
                     child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Text(
-                          'Ajouter un Choice',
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        Text(
-                          locationName,
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: Colors.grey[700],
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                  Container(width: 40, height: 4, margin: const EdgeInsets.symmetric(vertical: 12), decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2))),
+                  _buildMenuOption(icon: Icons.bookmark_border, text: 'Publications sauvegardees', onTap: () { Navigator.pop(modalContext); /* TODO */ }),
+                  _buildMenuOption(icon: Icons.language, text: 'Langue', onTap: () { Navigator.pop(modalContext); Navigator.push(context, MaterialPageRoute(builder: (context) => LanguageSettingsScreen())); }),
+                  // Correction: Passer le userId requis
+                  _buildMenuOption(icon: Icons.notifications_none, text: 'Notifications par email', onTap: () { Navigator.pop(modalContext); Navigator.push(context, MaterialPageRoute(builder: (context) => EmailNotificationsScreen(userId: widget.userId))); }),
+                  // _buildMenuOption(icon: Icons.dark_mode_outlined, text: 'Mode sombre', isToggle: true, onTap: () { /* TODO: Theme toggle */ }),
+                  const Divider(height: 1),
+                  _buildMenuOption(icon: Icons.block, text: 'Profils bloqués', onTap: () { Navigator.pop(modalContext); /* TODO */ }),
+                  _buildMenuOption(icon: Icons.logout, text: 'Déconnexion', color: Colors.red, onTap: () async {
+                     Navigator.pop(modalContext); // Fermer modal
+                     await authService.logout();
+                     if (mounted) {
+                       Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+                     }
+                   }),
+                  const SizedBox(height: 10),
+                ],
+              ),
+            );
+          },
+        );
+      }
+
+      /// Affiche les options pour un profil externe
+      void _showExternalProfileOptions(BuildContext context, Map<String, dynamic> targetUser) {
+         if (!mounted) return;
+         final targetUserId = targetUser['_id']?.toString() ?? '';
+         if (targetUserId.isEmpty) return;
+
+          showModalBottomSheet(
+             context: context,
+             backgroundColor: Colors.transparent,
+             builder: (modalContext) {
+                 return Container(
+                    decoration: const BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.only(topLeft: Radius.circular(20), topRight: Radius.circular(20)),
+                    ),
+                    padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewPadding.bottom),
+                     child: Column(
+                         mainAxisSize: MainAxisSize.min,
+                children: [
+                             Container(width: 40, height: 4, margin: const EdgeInsets.symmetric(vertical: 12), decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2))),
+                              _buildMenuOption(
+                                 icon: Icons.block,
+                                 text: 'Bloquer ${targetUser['name'] ?? 'cet utilisateur'}',
+                                 color: Colors.red,
+                                 onTap: () {
+                                     Navigator.pop(modalContext);
+                                     print("TODO: Bloquer utilisateur $targetUserId");
+                                     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Blocage (à implémenter)')));
+                                 },
+                             ),
+                              _buildMenuOption(
+                                 icon: Icons.report_problem_outlined,
+                                 text: 'Signaler ${targetUser['name'] ?? 'cet utilisateur'}',
+                                 color: Colors.orange,
+                                 onTap: () {
+                                     Navigator.pop(modalContext);
+                                     print("TODO: Signaler utilisateur $targetUserId");
+                                     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Signalement (à implémenter)')));
+                                 },
+                             ),
+                             const SizedBox(height: 10),
+                         ],
+                     ),
+                 );
+             },
+         );
+      }
+
+}
+
+//==============================================================================
+// WIDGET: _ProfileHeader (Stateless)
+//==============================================================================
+class _ProfileHeader extends StatelessWidget {
+  final Map<String, dynamic> user;
+  final bool isCurrentUser;
+  final VoidCallback onEditProfile;
+  final VoidCallback onStartConversation;
+  final VoidCallback onShowMainMenu;
+  final VoidCallback onShowExternalProfileOptions;
+
+
+  const _ProfileHeader({
+     Key? key,
+     required this.user,
+     required this.isCurrentUser,
+     required this.onEditProfile,
+     required this.onStartConversation,
+     required this.onShowMainMenu,
+     required this.onShowExternalProfileOptions,
+
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    final profileImageUrl = user['profilePicture'] ?? user['photo_url'];
+
+    return SliverAppBar(
+      expandedHeight: 200.0,
+      floating: false,
+      pinned: true,
+      backgroundColor: Colors.teal,
+      elevation: 1, // Légère ombre quand pinné
+      flexibleSpace: FlexibleSpaceBar(
+        background: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [ Colors.teal.shade700, Colors.teal.shade500 ],
             ),
-          ],
-        ),
-      ),
-                  IconButton(
-                    icon: const Icon(Icons.close),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                ],
-              ),
-              
-              const Divider(height: 30),
-              
-              // Qualité générale
-              const Text(
-                'Qualité générale',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Row(
+          ),
+          child: Stack(
+            fit: StackFit.expand,
                 children: [
-                  Expanded(
-                    child: Slider(
-                      value: qualiteGenerale,
-                      min: 0.0,
-                      max: 10.0,
-                      divisions: 10,
-                      activeColor: Colors.teal,
-                      label: qualiteGenerale.round().toString(),
-                      onChanged: (value) {
-                        setState(() {
-                          qualiteGenerale = value;
-                        });
-                      },
-                    ),
-                  ),
-                  Container(
-                    width: 40,
-                    alignment: Alignment.center,
-                    child: Text(
-                      qualiteGenerale.round().toString(),
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
+              // Image de fond floue
+              if (profileImageUrl != null && profileImageUrl.isNotEmpty)
+                 Positioned.fill(
+                   child: Opacity(
+                     opacity: 0.15,
+                     child: CachedNetworkImage(
+                         imageUrl: profileImageUrl,
+                         fit: BoxFit.cover,
+                         errorWidget: (ctx, url, err) => Container(color: Colors.teal.shade300),
                       ),
+                   ),
+                 ),
+              // Contenu principal du header
+              Padding(
+                 // Ajuster padding pour la status bar
+                padding: EdgeInsets.only(
+                  top: MediaQuery.of(context).padding.top + 15,
+                  left: 20,
+                  right: 20,
+                  bottom: 15
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    // Photo de profil
+                    CircleAvatar(
+                       radius: 40,
+                       backgroundColor: Colors.white.withOpacity(0.8),
+                       child: CircleAvatar(
+                         radius: 37,
+                         backgroundColor: Colors.grey[300],
+                         backgroundImage: (profileImageUrl != null && profileImageUrl.isNotEmpty)
+                              ? CachedNetworkImageProvider(profileImageUrl)
+                              : null,
+                         child: (profileImageUrl == null || profileImageUrl.isEmpty)
+                              ? const Icon(Icons.person, size: 40, color: Colors.white)
+                              : null,
+                       ),
+                     ),
+                    const SizedBox(width: 16),
+                    // Nom et bio
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center, // Centrer verticalement
+                        children: [
+                          Text(
+                            user['name'] ?? 'Nom inconnu',
+                            style: const TextStyle(
+                              fontSize: 20, // Légèrement plus petit
+                  fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                              shadows: [ Shadow(offset: Offset(0, 1), blurRadius: 2, color: Colors.black38) ],
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          if (user['bio'] != null && user['bio'].isNotEmpty)
+                             Padding(
+                               padding: const EdgeInsets.only(top: 4.0),
+                    child: Text(
+                                user['bio'],
+                      style: const TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.white70,
+                                  fontWeight: FontWeight.w300,
+                      ),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ],
               ),
-              
-              const SizedBox(height: 16),
-              
-              // Intérêt
-              const Text(
-                'Intérêt',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: Slider(
-                      value: interet,
-                      min: 0.0,
-                      max: 10.0,
-                      divisions: 10,
-                      activeColor: Colors.teal,
-                      label: interet.round().toString(),
-                      onChanged: (value) {
-                        setState(() {
-                          interet = value;
-                        });
-                      },
                     ),
-                  ),
-                  Container(
-                    width: 40,
-                    alignment: Alignment.center,
-                    child: Text(
-                      interet.round().toString(),
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              
-              const SizedBox(height: 16),
-              
-              // Originalité
-              const Text(
-                'Originalité',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: Slider(
-                      value: originalite,
-                      min: 0.0,
-                      max: 10.0,
-                      divisions: 10,
-                      activeColor: Colors.teal,
-                      label: originalite.round().toString(),
-                      onChanged: (value) {
-                        setState(() {
-                          originalite = value;
-                        });
-                      },
-                    ),
-                  ),
-                  Container(
-                    width: 40,
-                    alignment: Alignment.center,
-                    child: Text(
-                      originalite.round().toString(),
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              
-              const SizedBox(height: 20),
-              
-              // Appréciation globale
-              const Text(
-                'Appréciation globale',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                maxLines: 3,
-                decoration: InputDecoration(
-                  hintText: 'Partagez votre expérience...',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: Colors.grey.shade300),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: Colors.teal, width: 2),
-                  ),
-                ),
-                onChanged: (value) {
-                  appreciationGlobale = value;
-                },
-              ),
-              
-              const SizedBox(height: 30),
-              
-              // Bouton de soumission
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () {
-                    // Soumettre le Choice
-                    _submitChoice(
-                      context,
-                      locationId,
-                      locationType,
-                      qualiteGenerale.round(),
-                      interet.round(),
-                      originalite.round(),
-                      appreciationGlobale,
-                    );
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.teal,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                  ),
-                  child: const Text(
-                    'SOUMETTRE MON CHOICE',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
+                  ],
                 ),
               ),
             ],
           ),
-        );
-      },
+        ),
+      ),
+      actions: isCurrentUser
+       ? [ // Actions pour profil courant
+            IconButton(icon: const Icon(Icons.edit_outlined, color: Colors.white), tooltip: "Modifier", onPressed: onEditProfile),
+            IconButton(icon: const Icon(Icons.menu, color: Colors.white), tooltip: "Menu", onPressed: onShowMainMenu),
+         ]
+       : [ // Actions pour profil externe
+            // TODO: Ajouter un bouton Follow/Unfollow ici (nécessite état)
+            // Exemple: FollowButton(targetUserId: user['_id'], ...)
+            IconButton(icon: const Icon(Icons.message_outlined, color: Colors.white), tooltip: "Message", onPressed: onStartConversation),
+            IconButton(icon: const Icon(Icons.more_vert, color: Colors.white), tooltip: "Options", onPressed: onShowExternalProfileOptions),
+         ],
     );
   }
+}
 
-  Future<void> _submitChoice(
-    BuildContext context,
-    String locationId,
-    String locationType,
-    int qualiteGenerale,
-    int interet,
-    int originalite,
-    String appreciationGlobale,
-  ) async {
-    try {
-      final url = Uri.parse('${constants.getBaseUrl()}/api/choices');
-      
-      final payload = {
-        'userId': widget.userId,
-        'targetId': locationId,
-        'targetType': locationType,
-        'aspects': {
-          'qualité générale': qualiteGenerale,
-          'intérêt': interet,
-          'originalité': originalite,
-        },
-        'appréciation_globale': appreciationGlobale,
-      };
-      
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode(payload),
-      );
-      
-      if (response.statusCode == 201) {
-        Navigator.pop(context);
-    ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Votre Choice a été ajouté avec succès!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      } else {
-        throw Exception('Failed to submit choice: ${response.body}');
+
+//==============================================================================
+// WIDGET: _ProfileStats (Stateless)
+//==============================================================================
+class _ProfileStats extends StatelessWidget {
+   final Map<String, dynamic> user;
+   final Function(String, String) onNavigateToDetails;
+   final Function(BuildContext, List<String>, String) onShowUserList;
+   final VoidCallback onShowChoicesList;
+
+   const _ProfileStats({
+     Key? key,
+     required this.user,
+     required this.onNavigateToDetails,
+     required this.onShowUserList,
+     required this.onShowChoicesList,
+   }) : super(key: key);
+
+    // Copié ici pour être autonome
+    List<String> _ensureStringList(dynamic list) {
+      if (list == null) return <String>[];
+      if (list is List<String>) return list;
+      if (list is List) {
+        return list.where((item) => item != null).map((item) => item.toString()).toList();
       }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Erreur: $e'),
-          backgroundColor: Colors.red,
+      return <String>[];
+    }
+
+   @override
+   Widget build(BuildContext context) {
+     final followersIds = _ensureStringList(user['followers']);
+     final followingIds = _ensureStringList(user['following']);
+     final postsIds = _ensureStringList(user['posts']);
+     final choices = (user['choices'] is List) ? user['choices'] : [];
+     final likedTags = _ensureStringList(user['liked_tags']);
+
+     return Container(
+       color: Colors.white,
+       padding: const EdgeInsets.symmetric(vertical: 16), // Pas de padding H ici
+       child: Column(
+          children: [
+             Row(
+               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+               children: [
+                 _buildStatButton(context, icon: Icons.people_outline, label: 'Abonnés', count: followersIds.length, onTap: () => onShowUserList(context, followersIds, 'Abonnés')),
+                 _verticalDivider(),
+                 _buildStatButton(context, icon: Icons.person_outline, label: 'Abonnements', count: followingIds.length, onTap: () => onShowUserList(context, followingIds, 'Abonnements')),
+                 _verticalDivider(),
+                 _buildStatButton(context, icon: Icons.article_outlined, label: 'Posts', count: postsIds.length, onTap: null),
+                 _verticalDivider(),
+                 _buildStatButton(context, icon: Icons.check_circle_outline, label: 'Choices', count: choices.length, onTap: onShowChoicesList),
+               ],
+             ),
+             // Afficher les tags si présents
+             if (likedTags.isNotEmpty) ...[
+                 const SizedBox(height: 16),
+                 const Divider(height: 1, indent: 20, endIndent: 20),
+                 const SizedBox(height: 12),
+                 _buildLikedTagsSection(context, likedTags),
+                 const SizedBox(height: 4),
+             ]
+          ],
+       ),
+     );
+   }
+
+   // Widget interne pour un bouton de stat
+   Widget _buildStatButton(BuildContext context, {required IconData icon, required String label, required int count, VoidCallback? onTap}) {
+     return InkWell(
+       onTap: onTap,
+       borderRadius: BorderRadius.circular(8),
+       child: Container(
+         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+         constraints: const BoxConstraints(minWidth: 70),
+         child: Column(
+           mainAxisSize: MainAxisSize.min,
+           children: [
+             Icon(icon, color: Colors.teal, size: 24),
+             const SizedBox(height: 4),
+             Text(
+               count.toString(),
+               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+             ),
+             const SizedBox(height: 2),
+             Text(
+               label,
+               style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+               maxLines: 1,
+               overflow: TextOverflow.ellipsis,
+             ),
+           ],
+         ),
+       ),
+     );
+   }
+
+   // Widget interne pour le séparateur vertical
+   Widget _verticalDivider() {
+     return Container(height: 30, width: 1, color: Colors.grey[200]);
+   }
+
+   // Widget interne pour la section des tags
+   Widget _buildLikedTagsSection(BuildContext context, List<String> tags) {
+       return Container(
+         width: double.infinity, // Prendre toute la largeur
+         padding: const EdgeInsets.symmetric(horizontal: 20),
+         child: Column(
+           crossAxisAlignment: CrossAxisAlignment.start,
+           children: [
+             Row(
+               children: [
+                 Icon(Icons.sell_outlined, size: 16, color: Colors.grey[700]),
+                 const SizedBox(width: 8),
+                 Text(
+                   // Correction: Utiliser des guillemets doubles
+                   "Centres d'interet (Tags)",
+                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey[700]),
+                 ),
+               ],
+             ),
+             const SizedBox(height: 10),
+             Wrap(
+               spacing: 6,
+               runSpacing: 6,
+               children: tags.map<Widget>((tag) {
+                 return Chip(
+                   label: Text(tag, style: TextStyle(fontSize: 12, color: Colors.teal.shade800)),
+                   backgroundColor: Colors.teal.withOpacity(0.08),
+                   materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                   side: BorderSide.none,
+                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                 );
+               }).toList(),
+             ),
+           ],
         ),
       );
     }
   }
-  Widget _buildChoicesSection(Map<String, dynamic> user) {
-    final choices = user['choices'] ?? [];
 
-    if (choices.isEmpty) {
-      return Center(
+//==============================================================================
+// WIDGET: _ProfileTabs (Stateless)
+//==============================================================================
+class _ProfileTabs extends StatelessWidget {
+   final Map<String, dynamic> user;
+   final Future<List<dynamic>> postsFuture;
+   final AsyncSnapshot<List<dynamic>> postsSnapshot; // Snapshot des posts
+   final Function(String, String) onNavigateToDetails;
+   final Function(Map<String, dynamic>) onNavigateToPostDetail;
+   final String userId;
+   final Future<Map<String, dynamic>> Function(List<String>) fetchPlaceDetails;
+   final Future<void> Function(String) likePost;
+   final Function(BuildContext, String) showComments;
+   final Function(BuildContext, Map<String, dynamic>) showChoiceDialog;
+   final String Function(DateTime) formatTimestamp;
+   final Function(Map<String, dynamic>, Map<String, dynamic>?) onNavigateToChoiceDetail; // Nouveau callback
+
+   const _ProfileTabs({
+     Key? key,
+     required this.user,
+     required this.postsFuture,
+     required this.postsSnapshot,
+     required this.onNavigateToDetails, // Toujours nécessaire pour l'onglet Intérêts
+     required this.onNavigateToPostDetail,
+     required this.onNavigateToChoiceDetail, // Ajouter le nouveau callback
+     required this.userId,
+     required this.fetchPlaceDetails,
+     required this.likePost,
+     required this.showComments,
+     required this.showChoiceDialog,
+     required this.formatTimestamp,
+   }) : super(key: key);
+
+   // --- Utilitaires locaux --- (copiés pour autonomie)
+    List<String> _ensureStringList(dynamic list) {
+      if (list == null) return <String>[];
+      if (list is List<String>) return list;
+      if (list is List) {
+        return list.where((item) => item != null).map((item) => item.toString()).toList();
+      }
+      return <String>[];
+    }
+
+    Widget _buildPlaceholderImage(Color bgColor, IconData icon, String text) {
+       return Container(
+         color: bgColor,
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.check_circle_outline, size: 60, color: Colors.grey[400]),
-            const SizedBox(height: 16),
-            Text(
-              'Aucun Choice ajouté',
-              style: TextStyle(
-                fontSize: 18,
-                color: Colors.grey[600],
-                fontWeight: FontWeight.w500,
-              ),
-            ),
+             Icon(icon, size: 40, color: Colors.grey),
             const SizedBox(height: 8),
-            Text(
-              'Partagez votre avis sur les lieux que vous avez visités',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey[500],
-              ),
-              textAlign: TextAlign.center,
+             Padding(
+               padding: const EdgeInsets.symmetric(horizontal: 8.0),
+               child: Text(text, style: TextStyle(color: Colors.grey[600], fontSize: 12), textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis),
             ),
           ],
         ),
       );
     }
 
-    // Gather all place IDs to fetch
-    List<String> placeIds = [];
-    for (var choice in choices) {
-      String? targetId;
-      
-      // Handle both formats:
-      // 1. When choice is already a map with targetId
-      // 2. When choice is an ObjectId that needs to be converted to string
-      if (choice is Map && choice.containsKey('targetId')) {
-        targetId = choice['targetId'].toString();
-      } else {
-        targetId = choice.toString();
-      }
-      
-      if (targetId.isNotEmpty) {
-        placeIds.add(targetId);
-      }
+   @override
+   Widget build(BuildContext context) {
+     return TabBarView(
+       children: [
+         _buildInterestsSection(context),
+         _buildChoicesSection(context),
+         _buildPostsSection(context),
+       ],
+     );
+   }
+
+   // --- Widgets pour chaque onglet ---
+
+    Widget _buildInterestsSection(BuildContext context) {
+     final interestsIds = _ensureStringList(user['interests']);
+
+     if (interestsIds.isEmpty) {
+       return _buildEmptyState(icon: Icons.star_border, title: 'Aucun intérêt', subtitle: 'Ajoutez des lieux favoris');
     }
 
     return FutureBuilder<Map<String, dynamic>>(
-      future: _fetchPlaceDetails(placeIds),
+       future: fetchPlaceDetails(interestsIds),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
+         } else if (snapshot.hasError || !snapshot.hasData) {
+            return Center(child: Text("Erreur chargement favoris: ${snapshot.error ?? 'Données nulles'}"));
         }
         
-        final placeDetails = snapshot.data ?? {};
+         final placeDetailsMap = snapshot.data ?? {};
 
         return GridView.builder(
-          padding: const EdgeInsets.all(8),
+           padding: const EdgeInsets.all(12),
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 2,
             childAspectRatio: 0.8,
-            crossAxisSpacing: 8,
-            mainAxisSpacing: 8,
+             crossAxisSpacing: 12,
+             mainAxisSpacing: 12,
           ),
-          itemCount: choices.length,
+           itemCount: interestsIds.length,
           itemBuilder: (context, index) {
-            final choice = choices[index];
-            
-            // Extract the targetId from the choice
-            String targetId = '';
-            if (choice is Map && choice.containsKey('targetId')) {
-              targetId = choice['targetId'].toString();
-            } else {
-              targetId = choice.toString();
-            }
-            
-            // Get place details if available
-            final placeDetail = placeDetails[targetId] ?? {};
-            final String placeName = placeDetail['name'] ?? 
-                                     placeDetail['intitulé'] ?? 
-                                     placeDetail['titre'] ?? 
-                                     'Lieu non spécifié';
-            
-            // Use specific fields based on the place type
-            String? imageUrl;
-            if (placeDetail['photos']?.isNotEmpty == true) {
-              imageUrl = placeDetail['photos']?[0];
-            } else {
-              imageUrl = placeDetail['image'] != null 
-                  ? placeDetail['image'] 
-                  : (placeDetail['photo_url'] != null 
-                      ? placeDetail['photo_url'] 
-                      : '');
-            }
-            
-            // Determine place type icon
+             final interestId = interestsIds[index];
+             final placeDetail = placeDetailsMap[interestId] ?? {'error': true, 'name': 'Données indisponibles'};
+             bool hasError = placeDetail['error'] == true;
+
+             // Déterminer les infos d'affichage
+             final String placeName = placeDetail['name'] ?? 'Lieu favori';
+             final String? imageUrl = (placeDetail['photos'] is List && placeDetail['photos'].isNotEmpty)
+                                     ? placeDetail['photos'][0]
+                                     : placeDetail['image'] ?? placeDetail['photo_url'];
+             final String address = placeDetail['address'] ?? placeDetail['adresse'] ?? placeDetail['lieu'] ?? '';
+
+             // Déterminer type et icône
             IconData placeIcon = Icons.place;
-            if (placeDetail['category']?.contains('restaurant') == true) {
-              placeIcon = Icons.restaurant;
-            } else if (placeDetail['category']?.contains('event') == true) {
-              placeIcon = Icons.event;
-            } else if (placeDetail['category']?.contains('culture') == true) {
-              placeIcon = Icons.museum;
+             String placeType = 'unknown';
+             if (hasError) {
+                placeIcon = Icons.error_outline;
+             } else if (placeDetail['_fetched_as'] == 'producers' || placeDetail['category']?.contains('Restaurant') == true) {
+                 placeIcon = Icons.restaurant; placeType = 'restaurant';
+             } else if (placeDetail['_fetched_as'] == 'events' || placeDetail['date_debut'] != null) {
+                 placeIcon = Icons.event; placeType = 'event';
+             } else if (placeDetail['_fetched_as'] == 'leisureProducers' || placeDetail['categorie']?.contains('Leisure') == true) {
+                 placeIcon = Icons.museum; placeType = 'leisureProducer';
+             } else if (placeDetail['_fetched_as'] == 'wellnessProducers') {
+                 placeIcon = Icons.spa; placeType = 'wellness';
             }
             
             return GestureDetector(
-              onTap: () {
-                if (targetId.isNotEmpty) {
-                  // Determine type for navigation
-                  String placeType = 'restaurant'; // Default
-                  if (placeDetail.containsKey('intitulé') || placeDetail.containsKey('titre')) {
-                    placeType = 'event';
-                  } else if (placeDetail.containsKey('lieu')) {
-                    placeType = 'leisureProducer';
-                  }
-                  _navigateToDetails(targetId, placeType);
-                }
-              },
+               onTap: hasError ? null : () => onNavigateToDetails(interestId, placeType),
               child: Card(
                 clipBehavior: Clip.antiAlias,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
+                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 elevation: 2,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
+                     // Image ou Placeholder
                           Positioned.fill(
-                            child: imageUrl != null && imageUrl.isNotEmpty
-                              ? Image(
-                                  image: getImageProvider(imageUrl)!,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (context, error, stackTrace) => _buildPlaceholderImage(Colors.grey[200]!, placeIcon, placeName),
-                                )
-                              : _buildPlaceholderImage(Colors.grey[200]!, placeIcon, placeName),
-                          ),
-                    Positioned(
-                      bottom: 0,
-                      left: 0,
-                      right: 0,
-                      child: Container(
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  begin: Alignment.topCenter,
-                                  end: Alignment.bottomCenter,
-                                  colors: [
-                                    Colors.transparent,
-                                    Colors.black.withOpacity(0.7),
-                                  ],
-                                ),
-                              ),
-                        padding: const EdgeInsets.all(8),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                                  Text(
-                                    placeName,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 14,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  const SizedBox(height: 4),
-                            Row(
-                              children: [
-                                      const Icon(Icons.star, size: 14, color: Colors.amber),
-                                const SizedBox(width: 4),
-                                Text(
-                                        placeDetail['rating']?.toString() ?? "N/A",
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ],
-                            ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          Positioned(
-                            top: 8,
-                            right: 8,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: Colors.teal,
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              child: const Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.check_circle, color: Colors.white, size: 12),
-                                  SizedBox(width: 4),
-                                Text(
-                                    'CHOICE',
-                                    style: TextStyle(
-                                    color: Colors.white,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
-                              ),
-                            ),
-                            ),
-                          ],
-                        ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.all(8.0),
-                      child: Text(
-                        placeDetail['address'] ?? 
-                        placeDetail['lieu'] ?? 
-                        placeDetail['adresse'] ?? '',
-                        style: const TextStyle(fontSize: 12),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
+                       child: (imageUrl != null && imageUrl.isNotEmpty && !hasError)
+                         ? Image(image: getImageProvider(imageUrl)!, fit: BoxFit.cover, errorBuilder: (ctx, err, st) => _buildPlaceholderImage(Colors.grey[200]!, placeIcon, placeName))
+                         : _buildPlaceholderImage(hasError ? Colors.red[100]! : Colors.grey[200]!, placeIcon, placeName),
+                     ),
+                     // Gradient et texte
+                      _buildCardOverlay(placeName, address, Icons.star, Colors.pink.shade400, 'FAVORI'),
                   ],
                 ),
               ),
@@ -2063,176 +1627,145 @@ class _MyProfileScreenState extends State<MyProfileScreen> with AutomaticKeepAli
     );
   }
 
-  Future<Map<String, dynamic>> _fetchPlaceDetails(List<String> placeIds) async {
-    Map<String, dynamic> results = {};
-    
-    if (placeIds.isEmpty) return results;
-    
-    // Try to fetch each place from different API endpoints
-    for (String placeId in placeIds) {
-      bool fetched = false;
-      
-      // Try restaurant API first
-      try {
-        final url = Uri.parse('${constants.getBaseUrl()}/api/producers/$placeId');
-        final response = await http.get(url);
-        
-        if (response.statusCode == 200) {
-          results[placeId] = json.decode(response.body);
-          fetched = true;
-      }
-    } catch (e) {
-        print('❌ Error fetching restaurant: $e');
-      }
-      
-      // Try leisure producer API if not fetched yet
-      if (!fetched) {
-        try {
-          final url = Uri.parse('${constants.getBaseUrl()}/api/leisureProducers/$placeId');
-          final response = await http.get(url);
-          
-          if (response.statusCode == 200) {
-            results[placeId] = json.decode(response.body);
-            fetched = true;
-          }
-        } catch (e) {
-          print('❌ Error fetching leisure producer: $e');
-        }
-      }
-      
-      // Try unified API as last resort
-      if (!fetched) {
-        try {
-          final url = Uri.parse('${constants.getBaseUrl()}/api/unified/$placeId');
-          final response = await http.get(url);
-          
-          if (response.statusCode == 200) {
-            results[placeId] = json.decode(response.body);
-          }
-        } catch (e) {
-          print('❌ Error fetching unified: $e');
-        }
-      }
-    }
-    
-    return results;
-  }
-  
-  Widget _buildInterestsSection(Map<String, dynamic> user) {
-    final interests = user['interests'] ?? [];
-    
-    if (interests.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.favorite_border, size: 60, color: Colors.grey[400]),
-            const SizedBox(height: 16),
-            Text(
-              'Aucun intérêt enregistré',
-              style: TextStyle(
-                fontSize: 18,
-                color: Colors.grey[600],
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Ajoutez des lieux à vos favoris pour les retrouver ici',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey[500],
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      );
-    }
+   Widget _buildChoicesSection(BuildContext context) {
+       // Récupérer les choices depuis l'objet user (qui devrait être peuplé)
+       final choices = (user['choices'] is List) ? List<Map<String, dynamic>>.from(user['choices'].whereType<Map<String, dynamic>>()) : <Map<String, dynamic>>[];
 
-    // Properly convert List<dynamic> to List<String>
-    List<String> interestIds = interests.map<String>((interest) => interest.toString()).toList();
+       if (choices.isEmpty) {
+          return _buildEmptyState(icon: Icons.check_circle_outline, title: 'Aucun Choice', subtitle: 'Vos recommandations apparaîtront ici');
+       }
+
+       // Extraire les IDs des lieux associés aux choices pour les pré-charger
+       List<String> targetIds = choices
+           .map((choice) => choice['locationId']?['_id']?.toString() ?? // ID depuis locationId peuplé
+                           choice['targetId']?.toString())              // Fallback si locationId n'est pas peuplé
+           .whereType<String>()
+           .where((id) => mongoose.isValidObjectId(id))
+           .toSet() // Utiliser un Set pour éviter les doublons
+           .toList();
     
     return FutureBuilder<Map<String, dynamic>>(
-      future: _fetchPlaceDetails(interestIds),
+          future: fetchPlaceDetails(targetIds), // Pré-charger les détails des lieux
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
+             // Afficher un loader pendant le chargement des détails des lieux
+             if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
+             } 
+             // Afficher une erreur si le chargement des détails échoue (mais on affiche quand même les choices)
+             if (snapshot.hasError) {
+                print("⚠️ Erreur fetchPlaceDetails dans _buildChoicesSection: ${snapshot.error}");
         }
         
-        final placeDetails = snapshot.data ?? {};
+             final placeDetailsMap = snapshot.data ?? {};
         
         return GridView.builder(
-          padding: const EdgeInsets.all(8),
+                padding: const EdgeInsets.all(12),
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 2,
             childAspectRatio: 0.8,
-            crossAxisSpacing: 8,
-            mainAxisSpacing: 8,
+                   crossAxisSpacing: 12,
+                   mainAxisSpacing: 12,
           ),
-      itemCount: interests.length,
+                itemCount: choices.length,
       itemBuilder: (context, index) {
-            final interestId = interests[index].toString();
-            
-            // Get place details if available
-            final placeDetail = placeDetails[interestId] ?? {};
-            final String placeName = placeDetail['name'] ?? 
-                                     placeDetail['intitulé'] ?? 
-                                     placeDetail['titre'] ?? 
-                                     'Lieu favori';
-            
-            // Use specific fields based on the place type
-            final String? imageUrl;
-            if (placeDetail['photos']?.isNotEmpty == true) {
-              imageUrl = placeDetail['photos']?[0];
-            } else if (placeDetail['image'] != null) {
-              imageUrl = placeDetail['image'];
-            } else if (placeDetail['photo_url'] != null) {
-              imageUrl = placeDetail['photo_url'];
-            } else {
-              imageUrl = '';
-            }
-                  
-            // Determine place type icon
+                   final choice = choices[index]; // Doit être un Map<String, dynamic> complet
+                   
+                   // Récupérer l'ID du lieu depuis le choice peuplé ou le champ targetId
+                   final String? targetId = choice['locationId']?['_id']?.toString() ?? choice['targetId']?.toString();
+
+                   if (targetId == null || !mongoose.isValidObjectId(targetId)) {
+                       return Card(child: Center(child: Text('Donnée Choice invalide (ID lieu manquant) #$index')));
+                   }
+
+                   // Récupérer les détails du lieu pré-chargés ou depuis le choice si peuplé
+                   final placeDetail = placeDetailsMap[targetId] ?? choice['locationId'] ?? {'error': true, 'name': 'Détails lieu indisponibles'};
+                   bool hasError = placeDetail['error'] == true;
+
+                   // Infos d'affichage
+                   final String placeName = placeDetail['name'] ?? 'Lieu inconnu';
+                   final String? imageUrl = (placeDetail['photos'] is List && placeDetail['photos'].isNotEmpty)
+                                            ? placeDetail['photos'][0]
+                                            : placeDetail['image'] ?? placeDetail['photo_url'];
+                   final String address = placeDetail['address'] ?? placeDetail['adresse'] ?? '';
+                   final String placeType = placeDetail['type']?.toString() ?? choice['targetType']?.toString() ?? 'unknown';
+
+                   // Icône
             IconData placeIcon = Icons.place;
-            if (placeDetail['category']?.contains('restaurant') == true) {
-              placeIcon = Icons.restaurant;
-            } else if (placeDetail['category']?.contains('event') == true) {
-              placeIcon = Icons.event;
-            } else if (placeDetail['category']?.contains('culture') == true) {
-              placeIcon = Icons.museum;
+                   if (hasError) {
+                      placeIcon = Icons.error_outline;
+                   } else {
+                       switch (placeType.toLowerCase()) {
+                          case 'restaurant': case 'producer': placeIcon = Icons.restaurant; break;
+                          case 'event': placeIcon = Icons.event; break;
+                          case 'leisureproducer': case 'leisure': placeIcon = Icons.museum; break;
+                          case 'wellness': placeIcon = Icons.spa; break;
+                       }
             }
             
             return GestureDetector(
-              onTap: () {
-                // Determine type for navigation
-                String placeType = 'restaurant'; // Default
-                if (placeDetail.containsKey('intitulé') || placeDetail.containsKey('titre')) {
-                  placeType = 'event';
-                } else if (placeDetail.containsKey('lieu')) {
-                  placeType = 'leisureProducer';
-                }
-                _navigateToDetails(interestId, placeType);
-              },
+                      // MODIFICATION ICI: Naviguer vers ChoiceDetailScreen au lieu de onNavigateToDetails
+                      onTap: hasError ? null : () => onNavigateToChoiceDetail(choice, placeDetail),
               child: Card(
                 clipBehavior: Clip.antiAlias,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
+                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 elevation: 2,
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
+                               // Image ou Placeholder
                     Positioned.fill(
-                      child: imageUrl != null && imageUrl.isNotEmpty
-                        ? Image(
-                            image: getImageProvider(imageUrl)!,
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) => _buildPlaceholderImage(Colors.grey[200]!, placeIcon, placeName),
-                          )
-                        : _buildPlaceholderImage(Colors.grey[200]!, placeIcon, placeName),
-                    ),
-                    Positioned(
+                                 child: (imageUrl != null && imageUrl.isNotEmpty && !hasError)
+                                   ? Image(image: getImageProvider(imageUrl)!, fit: BoxFit.cover, errorBuilder: (ctx, err, st) => _buildPlaceholderImage(Colors.grey[200]!, placeIcon, placeName))
+                                   : _buildPlaceholderImage(hasError ? Colors.red[100]! : Colors.grey[200]!, placeIcon, placeName),
+                               ),
+                               // Gradient et texte + Badge Choice
+                               _buildCardOverlay(placeName, address, Icons.check_circle, Colors.teal, 'CHOICE'),
+                            ],
+                         ),
+                      ),
+                   );
+                },
+             );
+          },
+       );
+   }
+
+   Widget _buildPostsSection(BuildContext context) {
+       // Utiliser le snapshot des posts passé en paramètre
+       if (postsSnapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+       } else if (postsSnapshot.hasError) {
+          return Center(child: Text('Erreur chargement posts: ${postsSnapshot.error}'));
+       }
+
+       final posts = postsSnapshot.data ?? [];
+       if (posts.isEmpty) {
+          return _buildEmptyState(
+             icon: Icons.article_outlined,
+             title: 'Aucune publication',
+             subtitle: 'Les posts et choices partagés apparaîtront ici',
+          );
+       }
+
+       return ListView.separated(
+          padding: const EdgeInsets.all(12),
+          itemCount: posts.length,
+          separatorBuilder: (context, index) => const SizedBox(height: 12),
+          itemBuilder: (context, index) {
+             final post = posts[index];
+             if (post is Map<String, dynamic>) {
+                return _buildPostCard(context, post); // Passer context
+             } else {
+                return Card(child: ListTile(title: Text('Donnée post invalide #$index')));
+             }
+          },
+       );
+   }
+
+   // --- Widgets internes pour les cartes et états vides --- //
+
+   Widget _buildCardOverlay(String title, String subtitle, IconData badgeIcon, Color badgeColor, String badgeLabel) {
+      return Positioned(
                       bottom: 0,
                       left: 0,
                       right: 0,
@@ -2241,1385 +1774,719 @@ class _MyProfileScreenState extends State<MyProfileScreen> with AutomaticKeepAli
                           gradient: LinearGradient(
                             begin: Alignment.topCenter,
                             end: Alignment.bottomCenter,
-                            colors: [
-                              Colors.transparent,
-                              Colors.black.withOpacity(0.7),
-                            ],
-                          ),
-                        ),
-                        padding: const EdgeInsets.all(8),
+                  colors: [ Colors.transparent, Colors.black.withOpacity(0.7) ],
+                  stops: [0.0, 0.8], // Contrôler le dégradé
+               ),
+            ),
+            padding: const EdgeInsets.all(10),
+            child: Row(
+               crossAxisAlignment: CrossAxisAlignment.end, // Aligner en bas
+               children: [
+                  Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+                       mainAxisSize: MainAxisSize.min, // Prendre hauteur minimale
               children: [
                 Text(
-                              placeName,
-                  style: const TextStyle(
-                                color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                                fontSize: 14,
-                  ),
+                           title,
+                           style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14, shadows: [Shadow(blurRadius: 1)]),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                 ),
+                         if (subtitle.isNotEmpty) ...[
                             const SizedBox(height: 4),
                 Row(
                   children: [
-                                const Icon(Icons.place, size: 12, color: Colors.white70),
+                               Icon(Icons.location_on_outlined, size: 12, color: Colors.white70),
                                 const SizedBox(width: 4),
                                 Expanded(
                                   child: Text(
-                                    placeDetail['address'] ?? 
-                                    placeDetail['lieu'] ?? 
-                                    placeDetail['adresse'] ?? 
-                                    'Voir détails',
-                                    style: const TextStyle(
-                                      color: Colors.white70,
-                                      fontSize: 12,
-                                    ),
+                                   subtitle,
+                                   style: const TextStyle(color: Colors.white70, fontSize: 10, shadows: [Shadow(blurRadius: 1)]),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                       ),
                     ),
                   ],
                 ),
+                         ]
                           ],
                         ),
                       ),
-                    ),
-                    Positioned(
-                      top: 8,
-                      right: 8,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.pink.shade400,
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
+                  const SizedBox(width: 8),
+                  // Badge (Favori ou Choice)
+                   Chip(
+                      avatar: Icon(badgeIcon, color: Colors.white, size: 14),
+                      label: Text(badgeLabel),
+                      labelStyle: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                      backgroundColor: badgeColor.withOpacity(0.9),
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      visualDensity: VisualDensity.compact,
+                      side: BorderSide.none,
+                   ),
+               ],
+            ),
+         ),
+      );
+   }
+
+    Widget _buildPostCard(BuildContext context, Map<String, dynamic> post) {
+      // Assurer que les données du post sont normalisées (fait dans _fetchUserPosts)
+      final String title = post['title'] ?? '';
+      final String content = post['content'] ?? '';
+      final List<dynamic> media = post['media'] ?? [];
+      final String? imageUrl = (media.isNotEmpty && media[0] is String) ? media[0] : post['image'];
+      final author = post['author'] ?? {};
+      final authorName = author['name'] ?? 'Auteur inconnu';
+      final authorPhoto = author['photo'] ?? author['profilePicture'];
+      final DateTime createdAt = DateTime.tryParse(post['createdAt'] ?? '') ?? DateTime.now();
+      final List<String> likes = (post['likes'] is List) ? List<String>.from(post['likes']) : [];
+      final List<dynamic> comments = (post['comments'] is List) ? post['comments'] : [];
+      final String postId = post['_id']?.toString() ?? '';
+      final location = post['location']; // Peut être null ou un Map
+      final String locationName = (location is Map) ? location['name'] ?? '' : '';
+      final String locationId = (location is Map) ? location['_id']?.toString() ?? '' : '';
+      final String locationType = (location is Map) ? location['type']?.toString() ?? 'unknown' : 'unknown';
+
+      // Déterminer si l'utilisateur courant a liké ce post (nécessite l'ID de l'utilisateur connecté)
+      // TODO: Passer l'ID de l'utilisateur connecté à _ProfileTabs
+      // bool isLikedByCurrentUser = likes.contains(currentUserConnectedId);
+
+     return Card(
+       margin: EdgeInsets.zero,
+       elevation: 1.5,
+       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+       clipBehavior: Clip.antiAlias,
+       child: Column(
+         crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Icon(Icons.favorite, color: Colors.white, size: 12),
-                            SizedBox(width: 4),
-                  Text(
-                              'FAVORI',
-                    style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-                        ),
-                      ),
-                    ),
+           // Header
+           ListTile(
+             leading: CircleAvatar(
+                radius: 20,
+                backgroundColor: Colors.grey[200],
+                backgroundImage: (authorPhoto != null && authorPhoto.isNotEmpty) ? CachedNetworkImageProvider(authorPhoto) : null,
+                child: (authorPhoto == null || authorPhoto.isEmpty) ? const Icon(Icons.person, size: 20, color: Colors.grey) : null,
+             ),
+             title: Text(authorName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+             subtitle: Text(formatTimestamp(createdAt), style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+             trailing: IconButton(icon: const Icon(Icons.more_vert, size: 20), onPressed: () {/* TODO: Options post */}),
+             dense: true,
+             contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+           ),
+           // Image
+           if (imageUrl != null && imageUrl.isNotEmpty)
+             CachedNetworkImage(
+               imageUrl: imageUrl,
+               fit: BoxFit.cover,
+               height: 250,
+               width: double.infinity,
+               placeholder: (ctx, url) => Container(height: 250, color: Colors.grey[200], child: const Center(child: CircularProgressIndicator(strokeWidth: 2))),
+               errorWidget: (ctx, url, err) => Container(height: 250, color: Colors.grey[100], child: const Icon(Icons.image_not_supported_outlined, color: Colors.grey, size: 40)),
+             ),
+           // Contenu texte
+           Padding(
+             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+             child: Column(
+               crossAxisAlignment: CrossAxisAlignment.start,
+               children: [
+                 if (title.isNotEmpty) Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                 if (title.isNotEmpty && content.isNotEmpty) const SizedBox(height: 6),
+                 if (content.isNotEmpty) Text(content, style: TextStyle(fontSize: 14, color: Colors.grey[850], height: 1.4)),
+                 if (locationName.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    InkWell(
+                       onTap: () {
+                          if (locationId.isNotEmpty && mongoose.isValidObjectId(locationId)) {
+                             onNavigateToDetails(locationId, locationType);
+                          }
+                       },
+                       child: Row(
+                         mainAxisSize: MainAxisSize.min,
+                         children: [
+                           Icon(Icons.location_on_outlined, size: 14, color: Colors.teal),
+                           const SizedBox(width: 4),
+                           Flexible(child: Text(locationName, style: const TextStyle(fontSize: 13, color: Colors.teal, fontWeight: FontWeight.w500), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                         ],
+                       ),
+                    )
+                 ]
               ],
             ),
           ),
-            );
-          },
-        );
-      },
-    );
-  }
-  // Helper method to build placeholder image
-  Widget _buildPlaceholderImage(Color bgColor, IconData icon, String text) {
-    return Container(
-      color: bgColor,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+           // Actions
+           const Divider(height: 1),
+           Padding(
+             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+             child: Row(
+               mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Icon(icon, size: 40, color: Colors.grey),
-          const SizedBox(height: 8),
-          Text(
-            text, 
-            style: TextStyle(color: Colors.grey[600]),
-            textAlign: TextAlign.center,
+                  _buildPostActionButton(context, icon: Icons.thumb_up_outlined, /* TODO: use filled icon if liked */ count: likes.length, onPressed: () => likePost(postId)),
+                  _buildPostActionButton(context, icon: Icons.chat_bubble_outline, count: comments.length, onPressed: () => showComments(context, postId)),
+                  if (locationId.isNotEmpty && mongoose.isValidObjectId(locationId))
+                     _buildPostActionButton(context, icon: Icons.check_circle_outline, label: "Choice", onPressed: () => showChoiceDialog(context, post))
+                  else
+                     const Spacer(), // Pour équilibrer si pas de bouton Choice
+                  // Optionnel: Bouton Partager
+                  // _buildPostActionButton(context, icon: Icons.share_outlined, onPressed: () {/* Share logic */}),
+               ],
+             ),
           ),
         ],
       ),
     );
   }
   
-  Widget _buildMenuOption({
-    required IconData icon,
-    required String text,
-    required VoidCallback onTap,
-    Color? color,
-    bool isToggle = false,
-  }) {
-    return ListTile(
-      leading: Icon(icon, color: color ?? Colors.grey[800]),
-      title: Text(
-        text,
-        style: TextStyle(
-          color: color ?? Colors.grey[800],
-          fontWeight: FontWeight.w500,
+   // Helper pour les boutons d'action de post
+   Widget _buildPostActionButton(BuildContext context, {required IconData icon, int? count, String? label, required VoidCallback onPressed}) {
+      return TextButton.icon(
+         icon: Icon(icon, size: 18, color: Colors.grey[700]),
+         label: Text(
+            (label != null) ? label : (count != null && count > 0 ? count.toString() : ''),
+            style: TextStyle(fontSize: 12, color: Colors.grey[700])
+         ),
+         style: TextButton.styleFrom(
+            foregroundColor: Colors.grey[700],
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            minimumSize: const Size(40, 36), // Taille minimale
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+         ),
+         onPressed: onPressed,
+      );
+   }
+
+   // Widget pour état vide des onglets
+   Widget _buildEmptyState({required IconData icon, required String title, required String subtitle, Widget? action}) {
+     return Center(
+       child: Padding(
+         padding: const EdgeInsets.symmetric(horizontal: 30.0, vertical: 50),
+         child: Column(
+           mainAxisAlignment: MainAxisAlignment.center,
+           children: [
+             Icon(icon, size: 50, color: Colors.grey[350]),
+             const SizedBox(height: 20),
+             Text(title, style: TextStyle(fontSize: 17, color: Colors.grey[600], fontWeight: FontWeight.w500), textAlign: TextAlign.center),
+             const SizedBox(height: 10),
+             Text(subtitle, style: TextStyle(fontSize: 14, color: Colors.grey[450]), textAlign: TextAlign.center),
+             if (action != null) ...[ const SizedBox(height: 25), action ]
+           ],
         ),
       ),
-      trailing: isToggle
-          ? Switch(
-              value: Theme.of(context).brightness == Brightness.dark,
-              onChanged: (_) => onTap(),
-              activeColor: Colors.teal,
-            )
-          : null,
-      onTap: isToggle ? null : onTap,
     );
   }
-
-  void _navigateToPostDetail(Map<String, dynamic> post) {
-    // Éviter d'utiliser PostLocation et passer simplement les données brutes
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => PostDetailScreen(
-          post: post, 
-          userId: widget.userId
-        ),
-      ),
-    );
-  }
-
-  // Helper function to provide default user data
-  Map<String, dynamic> _getDefaultUserData(String userId) {
-    return {
-      '_id': userId,
-      'name': 'Utilisateur',
-      'bio': 'Informations non disponibles',
-      'profilePicture': '',
-      'followers': <String>[],
-      'following': <String>[],
-      'posts': <String>[],
-      'interests': <String>[],
-      'liked_tags': <String>[],
-      'conversations': <String>[]
-    };
-  }
-
-  // Stub implementations to resolve missing references
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-  }
-}
-class PostDetailScreen extends StatefulWidget {
-  final Map<String, dynamic> post;
-  final String userId;
-  
-  const PostDetailScreen({Key? key, required this.post, required this.userId}) : super(key: key);
-
-  @override
-  _PostDetailScreenState createState() => _PostDetailScreenState();
 }
 
 
-class _PostDetailScreenState extends State<PostDetailScreen> {
+//==============================================================================
+// WIDGET: _CommentsBottomSheet (Stateful)
+//==============================================================================
+class _CommentsBottomSheet extends StatefulWidget {
+  final String postId;
+  final List<Map<String, dynamic>> initialComments;
+  final String currentUserId; // ID de l'utilisateur qui regarde
+  final Function(Map<String, dynamic>) onCommentAdded;
+  final Function(String) navigateToProfile;
+
+  const _CommentsBottomSheet({
+    Key? key,
+    required this.postId,
+    required this.initialComments,
+    required this.currentUserId,
+    required this.onCommentAdded,
+    required this.navigateToProfile,
+  }) : super(key: key);
+
+  @override
+  State<_CommentsBottomSheet> createState() => _CommentsBottomSheetState();
+}
+
+class _CommentsBottomSheetState extends State<_CommentsBottomSheet> {
+  late List<Map<String, dynamic>> _comments;
   final TextEditingController _commentController = TextEditingController();
-  late Map<String, dynamic> post; // Variable pour stocker le post
-  bool _commentsVisible = false;
+  bool _isPosting = false;
+  String? _postingError;
 
   @override
   void initState() {
     super.initState();
-    post = widget.post; // Initialise le post à partir du widget parent
+    _comments = List.from(widget.initialComments); // Copie modifiable
+    _sortComments(); // Trier initialement
   }
 
-  /// Navigation vers les détails du producteur ou événement
-  void _navigateToProducer(String targetId, String type) async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => ProducerScreen(producerId: targetId),
-      ),
-    );
+  void _sortComments() {
+    _comments.sort((a, b) {
+      final dateA = DateTime.tryParse(a['timestamp'] ?? a['createdAt'] ?? '');
+      final dateB = DateTime.tryParse(b['timestamp'] ?? b['createdAt'] ?? '');
+      if (dateA == null && dateB == null) return 0;
+      if (dateA == null) return 1; // Dates nulles à la fin
+      if (dateB == null) return -1;
+      return dateB.compareTo(dateA); // Plus récent en premier
+    });
   }
 
-  /// Fonction pour liker un post
-  Future<void> _likePost(String postId) async {
-    final url = Uri.parse('${constants.getBaseUrl()}/api/posts/$postId/like');
-    final body = {'user_id': widget.userId};
+  Future<void> _addComment() async {
+    final content = _commentController.text.trim();
+    if (content.isEmpty || _isPosting) return;
+    if (!mounted) return;
 
-    try {
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode(body),
-      );
-
-      if (response.statusCode == 200) {
-        final updatedLikes = json.decode(response.body)['likes'];
         setState(() {
-          post['likes'] = updatedLikes;
-        });
-        print('✅ Post liké avec succès');
-      } else {
-        print('❌ Erreur lors du like : ${response.body}');
-      }
-    } catch (e) {
-      print('❌ Erreur réseau lors du like : $e');
-    }
-  }
+      _isPosting = true;
+      _postingError = null;
+    });
 
-  /// Fonction pour ajouter un choix (choice)
-  Future<void> _addChoice(String postId) async {
-    final url = Uri.parse('${constants.getBaseUrl()}/api/posts/$postId/choice');
-    final body = {'user_id': widget.userId};
+     final authService = provider_pkg.Provider.of<AuthService>(context, listen: false);
+     final token = await authService.getTokenInstance();
+     final userId = authService.userId; // Utilisateur connecté qui commente
+
+     if (token == null || userId == null) {
+        if (!mounted) return;
+        setState(() { _isPosting = false; _postingError = "Non connecté."; });
+        return;
+     }
 
     try {
+      final url = Uri.parse('${constants.getBaseUrl()}/api/posts/${widget.postId}/comments');
       final response = await http.post(
         url,
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode(body),
-      );
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+        body: json.encode({'user_id': userId, 'content': content}),
+      ).timeout(const Duration(seconds: 10));
 
-      if (response.statusCode == 200) {
-        final updatedChoices = json.decode(response.body)['choices'];
-        setState(() {
-          post['choices'] = updatedChoices;
-        });
-        print('✅ Choice ajouté avec succès');
-      } else {
-        print('❌ Erreur lors de l\'ajout aux choices : ${response.body}');
-      }
-    } catch (e) {
-      print('❌ Erreur réseau lors de l\'ajout aux choices : $e');
-    }
-  }
-
-  /// Fonction pour ajouter un commentaire
-  Future<void> _addComment(String postId, String content) async {
-    final url = Uri.parse('${constants.getBaseUrl()}/api/posts/$postId/comments');
-    final body = {
-      'user_id': widget.userId,
-      'content': content,
-    };
-
-    try {
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode(body),
-      );
+       if (!mounted) return;
 
       if (response.statusCode == 201) {
-        final newComment = json.decode(response.body);
+         final newCommentData = json.decode(response.body);
+         // Normaliser le commentaire reçu
+          final Map<String, dynamic> normalizedComment = {
+             ...newCommentData,
+             '_id': newCommentData['_id']?.toString() ?? UniqueKey().toString(),
+             'user_id': (newCommentData['user_id'] is Map) ? newCommentData['user_id'] : {'_id': newCommentData['user_id']?.toString() ?? userId, 'name': 'Vous'}, // Créer un objet user si juste ID
+             'content': newCommentData['content'] ?? '',
+             'timestamp': newCommentData['timestamp'] ?? DateTime.now().toIso8601String(),
+          };
+
+         // Essayer de récupérer les infos complètes de l'utilisateur si nécessaire
+         if (normalizedComment['user_id']['name'] == 'Vous') {
+             try {
+                final userInfo = await _MyProfileScreenState()._fetchMinimalUserInfo(userId);
+                 normalizedComment['user_id'] = {
+                     '_id': userId,
+                     'name': userInfo['name'] ?? 'Vous',
+                     'profilePicture': userInfo['profilePicture'],
+                 };
+             } catch (e) { print("Erreur fetch user info pour nouveau commentaire: $e"); }
+         }
+
       setState(() {
-          post['comments'].add(newComment);
+           _comments.insert(0, normalizedComment);
+           _sortComments();
+           _commentController.clear();
+           _isPosting = false;
+           _postingError = null;
         });
-        print('✅ Commentaire ajouté avec succès');
+        widget.onCommentAdded(normalizedComment); // Informer le parent
       } else {
-        print('❌ Erreur lors de l\'ajout du commentaire : ${response.body}');
+         String errorMessage = 'Erreur serveur';
+         try { errorMessage = json.decode(response.body)['message'] ?? errorMessage; } catch (_) {}
+         setState(() { _postingError = errorMessage; _isPosting = false; });
+         print('❌ Erreur ajout commentaire (${response.statusCode}): ${response.body}');
       }
     } catch (e) {
-      print('❌ Erreur réseau pour l\'ajout du commentaire : $e');
+       if (mounted) {
+         setState(() { _postingError = 'Erreur réseau/Timeout.'; _isPosting = false; });
+       }
+      print('❌ Exception ajout commentaire: $e');
     }
+  }
+
+   String _formatTimestamp(DateTime timestamp) {
+      final now = DateTime.now();
+      final difference = now.difference(timestamp);
+      if (difference.inSeconds < 60) return 'maintenant';
+      if (difference.inMinutes < 60) return '${difference.inMinutes}min';
+      if (difference.inHours < 24) return '${difference.inHours}h';
+      if (difference.inDays < 7) return '${difference.inDays}j';
+      return '${timestamp.day}/${timestamp.month}/${timestamp.year % 100}';
   }
   
   @override
   Widget build(BuildContext context) {
-    final mediaUrls = post['media'] as List<dynamic>? ?? [];
-    final producerName = post['location']?['name'] ?? 'Producteur inconnu';
+    return DraggableScrollableSheet(
+      initialChildSize: 0.6, // Hauteur initiale
+      minChildSize: 0.4,
+      maxChildSize: 0.9, // Max 90% de l'écran
+      expand: false,
+      builder: (context, scrollController) {
+        return Container(
+          decoration: const BoxDecoration(
+             color: Colors.white,
+             borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+             boxShadow: [BoxShadow(blurRadius: 10, color: Colors.black12)] // Légère ombre
+          ),
+          // Clip pour que le contenu respecte les coins arrondis
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            children: [
+              // Header de la modal
+              Container(
+                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                 child: Row(
+                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                   children: [
+                     Text('Commentaires (${_comments.length})', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                     IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context), padding: EdgeInsets.zero, constraints: const BoxConstraints()),
+                   ],
+                 ),
+              ),
+              const Divider(height: 1),
+              // Liste des commentaires
+              Expanded(
+                child: _comments.isEmpty
+                    ? const Center(child: Text('Soyez le premier à commenter !', style: TextStyle(color: Colors.grey)))
+                    : ListView.builder(
+                        controller: scrollController,
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        itemCount: _comments.length,
+                        itemBuilder: (context, index) {
+                          final comment = _comments[index];
+                           final user = comment['user_id'] ?? {};
+                           final content = comment['content']?.toString() ?? '';
+                           final timestampStr = comment['timestamp'] ?? comment['createdAt'];
+                           final timestamp = DateTime.tryParse(timestampStr ?? '');
+                           final userName = user is Map ? (user['name'] ?? 'Utilisateur') : 'Utilisateur';
+                           final userPhoto = user is Map ? (user['profilePicture'] ?? user['photo_url']) : null;
+                           final userId = user is Map ? user['_id']?.toString() : null;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(post['title'] ?? 'Détails du post'),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-      ),
-      body: SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+                           return Padding(
+                             padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                             child: Row(
+                               crossAxisAlignment: CrossAxisAlignment.start,
+                               children: [
+                                 GestureDetector(
+                                    onTap: () { if (userId != null) widget.navigateToProfile(userId); },
+                                    child: CircleAvatar(
+                                       radius: 18,
+                                       backgroundColor: Colors.grey[200],
+                                       backgroundImage: (userPhoto != null && userPhoto.isNotEmpty) ? CachedNetworkImageProvider(userPhoto) : null,
+                                       child: (userPhoto == null || userPhoto.isEmpty) ? const Icon(Icons.person, size: 18, color: Colors.grey) : null,
+                                    ),
+                                 ),
+                                 const SizedBox(width: 12),
+                                 Expanded(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-            // Header du post
           Row(
             children: [
-                CircleAvatar(
-                backgroundColor: Colors.grey[300],
-                child: post['user_photo'] != null && post['user_photo'].toString().isNotEmpty
-                  ? CircleAvatar(
-                      backgroundImage: getImageProvider(post['user_photo']),
-                      onBackgroundImageError: (exception, stackTrace) {
-                        // Error handling for background image
-                      },
-                    )
-                  : Icon(Icons.person, color: Colors.grey[600]),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  post['author_name'] ?? 'Utilisateur inconnu',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-              ),
-            ],
-          ),
-            const SizedBox(height: 16),
-            // Titre et contenu
-            Text(
-              post['title'] ?? 'Titre non spécifié',
-              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              post['content'] ?? 'Contenu non disponible',
-              style: const TextStyle(fontSize: 16),
-            ),
-            const SizedBox(height: 20),
-
-            // Médias associés
-            if (mediaUrls.isNotEmpty)
-            SizedBox(
-                height: 300,
-                child: PageView(
-                  children: mediaUrls.map((url) {
-                    return CachedNetworkImage(
-                      imageUrl: url,
-                      fit: BoxFit.cover,
-              width: double.infinity, 
-                      placeholder: (context, url) => Container(
-                        color: Colors.grey[200],
-                        child: const Center(child: CircularProgressIndicator()),
+                                           Expanded(child: Text(userName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13))),
+                                           if (timestamp != null) Text(_formatTimestamp(timestamp), style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+                                         ],
+                                       ),
+                                       const SizedBox(height: 4),
+                                       Text(content, style: const TextStyle(fontSize: 14, height: 1.3)),
+                                     ],
+                                   ),
+                                 ),
+                               ],
+                             ),
+                           );
+                        },
                       ),
-                      errorWidget: (context, url, error) => Container(
-                        color: Colors.grey[200],
-                        child: const Icon(Icons.broken_image, size: 50),
-                      ),
-                    );
-                  }).toList(),
-                ),
               ),
-            const SizedBox(height: 20),
-
-            // Lien vers le producteur
-            InkWell(
-              onTap: () => print('Naviguer vers le producteur $producerName'),
-              child: Text(
-                producerName,
-                style: const TextStyle(
-                  color: Colors.blue,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-              ),
-            const SizedBox(height: 20),
-
-            // Actions sur le post (like, choice, partage)
-        Row(
+               // Input field
+               Container(
+                 padding: EdgeInsets.only(
+                    left: 16, right: 8, top: 8,
+                    // Ajustement pour le clavier
+                    bottom: MediaQuery.of(context).viewInsets.bottom + 8,
+                 ),
+                 decoration: BoxDecoration(
+                    color: Colors.white,
+                    border: Border(top: BorderSide(color: Colors.grey[200]!))
+                 ),
+                 child: Column(
+                   mainAxisSize: MainAxisSize.min,
           children: [
-                IconButton(
-                  icon: const Icon(Icons.thumb_up_alt_outlined),
-                  onPressed: () => _likePost(post['_id']),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.favorite_border),
-                  onPressed: () => _addChoice(post['_id']),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.share),
-                  onPressed: () {
-                    // Fonctionnalité Partage (à implémenter)
-                  },
-            ),
-          ],
-        ),
-            const SizedBox(height: 20),
-
-            // Section des commentaires
-            const Text(
-              'Commentaires',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 10),
-            if (post['comments'] != null && post['comments'].isNotEmpty)
-              ...post['comments'].map<Widget>((comment) {
-                return ListTile(
-                  title: Text(comment['user_id']['name'] ?? 'Utilisateur inconnu'),
-                  subtitle: Text(comment['content'] ?? ''),
-                );
-              }).toList(),
-            const Divider(),
-
-            // Ajouter un commentaire
+                      if (_postingError != null)
+                         Padding(
+                           padding: const EdgeInsets.only(bottom: 4.0),
+                           child: Text(_postingError!, style: const TextStyle(color: Colors.red, fontSize: 12)),
+                         ),
         Row(
           children: [
             Expanded(
                   child: TextField(
                     controller: _commentController,
-                    decoration: const InputDecoration(
-                      labelText: 'Ajouter un commentaire...',
-                    ),
+                             textCapitalization: TextCapitalization.sentences,
+                             minLines: 1,
+                             maxLines: 3,
+                             decoration: InputDecoration(
+                               hintText: 'Votre commentaire...',
+                               border: InputBorder.none, // Pas de bordure
+                               filled: false,
+                               contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                               isDense: true,
+                             ),
+                             style: const TextStyle(fontSize: 14),
+                             onSubmitted: (_) => _addComment(), // Envoyer avec Entrée
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.send),
-                  onPressed: () {
-                    if (_commentController.text.isNotEmpty) {
-                      _addComment(post['_id'], _commentController.text);
-                      _commentController.clear();
-                    }
-                  },
+                           icon: _isPosting
+                               ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                               : const Icon(Icons.send_outlined),
+                           iconSize: 24,
+                           color: Colors.teal,
+                           disabledColor: Colors.grey,
+                           onPressed: _isPosting ? null : _addComment,
+                           tooltip: "Envoyer",
+                           padding: const EdgeInsets.all(10),
                 ),
           ],
         ),
       ],
         ),
-      ),
+               ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
 
-class CreatePostScreen extends StatefulWidget {
-  final String userId;
 
-  const CreatePostScreen({Key? key, required this.userId}) : super(key: key);
+//==============================================================================
+// WIDGET: _ChoiceForm (Stateful)
+//==============================================================================
+class _ChoiceForm extends StatefulWidget {
+  final String locationId;
+  final String locationType;
+  final String locationName;
+  final String currentUserId; // Utilisateur qui crée le choice
+  final ScrollController scrollController;
+  final VoidCallback onSubmitSuccess;
+
+  const _ChoiceForm({
+    Key? key,
+    required this.locationId,
+    required this.locationType,
+    required this.locationName,
+    required this.currentUserId,
+    required this.scrollController,
+    required this.onSubmitSuccess,
+  }) : super(key: key);
 
   @override
-  State<CreatePostScreen> createState() => _CreatePostScreenState();
+  State<_ChoiceForm> createState() => _ChoiceFormState();
 }
 
-class _CreatePostScreenState extends State<CreatePostScreen> {
-  final TextEditingController _contentController = TextEditingController();
-  final TextEditingController _locationNameController = TextEditingController();
-  final ImagePicker _picker = ImagePicker();
-
-  String? _mediaUrl; // Chemin local du fichier média sélectionné
-  String? _mediaType; // "image" ou "video"
-  bool _isLoading = false;
-  bool _isVerifying = false;
-  bool _isVerified = false;
-  Map<String, dynamic>? _verificationResult;
-
-  List<dynamic> _searchResults = []; // Liste pour stocker les résultats de recherche
-  String? _selectedLocationId; // ID de l'élément sélectionné
-  String? _selectedLocationType; // Type de l'élément sélectionné (restaurant, event, ou leisureProducer)
-  String? _selectedLocationName; // Nom de l'élément sélectionné
-  Map<String, dynamic>? _selectedLocationDetails; // Détails complets du lieu sélectionné
-  
-  // Notes par aspect - spécifiques au type de lieu
+class _ChoiceFormState extends State<_ChoiceForm> {
   Map<String, double> _aspectRatings = {};
-  double _overallRating = 3.0; // Note globale par défaut
-  
-  // Pour les restaurants - plats consommés
-  List<String> _selectedMenuItems = [];
-  final TextEditingController _menuItemController = TextEditingController();
+  final TextEditingController _appreciationController = TextEditingController();
+  bool _isLoading = false;
+  String? _submitError;
+
+  // Aspects par défaut et spécifiques
+  final Map<String, List<String>> _aspectsByType = {
+    'restaurant': ['Nourriture', 'Service', 'Ambiance', 'Prix'],
+    'event': ['Qualité', 'Intérêt', 'Originalité', 'Organisation'],
+    'leisureProducer': ['Qualité', 'Accueil', 'Offre', 'Accessibilité'],
+    'wellness': ['Prestation', 'Accueil', 'Environnement', 'Prix'],
+    'unknown': ['Qualité', 'Intérêt', 'Originalité'],
+  };
   
   @override
   void initState() {
     super.initState();
-    _initializeAspectRatings();
+    _initializeAspects();
   }
-  
-  void _initializeAspectRatings() {
-    // Initialisation avec des valeurs par défaut
-    _aspectRatings = {
-      'qualite_generale': 3.0,
-      'interet': 3.0,
-      'originalite': 3.0,
-    };
+
+  @override
+  void dispose() {
+    _appreciationController.dispose();
+    super.dispose();
   }
-  
-  /// Met à jour les aspects de notation en fonction du type de lieu
-  void _updateAspectRatings(String locationType, Map<String, dynamic> locationDetails) {
-          setState(() {
-      if (locationType == 'restaurant') {
-        _aspectRatings = {
-          'nourriture': 3.0,
-          'service': 3.0,
-          'ambiance': 3.0,
-          'rapport_qualite_prix': 3.0,
-        };
-      } 
-      else if (locationType == 'event') {
-        // Déterminer la catégorie de l'événement
-        String? category = locationDetails['categorie'] ?? locationDetails['type'] ?? 'Default';
-        
-        if (category?.contains('Théâtre') ?? false) {
-          _aspectRatings = {
-            'mise_en_scene': 3.0,
-            'jeu_des_acteurs': 3.0,
-            'texte': 3.0,
-            'scenographie': 3.0,
-          };
-        } 
-        else if ((category?.contains('Concert') ?? false) || (category?.contains('Musique') ?? false)) {
-          _aspectRatings = {
-            'performance': 3.0,
-            'repertoire': 3.0,
-            'son': 3.0,
-            'ambiance': 3.0,
-          };
-        } 
-        else if (category?.contains('Danse') ?? false) {
-          _aspectRatings = {
-            'choregraphie': 3.0,
-            'technique': 3.0,
-            'expressivite': 3.0,
-            'musique': 3.0,
-          };
-        } 
-        else {
-          _aspectRatings = {
-            'qualite_generale': 3.0,
-            'interet': 3.0,
-            'originalite': 3.0,
-          };
-        }
-      } 
-      else if (locationType == 'leisureProducer') {
-        // Déterminer le type de lieu culturel
-        String? category = locationDetails['categorie'] ?? locationDetails['type'] ?? 'Default';
-        
-        if (category?.contains('Théâtre') ?? false) {
-          _aspectRatings = {
-            'programmation': 3.0,
-            'lieu': 3.0,
-            'accueil': 3.0,
-            'accessibilite': 3.0,
-          };
-        } 
-        else if ((category?.contains('Musée') ?? false) || (category?.contains('Exposition') ?? false)) {
-          _aspectRatings = {
-            'collections': 3.0,
-            'scenographie': 3.0,
-            'mediation_culturelle': 3.0,
-            'accessibilite': 3.0,
-          };
-        } 
-        else {
-          _aspectRatings = {
-            'qualite_generale': 3.0,
-            'interet': 3.0,
-            'originalite': 3.0,
-            'accessibilite': 3.0,
-          };
-        }
-      }
-    });
+
+  void _initializeAspects() {
+    final aspects = _aspectsByType[widget.locationType.toLowerCase()] ?? _aspectsByType['unknown']!;
+    // Utiliser une clé normalisée (lowercase, underscore)
+    _aspectRatings = {for (var aspect in aspects) aspect.toLowerCase().replaceAll(' ', '_'): 5.0};
   }
-  
-  /// Fonction pour vérifier si l'utilisateur a visité le lieu
-  Future<void> _verifyLocationVisit() async {
-    if (_selectedLocationId == null || _selectedLocationType == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Veuillez d\'abord sélectionner un lieu')),
-      );
-      return;
-    }
+
+  Future<void> _submit() async {
+    if (_isLoading) return;
+    if (!mounted) return;
     
     setState(() {
-      _isVerifying = true;
-      _isVerified = false;
-      _verificationResult = null;
+      _isLoading = true;
+      _submitError = null;
     });
-    
-    try {
-      // Convertir le type pour l'API de vérification
-      String apiLocationType;
-      if (_selectedLocationType == 'restaurant') {
-        apiLocationType = 'restaurant';
-      } else if (_selectedLocationType == 'event') {
-        apiLocationType = 'event';
-      } else {
-        apiLocationType = 'leisure';
-      }
-      
-      // Appeler l'API de vérification de localisation
-      final url = Uri.parse('${constants.getBaseUrl()}/api/location-history/verify?userId=${widget.userId}&locationId=$_selectedLocationId&locationType=$apiLocationType');
-      final response = await http.get(url);
-      
-      if (response.statusCode == 200) {
-        final result = json.decode(response.body);
-        setState(() {
-          _isVerifying = false;
-          _isVerified = result['verified'] ?? false;
-          _verificationResult = result;
-        });
-        
-        if (!_isVerified) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(result['message'] ?? 'Vous n\'avez pas passé assez de temps à cet endroit récemment.'),
-              duration: const Duration(seconds: 5),
-            ),
-          );
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(result['message'] ?? 'Visite vérifiée !'),
-              backgroundColor: Colors.green,
-              duration: const Duration(seconds: 3),
-            ),
-          );
-        }
-      } else {
-        throw Exception('Erreur lors de la vérification: ${response.body}');
-      }
-    } catch (e) {
-      setState(() {
-        _isVerifying = false;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur: $e')),
-      );
-    }
-  }
-  
-  /// Fonction pour créer un post
-  Future<void> _createPost() async {
-    final content = _contentController.text;
 
-    if (content.isEmpty || _selectedLocationId == null || _selectedLocationType == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Veuillez remplir le contenu et sélectionner un lieu ou un événement.'),
-        ),
-      );
+    final authService = provider_pkg.Provider.of<AuthService>(context, listen: false);
+    final token = await authService.getTokenInstance();
+
+    if (token == null) {
+        if (!mounted) return;
+        setState(() { _isLoading = false; _submitError = "Non connecté."; });
       return;
     }
     
-    // Vérifier si la visite a été validée
-    if (!_isVerified) {
-      // Demander une vérification si ce n'est pas déjà fait
-      if (_verificationResult == null) {
-        await _verifyLocationVisit();
-      }
-      
-      if (!_isVerified) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Vous devez avoir passé au moins 30 minutes sur place dans les 7 derniers jours pour publier ce post.'),
-            duration: Duration(seconds: 5),
-          ),
-        );
-        return;
-      }
-    }
-
-    // Calculer la note moyenne des aspects
-    double ratingSum = 0;
-    _aspectRatings.forEach((key, value) {
-      ratingSum += value;
-    });
-    _overallRating = ratingSum / _aspectRatings.length;
-
-                setState(() {
-      _isLoading = true;
-    });
-
-    // Préparer les données du post en fonction du type de lieu
-    Map<String, dynamic> postData = {
-      'userId': widget.userId,
-      'content': content,
-      'rating': _overallRating,
-      'aspectRatings': _aspectRatings,
-      'media': _mediaUrl != null ? [_mediaUrl] : [],
-      'isChoice': true,
-    };
-    
-    // Ajouter des champs spécifiques selon le type
-    if (_selectedLocationType == 'restaurant') {
-      postData['linkedId'] = _selectedLocationId;
-      postData['linkedType'] = 'producer';
-      postData['producerId'] = _selectedLocationId;
-      postData['menuItems'] = _selectedMenuItems;
-      postData['tags'] = [_selectedLocationName ?? 'Restaurant'];
-    } 
-    else if (_selectedLocationType == 'event') {
-      postData['linkedId'] = _selectedLocationId;
-      postData['linkedType'] = 'event';
-      postData['eventId'] = _selectedLocationId;
-      postData['tags'] = [_selectedLocationName ?? 'Événement'];
-      
-      // Ajouter la date de l'événement si disponible
-      if (_selectedLocationDetails != null && _selectedLocationDetails!['date'] != null) {
-        postData['eventDate'] = _selectedLocationDetails!['date'];
-      }
-    } 
-    else if (_selectedLocationType == 'leisureProducer') {
-      postData['linkedId'] = _selectedLocationId;
-      postData['linkedType'] = 'leisure';
-      postData['leisureVenueId'] = _selectedLocationId;
-      postData['tags'] = [_selectedLocationName ?? 'Lieu culturel'];
-    }
-
     try {
-      final url = Uri.parse('${constants.getBaseUrl()}/api/posts');
+      final url = Uri.parse('${constants.getBaseUrl()}/api/choices');
+      final Map<String, int> aspectRatingsInt = _aspectRatings.map((key, value) => MapEntry(key, value.round()));
+
+      final payload = {
+        'userId': widget.currentUserId,
+        'targetId': widget.locationId,
+        'targetType': widget.locationType,
+        'aspects': aspectRatingsInt,
+        'review': _appreciationController.text.trim(),
+        // 'overallRating': ... // Le backend devrait calculer ça
+      };
+
+      print("📤 Envoi du Choice payload: ${json.encode(payload)}");
+
       final response = await http.post(
         url,
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode(postData),
-      );
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+        body: json.encode(payload),
+      ).timeout(const Duration(seconds: 15));
+
+       if (!mounted) return;
 
       if (response.statusCode == 201) {
+         final responseData = json.decode(response.body);
+         print("✅ Choice créé avec succès: ${responseData['_id']}");
+         Navigator.pop(context); // Fermer le bottom sheet
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Post créé avec succès !'),
-            backgroundColor: Colors.green,
-          ),
+          const SnackBar(content: Text('Votre Choice a été ajouté !'), backgroundColor: Colors.green),
         );
-        Navigator.pop(context); // Revenir au profil après la création
+         widget.onSubmitSuccess(); // Rafraîchir la page profil
       } else {
-        print('Erreur : ${response.body}');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erreur lors de la création du post: ${response.body}'),
-            backgroundColor: Colors.red,
-          ),
-        );
+         print("❌ Erreur soumission Choice (${response.statusCode}): ${response.body}");
+         String errorMessage = 'Erreur serveur.';
+         try { errorMessage = json.decode(response.body)['message'] ?? errorMessage; } catch (_) {}
+         setState(() { _isLoading = false; _submitError = errorMessage; });
       }
     } catch (e) {
-      print('Erreur réseau : $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Erreur réseau: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    } finally {
-      setState(() {
-        _isLoading = false;
-      });
-    }
-  }
-
-  /// Fonction pour sélectionner une photo ou une vidéo
-  Future<void> _uploadMedia(bool isImage) async {
-    final XFile? mediaFile = await (isImage
-        ? _picker.pickImage(source: ImageSource.gallery, imageQuality: 50)
-        : _picker.pickVideo(source: ImageSource.gallery));
-
-    if (mediaFile != null) {
-      final mediaPath = kIsWeb ? mediaFile.path : mediaFile.path;
-      final mediaType = isImage ? "image" : "video";
-
+       print("❌ Exception soumission Choice: $e");
       if (mounted) {
-        setState(() {
-          _mediaUrl = mediaPath;
-          _mediaType = mediaType;
-        });
-      }
-    } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Aucun fichier sélectionné.')),
-        );
-      }
+          setState(() { _isLoading = false; _submitError = 'Erreur réseau/Timeout.'; });
+       }
     }
-  }
-
-  /// Fonction pour effectuer une recherche
-  Future<void> _performSearch(String query) async {
-    if (query.isEmpty) {
-      setState(() {
-        _searchResults = [];
-      });
-      return;
-    }
-
-    try {
-      final url = Uri.parse('${constants.getBaseUrl()}/api/unified/search?query=$query');
-      final response = await http.get(url);
-
-      if (response.statusCode == 200) {
-        final results = json.decode(response.body) as List<dynamic>;
-        setState(() {
-          _searchResults = results;
-        });
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Aucun résultat trouvé.')),
-        );
-        setState(() {
-          _searchResults = [];
-        });
-      }
-    } catch (e) {
-      print('Erreur réseau : $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Erreur réseau.')),
-      );
-    }
-  }
-
-  void _resetSelection() {
-    setState(() {
-      _selectedLocationId = null;
-      _selectedLocationType = null;
-      _selectedLocationName = null;
-      _selectedLocationDetails = null;
-      _locationNameController.clear();
-      _selectedMenuItems = [];
-      _isVerified = false;
-      _verificationResult = null;
-      _initializeAspectRatings(); // Réinitialiser les notes
-    });
-  }
-  
-  // Ajouter un plat au menu (pour les restaurants)
-  void _addMenuItem() {
-    if (_menuItemController.text.isEmpty) return;
-    
-    setState(() {
-      _selectedMenuItems.add(_menuItemController.text);
-      _menuItemController.clear();
-    });
-  }
-  
-  // Supprimer un plat du menu
-  void _removeMenuItem(int index) {
-    setState(() {
-      _selectedMenuItems.removeAt(index);
-    });
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Partagez votre expérience'),
-        backgroundColor: Colors.teal,
-        foregroundColor: Colors.white,
-        actions: [
-          if (_isVerified && !_isLoading)
-            TextButton(
-              onPressed: _createPost,
-              child: const Text('PUBLIER', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-            ),
-          ],
-        ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Section de recherche de lieu
-            if (_selectedLocationId == null) ...[
-              const Text(
-                'Où êtes-vous allé(e) ?',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 12),
-        TextField(
-                controller: _locationNameController,
-                onChanged: _performSearch,
-          decoration: InputDecoration(
-                  hintText: 'Recherchez un restaurant ou un événement...',
-            prefixIcon: const Icon(Icons.search),
-            border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-              if (_searchResults.isNotEmpty)
-                Container(
-                  height: 250,
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Colors.grey.shade300),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: ListView.separated(
-                    itemCount: _searchResults.length,
-                    separatorBuilder: (context, index) => const Divider(height: 1),
-                    itemBuilder: (context, index) {
-                      final item = _searchResults[index];
-                      
-                      // Déterminer le type et les propriétés de l'élément
-                      final bool isRestaurant = item['type'] == 'restaurant' || (item['name'] != null && item['address'] != null);
-                      final bool isEvent = item['type'] == 'event' || item['intitulé'] != null || item['titre'] != null;
-                      final bool isLeisureVenue = item['type'] == 'leisureProducer' || (item['nom'] != null || item['lieu'] != null);
-                      
-                      String title = item['name'] ?? item['intitulé'] ?? item['titre'] ?? item['nom'] ?? item['lieu'] ?? 'Sans nom';
-                      String subtitle = item['address'] ?? item['adresse'] ?? item['lieu'] ?? '';
-                      String type = isRestaurant ? 'restaurant' : (isEvent ? 'event' : 'leisureProducer');
-                      
-                      return ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: isRestaurant ? Colors.amber.shade200 : 
-                                           isEvent ? Colors.teal.shade200 : 
-                                           Colors.purple.shade200,
-                          child: Icon(
-                            isRestaurant ? Icons.restaurant : 
-                            isEvent ? Icons.event : 
-                            Icons.museum,
-                            color: isRestaurant ? Colors.amber.shade800 : 
-                                   isEvent ? Colors.teal.shade800 : 
-                                   Colors.purple.shade800,
-                          ),
-                        ),
-                        title: Text(title),
-                        subtitle: Text(subtitle),
-          onTap: () {
-            setState(() {
-                            _selectedLocationId = item['_id'];
-                            _selectedLocationType = type;
-                            _selectedLocationName = title;
-                            _selectedLocationDetails = item;
-                            _searchResults = [];
-                            
-                            // Mettre à jour les aspects de notation en fonction du type de lieu
-                            _updateAspectRatings(type, item);
-                          });
-                          
-                          // Vérifier si l'utilisateur a visité ce lieu
-                          _verifyLocationVisit();
-                        },
-                      );
-                    },
-                  ),
-                ),
-            ],
-            
-            // Lieu sélectionné et statut de vérification
-            if (_selectedLocationId != null) ...[
-              // Affichage du lieu sélectionné
-              Card(
-                elevation: 2,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
+    IconData headerIcon = Icons.place; Color headerColor = Colors.grey;
+    switch (widget.locationType.toLowerCase()) {
+      case 'restaurant': headerIcon = Icons.restaurant; headerColor = Colors.orange; break;
+      case 'event': headerIcon = Icons.event; headerColor = Colors.blue; break;
+      case 'leisureproducer': headerIcon = Icons.museum; headerColor = Colors.purple; break;
+      case 'wellness': headerIcon = Icons.spa; headerColor = Colors.green; break;
+    }
+
+    return SingleChildScrollView(
+      controller: widget.scrollController,
+      padding: EdgeInsets.only(
+        left: 20, right: 20, top: 20,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+      ),
                   child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+          // Header
         Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-                          CircleAvatar(
-                            backgroundColor: _selectedLocationType == 'restaurant' ? Colors.amber.shade200 :
-                                             _selectedLocationType == 'event' ? Colors.teal.shade200 :
-                                             Colors.purple.shade200,
-                            radius: 24,
-                            child: Icon(
-                              _selectedLocationType == 'restaurant' ? Icons.restaurant :
-                              _selectedLocationType == 'event' ? Icons.event :
-                              Icons.museum,
-                              size: 24,
-                              color: _selectedLocationType == 'restaurant' ? Colors.amber.shade800 :
-                                     _selectedLocationType == 'event' ? Colors.teal.shade800 :
-                                     Colors.purple.shade800,
-                            ),
-                          ),
+              CircleAvatar(backgroundColor: headerColor.withOpacity(0.2), foregroundColor: headerColor, child: Icon(headerIcon)),
                           const SizedBox(width: 16),
-            Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  _selectedLocationName ?? 'Lieu sélectionné',
-                style: const TextStyle(
-                                    fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  _selectedLocationType == 'restaurant' ? 'Restaurant' :
-                                  _selectedLocationType == 'event' ? 'Événement' :
-                                  'Lieu culturel',
-                                  style: TextStyle(
-                                    color: Colors.grey[600],
-                                    fontSize: 14,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.close),
-                            onPressed: _resetSelection,
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        
-                      // Statut de vérification
-                      if (_isVerifying)
-                        const Center(
-                          child: Padding(
-                            padding: EdgeInsets.symmetric(vertical: 12.0),
-                            child: Column(
-                              children: [
-                                CircularProgressIndicator(),
-                                SizedBox(height: 8),
-                                Text('Vérification de votre visite...'),
-                              ],
-                            ),
-                          ),
-                        )
-                      else if (_isVerified)
-                        Container(
-                          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                          decoration: BoxDecoration(
-                            color: Colors.green.shade50,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.green.shade300),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(Icons.check_circle, color: Colors.green.shade700),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'Visite vérifiée !',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-                                        color: Colors.green.shade800,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      'Vous pouvez partager votre expérience.',
-                                      style: TextStyle(
-                                        color: Colors.green.shade800,
-                                        fontSize: 14,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        )
-                      else
-                        Container(
-                          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                          decoration: BoxDecoration(
-                            color: Colors.orange.shade50,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.orange.shade300),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Icon(Icons.info, color: Colors.orange.shade700),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Text(
-                                      'Vérification de visite requise',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.orange.shade800,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                'Pour partager votre expérience, vous devez avoir passé au moins 30 minutes sur place dans les 7 derniers jours.',
-                                style: TextStyle(
-                                  color: Colors.orange.shade800,
-                                  fontSize: 14,
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              SizedBox(
-                                width: double.infinity,
-                                child: ElevatedButton(
-                                  onPressed: _verifyLocationVisit,
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.orange,
-                                    foregroundColor: Colors.white,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                  ),
-                                  child: const Text('VÉRIFIER MA VISITE'),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-              
-              // Section d'évaluation (uniquement si visite vérifiée)
-              if (_isVerified) ...[
-                const Text(
-                  'Évaluez votre expérience',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 16),
-        
-                // Notes par aspect
-                ...List.generate(_aspectRatings.entries.length, (index) {
-                  final entry = _aspectRatings.entries.elementAt(index);
-                  final aspect = entry.key;
-                  final rating = entry.value;
-                  
-                  // Formater l'affichage de l'aspect
-                  String displayAspect = aspect
-                      .replaceAll('_', ' ')
-                      .split(' ')
-                      .map((word) => word.isNotEmpty 
-                          ? word[0].toUpperCase() + word.substring(1) 
-                          : '')
-                      .join(' ');
-                  
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    elevation: 1,
-                    child: Padding(
-                      padding: const EdgeInsets.all(12.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                                displayAspect,
-                  style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                                ),
-                              ),
-                              Text(
-                                '${rating.toStringAsFixed(1)}/5',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          SliderTheme(
-                            data: SliderTheme.of(context).copyWith(
-                              activeTrackColor: Colors.teal,
-                              inactiveTrackColor: Colors.teal.shade100,
-                              thumbColor: Colors.teal,
-                              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 12),
-                            ),
-                      child: Slider(
-                              value: rating,
-                        min: 0.0,
-                              max: 5.0,
-                        divisions: 10,
-                        onChanged: (value) {
-                          setState(() {
-                                  _aspectRatings[aspect] = value;
-                          });
-                        },
-                      ),
-                    ),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text('Insuffisant', style: TextStyle(fontSize: 12)),
-                              const Text('Excellent', style: TextStyle(fontSize: 12)),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                }),
-                
-                // Pour les restaurants - plats consommés
-                if (_selectedLocationType == 'restaurant') ...[
-                  const SizedBox(height: 20),
-                  const Text(
-                    'Plats consommés',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _menuItemController,
-                          decoration: InputDecoration(
-                            hintText: 'Ex: Salade César, Burger...',
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      IconButton(
-                        onPressed: _addMenuItem,
-                        icon: const Icon(Icons.add),
-                        style: IconButton.styleFrom(
-                          backgroundColor: Colors.teal,
-                          foregroundColor: Colors.white,
-                        ),
-                ),
-              ],
-            ),
-                  if (_selectedMenuItems.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: List.generate(_selectedMenuItems.length, (index) {
-                        return Chip(
-                          label: Text(_selectedMenuItems[index]),
-                          deleteIcon: const Icon(Icons.close, size: 16),
-                          onDeleted: () => _removeMenuItem(index),
-                          backgroundColor: Colors.grey.shade200,
-                        );
-                      }),
-                    ),
-                  ],
-                ],
-              ],
-              
-              const SizedBox(height: 20),
-              
-              // Section de contenu
-              const Text(
-                'Partagez votre expérience',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 12),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                 const Text('Ajouter un Choice', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                 Text(widget.locationName, style: TextStyle(fontSize: 16, color: Colors.grey[700]), maxLines: 1, overflow: TextOverflow.ellipsis),
+              ])),
+              IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
+            ],
+          ),
+          const Divider(height: 30),
+
+           if (_submitError != null)
+             Padding(
+               padding: const EdgeInsets.only(bottom: 15.0),
+               child: Text(_submitError!, style: const TextStyle(color: Colors.red, fontSize: 14)),
+             ),
+
+          // Sliders
+          ..._aspectRatings.entries.map((entry) {
+             final aspectKey = entry.key;
+             final ratingValue = entry.value;
+             final displayAspect = aspectKey.replaceAll('_', ' ').split(' ').map((w) => w.isNotEmpty ? w[0].toUpperCase() + w.substring(1) : '').join(' ');
+
+             return Padding(
+               padding: const EdgeInsets.only(bottom: 16.0),
+               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(displayAspect, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 4),
+                  Row(children: [
+                     Expanded(child: Slider(
+                        value: ratingValue, min: 0.0, max: 10.0, divisions: 10,
+                        activeColor: Colors.teal, inactiveColor: Colors.teal.shade100,
+                        label: ratingValue.round().toString(),
+                        onChanged: (value) => setState(() => _aspectRatings[aspectKey] = value),
+                     )),
+                     Container(width: 40, alignment: Alignment.center, child: Text(ratingValue.round().toString(), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))),
+                  ]),
+               ]),
+             );
+          }).toList(),
+
+          const SizedBox(height: 16),
+
+          // Review Text Field
+          const Text('Appréciation globale', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
         TextField(
-                controller: _contentController,
-                maxLines: 5,
+            controller: _appreciationController,
+            maxLines: 4,
+            textCapitalization: TextCapitalization.sentences,
           decoration: InputDecoration(
-                  hintText: 'Qu\'avez-vous pensé de cet endroit ?',
-            border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                ),
-                maxLength: 500,
-              ),
-              const SizedBox(height: 20),
-              
-              // Section média
-              const Text(
-                'Ajouter des photos ou vidéos',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () => _uploadMedia(true),
-                      icon: const Icon(Icons.photo),
-                      label: const Text('Photo'),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () => _uploadMedia(false),
-                      icon: const Icon(Icons.videocam),
-                      label: const Text('Vidéo'),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              if (_mediaUrl != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 16),
-                  child: Stack(
-                    children: [
-                      _mediaType == "image"
-                          ? ClipRRect(
-                              borderRadius: BorderRadius.circular(10),
-                              child: Image.network(
-                                _mediaUrl!,
-                                height: 200,
-                                width: double.infinity,
-                                fit: BoxFit.cover,
-                              ),
-                            )
-                          : Container(
-                              height: 200,
-                              width: double.infinity,
-                              decoration: BoxDecoration(
-                                color: Colors.grey.shade200,
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: const Center(
-                                child: Icon(Icons.videocam, size: 50, color: Colors.grey),
-                              ),
-                            ),
-                      Positioned(
-                        right: 8,
-                        top: 8,
-                        child: InkWell(
-                          onTap: () {
-                            setState(() {
-                              _mediaUrl = null;
-                              _mediaType = null;
-                            });
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.all(4),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withOpacity(0.6),
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(
-                              Icons.close,
-                              color: Colors.white,
-                              size: 20,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              const SizedBox(height: 24),
-              
-              // Bouton de publication (pour les petits écrans)
-              if (MediaQuery.of(context).size.width < 600)
+              hintText: 'Partagez votre expérience...',
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade300)),
+              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Colors.teal, width: 1.5)),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            ),
+          ),
+          const SizedBox(height: 30),
+
+          // Submit Button
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
-                    onPressed: _isVerified && !_isLoading ? _createPost : null,
+              onPressed: _isLoading ? null : _submit,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.teal,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      disabledBackgroundColor: Colors.grey.shade300,
+                backgroundColor: Colors.teal, foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                disabledBackgroundColor: Colors.teal.withOpacity(0.5),
                     ),
                     child: _isLoading
-                        ? const SizedBox(
-                            width: 24,
-                            height: 24,
-                            child: CircularProgressIndicator(
-                              color: Colors.white,
-                              strokeWidth: 2,
-                            ),
-                          )
-                        : const Text(
-                            'PUBLIER',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                  ),
-                ),
-            ],
-          ],
-        ),
+                  ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3))
+                  : const Text('SOUMETTRE MON CHOICE', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            ),
+          ),
+        ],
       ),
     );
+  }
+}
+
+
+// Classe factice pour mongoose.isValidObjectId
+class mongoose {
+   static bool isValidObjectId(String? id) {
+      if (id == null) return false;
+      final RegExp objectIdRegExp = RegExp(r'^[0-9a-fA-F]{24}$');
+      return objectIdRegExp.hasMatch(id);
   }
 }

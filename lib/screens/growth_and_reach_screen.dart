@@ -6,7 +6,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:percent_indicator/circular_percent_indicator.dart';
 import 'package:percent_indicator/linear_percent_indicator.dart';
 import 'package:provider/provider.dart';
-import 'utils.dart';
+import '../utils.dart';
 import '../models/growth_analytics_models.dart';
 import '../models/producer_type.dart';
 import '../services/growth_analytics_service.dart';
@@ -14,7 +14,6 @@ import '../services/producer_type_service.dart';
 import '../services/auth_service.dart';
 import '../widgets/loading_indicator.dart';
 import '../widgets/error_message.dart';
-import '../widgets/trend_chart.dart';
 import '../services/marketing_campaign_service.dart';
 import '../services/premium_feature_service.dart';
 import '../screens/subscription_screen.dart';
@@ -59,7 +58,6 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
   String _userName = '';
   String _userPhoto = '';
   String _producerName = '';
-  Map<String, dynamic>? _userProfile;
   Map<String, dynamic>? _producerData;
   late ProducerType _producerType;
   
@@ -124,7 +122,6 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
     }
     
     try {
-      await _loadUserProfile();
       await _loadProducerDetails();
       await _loadSubscriptionLevel();
       await _checkPremiumFeatureAccess();
@@ -133,22 +130,22 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
       final trendsFuture = _analyticsService.getTrends(widget.producerId, metrics: _trendMetrics, period: _selectedPeriod);
       final recommendationsFuture = _analyticsService.getRecommendations(widget.producerId);
 
-      Future<DemographicsData?> demographicsFuture = _premiumFeaturesAccess['audience_demographics'] ?? false
+      Future<DemographicsData?> demographicsFuture = (_premiumFeaturesAccess['audience_demographics'] ?? false)
           ? _analyticsService.getDemographics(widget.producerId, period: _selectedPeriod)
           : Future.value(null);
 
-      Future<GrowthPredictions?> predictionsFuture = _premiumFeaturesAccess['growth_predictions'] ?? false
+      Future<GrowthPredictions?> predictionsFuture = (_premiumFeaturesAccess['growth_predictions'] ?? false)
           ? _analyticsService.getPredictions(widget.producerId)
           : Future.value(null);
 
-      Future<CompetitorAnalysis?> competitorAnalysisFuture = _premiumFeaturesAccess['advanced_analytics'] ?? false
+      Future<CompetitorAnalysis?> competitorAnalysisFuture = (_premiumFeaturesAccess['advanced_analytics'] ?? false)
           ? _analyticsService.getCompetitorAnalysis(widget.producerId, period: _selectedPeriod)
           : Future.value(null);
 
-      Future<void> campaignsFuture = _premiumFeaturesAccess['simple_campaigns'] ?? false
+      Future<void> campaignsFuture = (_premiumFeaturesAccess['simple_campaigns'] ?? false)
           ? _loadCampaigns()
           : Future.value();
-      Future<void> audiencesFuture = _premiumFeaturesAccess['advanced_targeting'] ?? false
+      Future<void> audiencesFuture = (_premiumFeaturesAccess['advanced_targeting'] ?? false)
           ? _loadAudiences()
           : Future.value();
 
@@ -179,7 +176,11 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
       print('❌ Erreur lors du chargement initial des données: $e');
       if (mounted) {
         setState(() {
-          _error = 'Impossible de charger les données analytiques. Veuillez réessayer.';
+           if (e.toString().contains("Authentication token is missing") || e.toString().contains("No token available") || e.toString().contains("Invalid token") || e.toString().contains("Unauthorized")) {
+             _error = "Session invalide ou expirée. Veuillez vous reconnecter.";
+           } else {
+              _error = 'Impossible de charger les données analytiques. Veuillez réessayer.\n$e';
+           }
           _isLoading = false;
           _checkingPremiumAccess = false;
         });
@@ -217,7 +218,7 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
       for (final feature in _premiumFeaturesAccess.keys) {
         final hasAccess = await _premiumFeatureService.canAccessFeature(
           widget.producerId,
-          feature
+          feature,
         );
         accessResults[feature] = hasAccess;
       }
@@ -236,41 +237,11 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
     final shouldUpgrade = await _premiumFeatureService.showUpgradeDialog(
       context,
       widget.producerId,
-      featureId
+      featureId,
     );
     
     if (shouldUpgrade && mounted) {
       _loadInitialData();
-    }
-  }
-  
-  Future<void> _loadUserProfile() async {
-    try {
-      final AuthService authService = Provider.of<AuthService>(context, listen: false);
-      final userId = authService.userId;
-      
-      if (userId == null) {
-        return;
-      }
-      
-      final baseUrl = constants.getBaseUrlSync();
-      final url = Uri.parse('$baseUrl/api/users/$userId');
-      
-      final response = await http.get(
-        url,
-        headers: {'Content-Type': 'application/json'},
-      );
-      
-      if (response.statusCode == 200 && mounted) {
-        final userData = json.decode(response.body);
-        setState(() {
-          _userProfile = userData;
-          _userName = userData['username'] ?? 'Utilisateur';
-          _userPhoto = userData['profilePicture'] ?? '';
-        });
-      }
-    } catch (e) {
-      print('❌ Erreur lors du chargement du profil: $e');
     }
   }
   
@@ -285,6 +256,8 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
         setState(() {
           _producerData = details;
           _producerName = details['businessName'] ?? details['name'] ?? details['établissement'] ?? details['lieu'] ?? 'Établissement';
+          _userPhoto = details['logoUrl'] ?? details['profilePicture'] ?? details['image'] ?? '';
+          _userName = _producerName;
         });
       }
     } catch (e) {
@@ -292,6 +265,8 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
       if (mounted) {
         setState(() {
           _producerName = 'Établissement';
+          _userName = 'Établissement';
+          _userPhoto = '';
         });
       }
     }
@@ -1812,5 +1787,114 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
      ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message), duration: Duration(seconds: 2)),
      );
+  }
+}
+
+class PremiumFeatureTeaser extends StatelessWidget {
+  final String title;
+  final String description;
+  final String featureId;
+  final Widget child;
+  final String producerId;
+  final Color? color;
+  final IconData? icon;
+
+  const PremiumFeatureTeaser({
+    Key? key,
+    required this.title,
+    required this.description,
+    required this.featureId,
+    required this.child,
+    required this.producerId,
+    this.color,
+    this.icon,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    final themeColor = color ?? Theme.of(context).primaryColor;
+    return Card(
+      elevation: 1,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: themeColor.withOpacity(0.3)),
+      ),
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: ColorFiltered(
+                 colorFilter: ColorFilter.mode(Colors.grey.withOpacity(0.6), BlendMode.srcATop),
+                 child: child,
+              ),
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.all(16.0),
+            decoration: BoxDecoration(
+               borderRadius: BorderRadius.circular(12),
+               gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                     Colors.black.withOpacity(0.5),
+                     Colors.black.withOpacity(0.7),
+                  ],
+               ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (icon != null)
+                  Icon(icon, size: 36, color: themeColor.withOpacity(0.8)),
+                SizedBox(height: 8),
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                SizedBox(height: 8),
+                Text(
+                  description,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.white.withOpacity(0.85),
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                SizedBox(height: 16),
+                ElevatedButton.icon(
+                   icon: Icon(Icons.lock_open_outlined, size: 16),
+                   label: Text('Débloquer'),
+                   onPressed: () async {
+                      final premiumService = PremiumFeatureService();
+                      final shouldUpgrade = await premiumService.showUpgradeDialog(
+                         context,
+                         producerId,
+                         featureId,
+                      );
+                      if (shouldUpgrade && context.mounted) {
+                         final state = context.findAncestorStateOfType<_GrowthAndReachScreenState>();
+                         state?._loadInitialData();
+                      }
+                   },
+                   style: ElevatedButton.styleFrom(
+                      backgroundColor: themeColor,
+                      foregroundColor: Colors.white,
+                      padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                   ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

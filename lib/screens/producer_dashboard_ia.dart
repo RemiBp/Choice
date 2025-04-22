@@ -1447,197 +1447,204 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
   }
 
   Widget _buildCompetitorsList() {
-    // Exemple d'appel avec des données factices pour éviter l'erreur de compilation
-    return Column(
-      children: [
-        _buildCompetitorItem(
-          name: 'Exemple',
-          rating: 4.2,
-          distance: '1.2 km',
-          priceLevel: 2,
-          category: ['Italien', 'Pizza'],
+    if (_extractedProfiles.isEmpty) {
+      // Afficher un message si aucun concurrent n'a été extrait
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 16.0),
+        child: Center(
+          child: Text(
+            "Cliquez sur 'Analyser en détail' pour voir les concurrents.",
+            style: TextStyle(color: Colors.grey),
+            textAlign: TextAlign.center,
+          ),
         ),
-      ],
+      );
+    }
+
+    // Afficher la liste des concurrents extraits
+    return Column(
+      children: _extractedProfiles.map((profile) {
+        // S'assurer que les données nécessaires existent, fournir des valeurs par défaut si nécessaire
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12.0), // Ajouter un espacement entre les éléments
+          child: _buildCompetitorItem(
+            name: profile.name ?? 'Nom inconnu',
+            rating: profile.rating ?? 0.0,
+            address: profile.address ?? '', // Utiliser le champ address
+            priceLevel: profile.priceLevel, // priceLevel peut être null
+            category: profile.category ?? [], // Utiliser une liste vide si null
+            imageUrl: profile.image, // Passer l'URL de l'image
+          ),
+        );
+      }).toList(),
     );
   }
 
   Widget _buildCompetitorItem({
     required String name,
     required double rating,
-    required String distance,
+    required String address,
     dynamic priceLevel,
     List<dynamic>? category,
+    String? imageUrl, // Ajout du paramètre imageUrl
   }) {
-    final imageProvider = getImageProvider(name);
+    // Utiliser imageUrl pour getImageProvider s'il est disponible, sinon null
+    final imageProvider = imageUrl != null && imageUrl.isNotEmpty ? getImageProvider(imageUrl) : null;
     final catList = category ?? [];
-    return Container(
-      padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
+    
+    // Structure du Widget Card pour chaque concurrent
+    return Card(
+      elevation: 2,
+      margin: EdgeInsets.zero, // Enlever la marge par défaut de Card
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        color: Colors.grey[50],
-        border: Border.all(color: Colors.grey[200]!),
+        side: BorderSide(color: Colors.grey[200]!, width: 1),
       ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              // Logo/Image
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Stack(
-                  children: [
-                    Container(
-                      height: 100,
-                      width: double.infinity,
-                      color: _getColorForType().withOpacity(0.1),
-                      child: imageProvider != null
-                        ? Image(
-                            image: imageProvider,
-                            fit: BoxFit.cover,
-                          )
-                        : Center(
-                            child: Icon(
-                              _getIconForProducerType(),
-                              color: _getColorForType(),
-                              size: 40,
-                            ),
-                          ),
-                    ),
-                    // Badge de type en haut à droite
-                    Positioned(
-                      top: 8,
-                      right: 8,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: _getBackgroundColorForType(),
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              _getIconForProducerType(),
-                              color: _getColorForType(),
-                              size: 12,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              _getLabelForProducerType(),
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: _getColorForType(),
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () {
+          // TODO: Implémenter la navigation vers le profil du concurrent si nécessaire
+          print("Tapped on competitor: $name");
+        },
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Image
+            ClipRRect(
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(12),
+                bottomLeft: Radius.circular(12),
+              ),
+              child: Container(
+                width: 100,
+                height: 130, // Hauteur fixe pour l'image
+                color: _getColorForType().withOpacity(0.1),
+                child: imageProvider != null
+                  ? Image(
+                      image: imageProvider,
+                      fit: BoxFit.cover,
+                      height: 130,
+                      width: 100,
+                      errorBuilder: (context, error, stackTrace) => Center(
+                        child: Icon(
+                          _getIconForProducerType(), // Icône par défaut basée sur le type
+                          color: _getColorForType(),
+                          size: 40,
                         ),
                       ),
+                    )
+                  : Center(
+                      child: Icon(
+                        _getIconForProducerType(), // Icône par défaut basée sur le type
+                        color: _getColorForType(),
+                        size: 40,
+                      ),
                     ),
-                  ],
-                ),
               ),
-              
-              // Contenu
-              Padding(
-                padding: const EdgeInsets.all(12),
+            ),
+
+            // Contenu
+            Expanded( // Utiliser Expanded pour que le contenu prenne la place restante
+              child: Padding(
+                padding: const EdgeInsets.only(left: 12.0), // Padding à gauche de l'image
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     // Nom
-              Text(
-                name,
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              
-                    // Adresse
-                    if (distance != null && distance.isNotEmpty) ...[
+                    Text(
+                      name,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    
+                    // Adresse/Distance
+                    if (address.isNotEmpty) ...[
                       const SizedBox(height: 4),
                       Row(
                         children: [
-                          Icon(Icons.location_on, size: 12, color: Colors.grey[600]),
+                          Icon(Icons.location_on_outlined, size: 13, color: Colors.grey[600]),
                           const SizedBox(width: 4),
                           Expanded(
-                  child: Text(
-                    distance,
-                              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
+                            child: Text(
+                              address, // Afficher l'adresse
+                              style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                              maxLines: 1, // Limiter à une ligne
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
                         ],
                       ),
                     ],
-                    
+
                     const SizedBox(height: 8),
-                    
-                    // Note et prix
+
+                    // Note et Prix
                     Row(
-                  children: [
-                    if (rating != null) ...[
+                      children: [
+                        if (rating > 0) ...[ // Afficher seulement si la note est > 0
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                             decoration: BoxDecoration(
-                              color: Colors.amber.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(4),
+                              color: Colors.amber.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(6),
                             ),
                             child: Row(
                               children: [
-                                const Icon(Icons.star, color: Colors.amber, size: 12),
-                                const SizedBox(width: 2),
+                                const Icon(Icons.star_rounded, color: Colors.amber, size: 14),
+                                const SizedBox(width: 3),
                                 Text(
                                   rating.toStringAsFixed(1),
                                   style: const TextStyle(
                                     fontSize: 12,
                                     fontWeight: FontWeight.bold,
+                                    color: Colors.black87,
                                   ),
                                 ),
                               ],
                             ),
                           ),
-                      const SizedBox(width: 8),
-                    ],
-                    
-                    if (priceLevel != null) ...[
+                          const SizedBox(width: 8),
+                        ],
+
+                        if (priceLevel != null) ...[
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                             decoration: BoxDecoration(
                               color: Colors.green.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(4),
+                              borderRadius: BorderRadius.circular(6),
                             ),
                             child: Text(
                               _getPriceSymbol(priceLevel),
                               style: TextStyle(
                                 fontSize: 12,
                                 fontWeight: FontWeight.bold,
-                                color: Colors.green[700],
+                                color: Colors.green[800],
                               ),
                             ),
-                      ),
-                    ],
-                  ],
-              ),
-              
-                    const SizedBox(height: 8),
-                    
+                          ),
+                        ],
+                      ],
+                    ),
+
+                    const SizedBox(height: 10),
+
                     // Catégories
-              if (catList.isNotEmpty)
+                    if (catList.isNotEmpty)
                       Wrap(
-                        spacing: 4,
-                        runSpacing: 4,
+                        spacing: 5,
+                        runSpacing: 5,
                         children: catList.take(2).map((cat) {
                           return Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
                               color: Colors.grey[200],
-                              borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
                               cat.toString(),
                               style: TextStyle(fontSize: 10, color: Colors.grey[800]),
                             ),
@@ -1646,10 +1653,10 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
                       ),
                   ],
                 ),
-                ),
-            ],
-          ),
-        ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

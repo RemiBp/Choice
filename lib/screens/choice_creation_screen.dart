@@ -23,6 +23,7 @@ class ChoiceCreationScreen extends StatefulWidget {
 }
 
 class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
+  // Force à vide pour commencer par la sélection du type
   String _selectedType = '';
   Map<String, dynamic>? _selectedLocation;
   final Map<String, double> _ratings = {};
@@ -72,9 +73,30 @@ class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
   void initState() {
     super.initState();
     _initializeRatings();
+    
+    // S'assurer que l'état est bien réinitialisé au démarrage
+    _resetSelection();
+  }
+  
+  // Fonction pour réinitialiser la sélection et revenir au choix du type
+  void _resetSelection() {
+    setState(() {
+      _selectedType = '';
+      _selectedLocation = null;
+      _isVerified = false;
+      _isVerifying = false;
+      _createPost = false;
+      _commentController.clear();
+      _selectedEmotions.clear();
+      _menuItems.clear();
+      _initializeRatings(); // Réinitialiser les notes
+    });
   }
 
   void _initializeRatings() {
+    // Vider les anciennes notes
+    _ratings.clear();
+    
     // Initialize with default ratings
     _restaurantAspects.forEach((key, _) {
       _ratings[key] = 5.0;
@@ -212,7 +234,28 @@ class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Nouveau Choice'),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            if (_selectedType.isNotEmpty && _selectedLocation == null) {
+              // Si un type est sélectionné mais pas de lieu, revenir à la sélection du type
+              _resetSelection();
+            } else {
+              // Sinon, fermer l'écran
+              Navigator.pop(context);
+            }
+          },
+        ),
         actions: [
+          if (_selectedType.isNotEmpty && _selectedLocation != null && !_isVerified)
+            TextButton.icon(
+              icon: const Icon(Icons.restore, color: Colors.white),
+              label: const Text(
+                'CHANGER TYPE',
+                style: TextStyle(color: Colors.white),
+              ),
+              onPressed: _resetSelection,
+            ),
           if (_isVerified && !_isLoading)
             TextButton.icon(
               icon: const Icon(Icons.check, color: Colors.white),
@@ -243,6 +286,28 @@ class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
             ] else ...[
               // Location search
               if (_selectedLocation == null) ...[
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      _selectedType == 'restaurant'
+                          ? 'Restaurant'
+                          : _selectedType == 'event'
+                              ? 'Événement'
+                              : 'Bien-être',
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    TextButton.icon(
+                      icon: const Icon(Icons.arrow_back),
+                      label: const Text('CHANGER'),
+                      onPressed: _resetSelection,
+                    ),
+                  ],
+                ),
+                const Divider(),
                 _buildLocationSearch(),
               ] else ...[
                 // Location verification

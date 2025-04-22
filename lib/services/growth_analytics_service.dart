@@ -18,6 +18,10 @@ class GrowthAnalyticsService {
   Future<GrowthOverview?> getOverview(String producerId, {String period = '30d'}) async {
     try {
       final token = await AuthService.getToken(); // Get token
+      // Add explicit token check
+      if (token == null || token.isEmpty) {
+        throw Exception('Authentication token is missing');
+      }
       final url = Uri.parse('$_apiBaseUrl/$producerId/overview?period=$period');
       final response = await http.get(url, headers: {
         'Accept': 'application/json',
@@ -44,6 +48,10 @@ class GrowthAnalyticsService {
   Future<GrowthTrends?> getTrends(String producerId, {List<String> metrics = const ['followers', 'profileViews'], String period = '30d'}) async {
     try {
       final token = await AuthService.getToken(); // Get token
+      // Add explicit token check
+      if (token == null || token.isEmpty) {
+        throw Exception('Authentication token is missing');
+      }
       // Construct the metrics query parameter
       final metricsParam = metrics.join(',');
       final url = Uri.parse('$_apiBaseUrl/$producerId/trends?period=$period&metrics=$metricsParam');
@@ -70,6 +78,10 @@ class GrowthAnalyticsService {
   Future<GrowthRecommendations?> getRecommendations(String producerId) async {
     try {
       final token = await AuthService.getToken(); // Get token
+      // Add explicit token check
+      if (token == null || token.isEmpty) {
+        throw Exception('Authentication token is missing');
+      }
       final url = Uri.parse('$_apiBaseUrl/$producerId/recommendations');
       final response = await http.get(url, headers: {
         'Accept': 'application/json',
@@ -96,6 +108,10 @@ class GrowthAnalyticsService {
   Future<DemographicsData?> getDemographics(String producerId, {String period = '30d'}) async {
     try {
       final token = await AuthService.getToken(); // Get token
+      // Add explicit token check
+      if (token == null || token.isEmpty) {
+        throw Exception('Authentication token is missing');
+      }
       final url = Uri.parse('$_apiBaseUrl/$producerId/demographics?period=$period');
       final response = await http.get(url, headers: {
         'Accept': 'application/json',
@@ -122,6 +138,10 @@ class GrowthAnalyticsService {
   Future<GrowthPredictions?> getPredictions(String producerId, {String horizon = '30d'}) async {
     try {
       final token = await AuthService.getToken(); // Get token
+      // Add explicit token check
+      if (token == null || token.isEmpty) {
+        throw Exception('Authentication token is missing');
+      }
       final url = Uri.parse('$_apiBaseUrl/$producerId/predictions?horizon=$horizon');
       final response = await http.get(url, headers: {
         'Accept': 'application/json',
@@ -148,6 +168,10 @@ class GrowthAnalyticsService {
   Future<CompetitorAnalysis?> getCompetitorAnalysis(String producerId, {String period = '30d'}) async {
     try {
       final token = await AuthService.getToken(); // Get token
+      // Add explicit token check
+      if (token == null || token.isEmpty) {
+        throw Exception('Authentication token is missing');
+      }
       final url = Uri.parse('$_apiBaseUrl/$producerId/competitor-analysis?period=$period');
       final response = await http.get(url, headers: {
         'Accept': 'application/json',

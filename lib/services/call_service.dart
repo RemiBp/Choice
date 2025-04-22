@@ -1,129 +1,327 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart'; // For kDebugMode
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
-import '../utils/constants.dart' as constants;
-// import 'package:socket_io_client/socket_io_client.dart' as IO;
-import '../config/api_config.dart';
-import '../services/auth_service.dart';
+import 'package:socket_io_client/socket_io_client.dart' as IO;
+import '../services/auth_service.dart'; // Assuming AuthService is correctly implemented
+import '../utils/constants.dart' as constants; // For base URL
 
-// Version simplifiée du service d'appel pour la démo
 class CallService {
-  final AuthService _authService = AuthService();
-  final String baseUrl;
-  
-  CallService({String? customBaseUrl}) : baseUrl = customBaseUrl ?? constants.getBaseUrlSync();
-  
-  // late IO.Socket _socket;
-  bool _isConnected = false;
-  
-  // Callbacks à définir par les utilisateurs du service
-  Function(Map<String, dynamic>)? onIncomingCall;
-  Function(Map<String, dynamic>)? onCallAccepted;
-  Function(Map<String, dynamic>)? onCallRejected;
-  Function(Map<String, dynamic>)? onCallEnded;
-  Function(Map<String, dynamic>)? onIceCandidate;
-  Function(Map<String, dynamic>)? onOffer;
-  Function(Map<String, dynamic>)? onAnswer;
-  
-  // Méthode pour obtenir le token (simulée si non disponible)
-  Future<String> _getToken() async {
+  final AuthService _authService = AuthService(); // Get instance of AuthService
+  final String _baseUrl = constants.getBaseUrlSync(); // Get base URL synchronously
+  IO.Socket? _socket;
+
+  // StreamControllers to notify UI about call events
+  final StreamController<Map<String, dynamic>> _incomingCallController = StreamController.broadcast();
+  final StreamController<Map<String, dynamic>> _callEndedController = StreamController.broadcast();
+  final StreamController<Map<String, dynamic>> _callAcceptedController = StreamController.broadcast(); // When recipient accepts
+  final StreamController<Map<String, dynamic>> _callRejectedController = StreamController.broadcast(); // When recipient rejects
+  final StreamController<Map<String, dynamic>> _participantJoinedController = StreamController.broadcast();
+  final StreamController<Map<String, dynamic>> _participantLeftController = StreamController.broadcast();
+  // Stream for WebRTC signaling messages (received from others)
+  final StreamController<Map<String, dynamic>> _signalingController = StreamController.broadcast();
+
+
+  // Streams for UI to listen to
+  Stream<Map<String, dynamic>> get incomingCallStream => _incomingCallController.stream;
+  Stream<Map<String, dynamic>> get callEndedStream => _callEndedController.stream;
+  Stream<Map<String, dynamic>> get callAcceptedStream => _callAcceptedController.stream;
+  Stream<Map<String, dynamic>> get callRejectedStream => _callRejectedController.stream;
+  Stream<Map<String, dynamic>> get participantJoinedStream => _participantJoinedController.stream;
+  Stream<Map<String, dynamic>> get participantLeftStream => _participantLeftController.stream;
+  Stream<Map<String, dynamic>> get signalingStream => _signalingController.stream;
+
+  // Flag to check connection status
+  bool get isConnected => _socket?.connected ?? false;
+
+  // Singleton pattern (optional, but often useful for services)
+  static final CallService _instance = CallService._internal();
+  factory CallService() => _instance;
+  CallService._internal();
+
+  Future<String?> _getToken() async {
+    // Use AuthService to get the token
+    return await _authService.getTokenInstance();
+  }
+
+  Future<String?> _getUserId() async {
+    // Use AuthService to get the user ID
+    return _authService.userId;
+  }
+
+  // Initialize WebSocket connection
+  Future<void> initializeSocket() async {
+    // Prevent multiple initializations
+    if (_socket != null && _socket!.connected) {
+      print('📞 CallService: Socket already initialized and connected.');
+      return;
+    }
+
+    final token = await _getToken();
+    final userId = await _getUserId();
+
+    if (userId == null || userId.isEmpty) {
+      print('❌ CallService: Cannot initialize socket without user ID.');
+      return;
+    }
+
+    print('📞 CallService: Initializing WebSocket connection to $_baseUrl');
     try {
-      final token = await _authService.getTokenInstance();
-      if (token != null) {
-        return token;
-      }
-      // Retourner un token fictif en cas d'échec
-      return 'dummy_token';
+      _socket = IO.io(_baseUrl, <String, dynamic>{
+        'transports': ['websocket'],
+        'autoConnect': false, // Connect manually after setting up listeners
+        'query': {
+          'userId': userId, // Send user ID for identification on backend
+          // Add token if your backend WebSocket auth needs it
+          // 'token': token,
+        },
+        // Optional: Add reconnection options
+        'reconnection': true,
+        'reconnectionAttempts': 5,
+        'reconnectionDelay': 1000,
+      });
+
+      // --- Register Socket Event Listeners ---
+      _socket!.onConnect((_) {
+        print('✅ CallService: WebSocket connected (ID: ${_socket?.id})');
+        // Optionally join a user-specific room if needed
+        // _socket!.emit('join_user_room', userId);
+      });
+
+      _socket!.onDisconnect((reason) {
+        print('🔌 CallService: WebSocket disconnected (Reason: $reason)');
+      });
+
+      _socket!.onError((error) {
+        print('❌ CallService: WebSocket Error: $error');
+      });
+
+      _socket!.onConnectError((error) {
+        print('❌ CallService: WebSocket Connection Error: $error');
+      });
+
+      // --- Call Specific Event Listeners ---
+      _socket!.on('incoming_call', (data) {
+        print('📞 Received incoming_call: $data');
+        if (data is Map<String, dynamic>) {
+          _incomingCallController.add(data);
+        }
+      });
+
+      _socket!.on('call_accepted', (data) {
+         print('📞 Received call_accepted: $data');
+         if (data is Map<String, dynamic>) {
+             _callAcceptedController.add(data); // Notify UI that recipient accepted
+         }
+      });
+
+      _socket!.on('call_rejected', (data) {
+         print('📞 Received call_rejected: $data');
+         if (data is Map<String, dynamic>) {
+             _callRejectedController.add(data); // Notify UI that recipient rejected
+         }
+      });
+
+      _socket!.on('call_ended', (data) {
+        print('📞 Received call_ended: $data');
+        if (data is Map<String, dynamic>) {
+          _callEndedController.add(data);
+        }
+      });
+
+      _socket!.on('participant_joined', (data) {
+        print('📞 Received participant_joined: $data');
+         if (data is Map<String, dynamic>) {
+           _participantJoinedController.add(data);
+         }
+      });
+
+      _socket!.on('participant_left', (data) {
+         print('📞 Received participant_left: $data');
+         if (data is Map<String, dynamic>) {
+           _participantLeftController.add(data);
+         }
+      });
+
+      _socket!.on('participant_declined', (data) {
+         print('📞 Received participant_declined: $data');
+         // Could reuse callRejected or have a specific handler
+         if (data is Map<String, dynamic>) {
+             _callRejectedController.add(data); 
+         }
+      });
+
+      // --- WebRTC Signaling Listener ---
+      _socket!.on('webrtc_signal', (data) {
+         if (kDebugMode) {
+            print('📡 Received webrtc_signal: ${data?['type']} from ${data?['fromUserId']}');
+         }
+         if (data is Map<String, dynamic>) {
+           _signalingController.add(data);
+         }
+      });
+
+      // --- End Listeners ---
+
+      // Connect the socket
+      _socket!.connect();
+
     } catch (e) {
-      print('Erreur lors de la récupération du token: $e');
-      return 'dummy_token';
+      print('❌ CallService: Failed to initialize WebSocket: $e');
+      _socket = null; // Ensure socket is null on error
     }
   }
-  
-  // Initialiser la connexion socket
-  Future<void> initSocket() async {
-    try {
-      final token = await _getToken();
-      
-      // Simuler une connexion socket réussie
-      await Future.delayed(Duration(seconds: 1));
-      
-      _isConnected = true;
-      print('Socket simulé connecté');
-    } catch (e) {
-      print('Erreur lors de l\'initialisation du socket: $e');
-      throw Exception('Erreur de connexion socket: $e');
-    }
+
+  // Disconnect socket
+  void disconnectSocket() {
+    print('📞 CallService: Disconnecting WebSocket.');
+    _socket?.disconnect();
+    _socket?.dispose();
+    _socket = null;
   }
-  
-  // Initier un appel avec un autre utilisateur
-  Future<Map<String, dynamic>> startCall(String callerId, String recipientId, bool isVideo) async {
+
+  // --- API Call Methods ---
+
+  /// Initiate a new call (audio or video)
+  Future<Map<String, dynamic>> initiateCall({
+    String? conversationId,
+    List<String>? recipientIds,
+    String type = 'video', // 'audio' or 'video'
+    Map<String, dynamic>? deviceInfo,
+    bool useExternalProvider = false, // Flag for Twilio/Agora
+  }) async {
+    final token = await _getToken();
+    final userId = await _getUserId(); // Get current user ID
+
+    if (userId == null || userId.isEmpty) throw Exception("User not authenticated");
+    if (token == null || token.isEmpty) throw Exception("Auth token missing");
+    if (conversationId == null && (recipientIds == null || recipientIds.isEmpty)) {
+      throw ArgumentError("Either conversationId or recipientIds must be provided.");
+    }
+
+    final url = Uri.parse('$_baseUrl/api/call/initiate');
+    print('📞 CallService: Initiating call - POST $url');
+
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('token') ?? '';
-      
       final response = await http.post(
-        Uri.parse('$baseUrl/api/call/start'),
+        url,
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
         },
         body: json.encode({
-          'callerId': callerId,
-          'recipientId': recipientId,
-          'isVideo': isVideo,
+          'conversationId': conversationId,
+          'recipientIds': recipientIds,
+          'type': type,
+          'deviceInfo': deviceInfo,
+          'useExternalProvider': useExternalProvider,
+          // Backend gets initiatorId from auth token
         }),
       );
-      
-      if (response.statusCode == 200) {
-        return json.decode(response.body);
+
+      final responseBody = json.decode(response.body);
+
+      if (response.statusCode == 201) {
+        print('✅ CallService: Call initiated successfully: $responseBody');
+        // Optionally join the call room immediately after initiating
+        if (responseBody['success'] == true && responseBody['callId'] != null) {
+           joinCallRoom(responseBody['callId']);
+        }
+        return responseBody;
       } else {
-        final errorData = json.decode(response.body);
-        throw Exception(errorData['message'] ?? 'Failed to start call');
+        print('❌ CallService: Failed to initiate call (${response.statusCode}): ${response.body}');
+        throw Exception(responseBody['message'] ?? 'Failed to initiate call');
       }
     } catch (e) {
-      throw Exception('Error starting call: $e');
+      print('❌ CallService: Error initiating call: $e');
+      rethrow; // Rethrow the exception to be caught by the UI
     }
   }
-  
-  // Répondre à un appel entrant
-  Future<Map<String, dynamic>> answerCall(String callId, bool accept) async {
+
+  /// Join an existing call
+  Future<Map<String, dynamic>> joinCall(String callId, {Map<String, dynamic>? deviceInfo}) async {
+    final token = await _getToken();
+    if (token == null || token.isEmpty) throw Exception("Auth token missing");
+
+    final url = Uri.parse('$_baseUrl/api/call/join');
+    print('📞 CallService: Joining call $callId - POST $url');
+
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('token') ?? '';
-      
       final response = await http.post(
-        Uri.parse('$baseUrl/api/call/answer'),
+        url,
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
         },
         body: json.encode({
           'callId': callId,
-          'accept': accept,
+          'deviceInfo': deviceInfo,
         }),
       );
-      
+
+      final responseBody = json.decode(response.body);
+
       if (response.statusCode == 200) {
-        return json.decode(response.body);
+        print('✅ CallService: Joined call successfully: $responseBody');
+         joinCallRoom(callId); // Join socket room on successful API call
+        return responseBody;
       } else {
-        final errorData = json.decode(response.body);
-        throw Exception(errorData['message'] ?? 'Failed to answer call');
+        print('❌ CallService: Failed to join call (${response.statusCode}): ${response.body}');
+        throw Exception(responseBody['message'] ?? 'Failed to join call');
       }
     } catch (e) {
-      throw Exception('Error answering call: $e');
+      print('❌ CallService: Error joining call: $e');
+      rethrow;
     }
   }
-  
-  // Terminer un appel en cours
-  Future<Map<String, dynamic>> endCall(String callId) async {
+
+  /// Decline an incoming call
+  Future<void> declineCall(String callId, {String reason = 'declined'}) async {
+    final token = await _getToken();
+    if (token == null || token.isEmpty) throw Exception("Auth token missing");
+
+    final url = Uri.parse('$_baseUrl/api/call/decline');
+    print('📞 CallService: Declining call $callId - POST $url');
+
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('token') ?? '';
-      
       final response = await http.post(
-        Uri.parse('$baseUrl/api/call/end'),
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: json.encode({
+          'callId': callId,
+          'reason': reason,
+        }),
+      );
+
+      final responseBody = json.decode(response.body);
+
+      if (response.statusCode == 200) {
+        print('✅ CallService: Call declined successfully.');
+        // No return needed, success indicated by lack of exception
+      } else {
+        print('❌ CallService: Failed to decline call (${response.statusCode}): ${response.body}');
+        throw Exception(responseBody['message'] ?? 'Failed to decline call');
+      }
+    } catch (e) {
+      print('❌ CallService: Error declining call: $e');
+      rethrow;
+    }
+  }
+
+  /// End/Leave the current call
+  Future<void> endCall(String callId) async {
+    final token = await _getToken();
+    if (token == null || token.isEmpty) throw Exception("Auth token missing");
+
+    final url = Uri.parse('$_baseUrl/api/call/end');
+    print('📞 CallService: Ending call $callId - POST $url');
+
+    try {
+      final response = await http.post(
+        url,
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
@@ -132,98 +330,77 @@ class CallService {
           'callId': callId,
         }),
       );
-      
+
+      final responseBody = json.decode(response.body);
+
       if (response.statusCode == 200) {
-        return json.decode(response.body);
+        print('✅ CallService: Call ended successfully.');
+         leaveCallRoom(callId); // Leave socket room
+        // No return needed
       } else {
-        final errorData = json.decode(response.body);
-        throw Exception(errorData['message'] ?? 'Failed to end call');
+        print('❌ CallService: Failed to end call (${response.statusCode}): ${response.body}');
+        throw Exception(responseBody['message'] ?? 'Failed to end call');
       }
     } catch (e) {
-      throw Exception('Error ending call: $e');
+      print('❌ CallService: Error ending call: $e');
+      rethrow;
     }
   }
-  
-  // Envoyer un signal WebRTC
-  Future<void> sendSignal(String callId, String from, String to, dynamic signal) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('token') ?? '';
-      
-      final response = await http.post(
-        Uri.parse('$baseUrl/api/call/signal'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: json.encode({
-          'callId': callId,
-          'from': from,
-          'to': to,
-          'signal': signal,
-        }),
-      );
-      
-      if (response.statusCode != 200) {
-        final errorData = json.decode(response.body);
-        throw Exception(errorData['message'] ?? 'Failed to send signal');
-      }
-    } catch (e) {
-      throw Exception('Error sending signal: $e');
+
+  // --- WebSocket Emit Methods ---
+
+  /// Join the Socket.IO room for a specific call
+  void joinCallRoom(String callId) {
+    if (_socket != null && _socket!.connected) {
+      print('🚪 CallService: Joining call room: call_$callId');
+      _socket!.emit('join_call_room', callId);
+    } else {
+       print('⚠️ CallService: Cannot join call room - socket not connected.');
     }
   }
-  
-  // Récupérer un signal WebRTC
-  Future<Map<String, dynamic>> getSignal(String callId, String userId) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('token') ?? '';
-      
-      final response = await http.get(
-        Uri.parse('$baseUrl/api/call/signal/$callId/$userId'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
-      
-      if (response.statusCode == 200) {
-        return json.decode(response.body);
-      } else {
-        final errorData = json.decode(response.body);
-        throw Exception(errorData['message'] ?? 'Failed to get signal');
-      }
-    } catch (e) {
-      throw Exception('Error getting signal: $e');
+
+   /// Leave the Socket.IO room for a specific call
+  void leaveCallRoom(String callId) {
+    if (_socket != null && _socket!.connected) {
+       print('🚪 CallService: Leaving call room: call_$callId');
+      _socket!.emit('leave_call_room', callId);
+    } else {
+        print('⚠️ CallService: Cannot leave call room - socket not connected.');
     }
   }
-  
-  // Obtenir le numéro de téléphone d'un utilisateur
-  Future<String> getPhoneNumber(String userId) async {
-    try {
-      final token = await _getToken();
-      
-      // Dans une vraie implémentation:
-      // final response = await http.get(
-      //   Uri.parse('${ApiConfig.baseUrl}/api/users/$userId/phone'),
-      //   headers: {
-      //     'Authorization': 'Bearer $token',
-      //   },
-      // );
-      
-      // Pour la démo, retourner un numéro fictif
-      return '+33 6 12 34 56 78';
-    } catch (e) {
-      print('Erreur lors de la récupération du numéro: $e');
-      return '';
-    }
-  }
-  
-  // Fermer la connexion
+
+  /// Send WebRTC signaling data (offer, answer, ICE candidate) via WebSocket
+  void sendWebRTCSignal(String callId, String targetUserId, Map<String, dynamic> signalData) {
+     if (_socket != null && _socket!.connected) {
+       final userId = _authService.userId; // Get current user's ID
+       if (userId == null) {
+          print('❌ CallService: Cannot send signal - user ID not found.');
+          return;
+       }
+       if (kDebugMode) {
+         print('📡 CallService: Sending webrtc_signal to $targetUserId (Type: ${signalData['type']})');
+       }
+       _socket!.emit('webrtc_signal', {
+         'callId': callId,
+         'fromUserId': userId,
+         'toUserId': targetUserId,
+         'signal': signalData, // Contains type ('offer', 'answer', 'ice_candidate') and payload
+       });
+     } else {
+       print('⚠️ CallService: Cannot send WebRTC signal - socket not connected.');
+     }
+   }
+
+  // Dispose resources
   void dispose() {
-    if (_isConnected) {
-      _isConnected = false;
-      print('Socket simulé déconnecté');
-    }
+    print('📞 CallService: Disposing...');
+    disconnectSocket(); // Ensure socket is disconnected
+    _incomingCallController.close();
+    _callEndedController.close();
+    _callAcceptedController.close();
+    _callRejectedController.close();
+    _participantJoinedController.close();
+    _participantLeftController.close();
+    _signalingController.close();
   }
 } 

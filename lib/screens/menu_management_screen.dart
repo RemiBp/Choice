@@ -6,6 +6,117 @@ import 'package:http/http.dart' as http;
 import '../utils.dart';
 import 'package:intl/intl.dart';
 
+// Models (Assuming basic structure, adjust if you have detailed models)
+class MenuItem {
+  String id;
+  String name;
+  String description;
+  double price;
+  String category;
+  Map<String, dynamic>? nutrition; // Optional: For calories, etc.
+  String? photoUrl; // Optional
+
+  MenuItem({
+    required this.id,
+    required this.name,
+    this.description = '',
+    required this.price,
+    required this.category,
+    this.nutrition,
+    this.photoUrl,
+  });
+
+  // Basic fromJson, adjust based on actual API response
+  factory MenuItem.fromJson(Map<String, dynamic> json) {
+    return MenuItem(
+      id: json['_id']?.toString() ?? json['id']?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString(), // Ensure ID exists
+      name: json['nom']?.toString() ?? '',
+      description: json['description']?.toString() ?? '',
+      price: double.tryParse(json['prix']?.toString() ?? '0') ?? 0,
+      category: json['catégorie']?.toString() ?? 'Autres',
+      nutrition: json['nutrition'] as Map<String, dynamic>?,
+      photoUrl: json['photo']?.toString(),
+    );
+  }
+
+   Map<String, dynamic> toJson() {
+     return {
+       '_id': id, // Include ID for updates
+       'nom': name,
+       'description': description,
+       'prix': price,
+       'catégorie': category,
+       'nutrition': nutrition,
+       'photo': photoUrl,
+     };
+   }
+}
+
+class Menu {
+  String id;
+  String name;
+  String description;
+  double price;
+  List<MenuCategory> includedCategories; // Changed 'inclus' to be more descriptive
+
+  Menu({
+    required this.id,
+    required this.name,
+    this.description = '',
+    required this.price,
+    this.includedCategories = const [],
+  });
+
+  // Basic fromJson, adjust based on actual API response for 'Menus Globaux'
+  factory Menu.fromJson(Map<String, dynamic> json) {
+    return Menu(
+      id: json['_id']?.toString() ?? json['id']?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString(), // Ensure ID exists
+      name: json['nom']?.toString() ?? '',
+      description: json['description']?.toString() ?? '',
+      price: double.tryParse(json['prix']?.toString() ?? '0') ?? 0,
+      includedCategories: (json['inclus'] as List<dynamic>? ?? [])
+          .where((cat) => cat is Map<String, dynamic>)
+          .map((cat) => MenuCategory.fromJson(cat as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+
+   Map<String, dynamic> toJson() {
+     return {
+       '_id': id, // Include ID for updates
+       'nom': name,
+       'description': description,
+       'prix': price,
+       'inclus': includedCategories.map((cat) => cat.toJson()).toList(),
+     };
+   }
+}
+
+class MenuCategory {
+  String name;
+  List<MenuItem> items; // Assuming items within a menu don't need separate price/category
+
+  MenuCategory({required this.name, this.items = const []});
+
+  factory MenuCategory.fromJson(Map<String, dynamic> json) {
+    return MenuCategory(
+      name: json['catégorie']?.toString() ?? 'Inclus',
+      items: (json['items'] as List<dynamic>? ?? [])
+          .where((item) => item is Map<String, dynamic>)
+          .map((item) => MenuItem.fromJson(item as Map<String, dynamic>)) // Re-use MenuItem.fromJson
+          .toList(),
+    );
+  }
+
+   Map<String, dynamic> toJson() {
+     return {
+       'catégorie': name,
+       'items': items.map((item) => item.toJson()).toList(), // Assuming items need full details
+     };
+   }
+}
+// End Models
+
 class MenuManagementScreen extends StatefulWidget {
   final String producerId;
   
@@ -15,928 +126,669 @@ class MenuManagementScreen extends StatefulWidget {
   State<MenuManagementScreen> createState() => _MenuManagementScreenState();
 }
 
-class _MenuManagementScreenState extends State<MenuManagementScreen> {
+class _MenuManagementScreenState extends State<MenuManagementScreen> with SingleTickerProviderStateMixin {
   bool _isLoading = true;
-  List<dynamic> _menus = [];
-  List<dynamic> _categories = [];
-  Map<String, List<dynamic>> _items = {};
-  
-  // Variables pour le mode édition
-  bool _isEditingMenu = false;
-  Map<String, dynamic>? _currentMenu;
-  final _menuNameController = TextEditingController();
-  final _menuDescriptionController = TextEditingController();
-  final _menuPriceController = TextEditingController();
+  List<Menu> _globalMenus = [];
+  Map<String, List<MenuItem>> _independentItems = {}; // Store items directly under category name
+  List<String> _categories = []; // List of category names
 
-  // Variables pour le système de vérification
+  // Store original data for comparison and pending changes
+  List<Menu>? _originalGlobalMenus;
+  Map<String, List<MenuItem>>? _originalIndependentItems;
+
+  // System for pending changes
   bool _pendingApproval = false;
   DateTime? _modificationDate;
-  Map<String, List<String>> _modificationsHistory = {};
 
-  // Animation controllers
-  final _animDuration = const Duration(milliseconds: 300);
+  late TabController _tabController;
   
   @override
   void initState() {
     super.initState();
-    _fetchMenuData();
-    _fetchItemsAndCategories();
+    _tabController = TabController(length: 2, vsync: this);
+    _loadData();
     _checkPendingModifications();
   }
   
   @override
   void dispose() {
-    _menuNameController.dispose();
-    _menuDescriptionController.dispose();
-    _menuPriceController.dispose();
+    _tabController.dispose();
     super.dispose();
   }
 
-  // Vérifier s'il y a des modifications en attente
+  Future<void> _loadData() async {
+    setState(() => _isLoading = true);
+    try {
+      await Future.wait([
+        _fetchStructuredData(),
+        // _checkPendingModifications(), // Check separately or after fetch
+      ]);
+    } catch (e) {
+       if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+             SnackBar(content: Text('Erreur de chargement: ${e.toString()}')),
+          );
+       }
+    } finally {
+       if (mounted) {
+          setState(() => _isLoading = false);
+       }
+    }
+  }
+
+  Future<void> _fetchStructuredData() async {
+      final url = Uri.parse('${getBaseUrl()}/api/producers/${widget.producerId}');
+      final response = await http.get(url);
+      
+    if (!mounted) return;
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+      final structuredData = data['structured_data'];
+
+      List<Menu> globalMenus = [];
+      Map<String, List<MenuItem>> independentItems = {};
+      List<String> categories = [];
+
+      if (structuredData != null && structuredData is Map) {
+        // Parse Global Menus
+        if (structuredData['Menus Globaux'] is List) {
+          globalMenus = (structuredData['Menus Globaux'] as List)
+              .where((m) => m is Map<String, dynamic>)
+              .map((m) => Menu.fromJson(m as Map<String, dynamic>))
+              .toList();
+        }
+
+        // Parse Independent Items
+        if (structuredData['Items Indépendants'] is List) {
+          final itemsData = structuredData['Items Indépendants'] as List;
+          final Set<String> categorySet = {};
+          for (var categoryData in itemsData) {
+            if (categoryData is Map<String, dynamic>) {
+              final categoryName = categoryData['catégorie']?.toString() ?? 'Autres';
+              categorySet.add(categoryName);
+              if (categoryData['items'] is List) {
+                final itemsList = (categoryData['items'] as List)
+                    .where((i) => i is Map<String, dynamic>)
+                    .map((i) => MenuItem.fromJson(i as Map<String, dynamic>..['catégorie'] = categoryName)) // Add category here if needed elsewhere
+                    .toList();
+                independentItems.putIfAbsent(categoryName, () => []).addAll(itemsList);
+              }
+            }
+          }
+          categories = categorySet.toList()..sort();
+          }
+        }
+        
+        setState(() {
+        _globalMenus = globalMenus;
+        _independentItems = independentItems;
+        _categories = categories;
+        // Store originals for comparison
+        _originalGlobalMenus = List<Menu>.from(globalMenus.map((m) => Menu.fromJson(jsonDecode(jsonEncode(m.toJson()))))); // Deep copy
+        _originalIndependentItems = Map<String, List<MenuItem>>.from(independentItems.map((key, value) => MapEntry(key, List<MenuItem>.from(value.map((item) => MenuItem.fromJson(jsonDecode(jsonEncode(item.toJson())))))))); // Deep copy
+        });
+      } else {
+      throw Exception('Erreur API (${response.statusCode}) lors de la récupération des données structurées');
+    }
+  }
+
   Future<void> _checkPendingModifications() async {
-    try {
-      final url = Uri.parse('${getBaseUrl()}/api/producers/${widget.producerId}/menu/pending');
-      final response = await http.get(url);
-      
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        setState(() {
-          _pendingApproval = data['pending_approval'] ?? false;
-          if (data['last_modified'] != null) {
-            _modificationDate = DateTime.parse(data['last_modified']);
-          }
-          if (data['modifications_history'] != null && data['modifications_history'] is Map) {
-            _modificationsHistory = Map<String, List<String>>.from(
-              (data['modifications_history'] as Map).map((key, value) => 
-                MapEntry(key, List<String>.from(value))
-              )
-            );
-          }
-        });
-      }
-    } catch (e) {
-      print('Erreur lors de la vérification des modifications en attente: $e');
-    }
+     // Simplified check for demo purposes
+     // In a real app, fetch this status from the backend
+     // setState(() {
+     //   _pendingApproval = ...; // Fetch status
+     //   _modificationDate = ...; // Fetch date
+     // });
   }
-  
-  Future<void> _fetchMenuData() async {
-    try {
-      setState(() {
-        _isLoading = true;
-      });
-      
-      final url = Uri.parse('${getBaseUrl()}/api/producers/${widget.producerId}');
-      final response = await http.get(url);
-      
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        setState(() {
-          _menus = data['structured_data']?['Menus Globaux'] ?? [];
-          _isLoading = false;
+
+  // --- Save Logic ---
+  Future<void> _saveChanges() async {
+     setState(() => _isLoading = true);
+     try {
+        final url = Uri.parse('${getBaseUrl()}/api/producers/${widget.producerId}/menu'); // Correct endpoint? Verify
+
+        // Prepare data in the expected backend format
+        final List<Map<String, dynamic>> itemsIndependantsPayload = [];
+        _independentItems.forEach((categoryName, itemsList) {
+           itemsIndependantsPayload.add({
+             'catégorie': categoryName,
+             // Ensure items have necessary fields expected by backend, excluding temp fields if any
+             'items': itemsList.map((item) => item.toJson()).toList(), 
+           });
         });
-      } else {
-        throw Exception('Erreur lors de la récupération des menus');
-      }
-    } catch (e) {
-      setState(() {
-        _isLoading = false;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur: $e')),
-      );
-    }
-  }
-  
-  Future<void> _fetchItemsAndCategories() async {
-    try {
-      final url = Uri.parse('${getBaseUrl()}/api/producers/${widget.producerId}');
-      final response = await http.get(url);
-      
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final items = data['structured_data']?['Items Indépendants'] ?? [];
-        
-        final Map<String, List<dynamic>> itemsByCategory = {};
-        final Set<String> categoriesSet = {};
-        
-        for (var category in items) {
-          final categoryName = category['catégorie'] ?? 'Autres';
-          categoriesSet.add(categoryName);
-          
-          if (!itemsByCategory.containsKey(categoryName)) {
-            itemsByCategory[categoryName] = [];
-          }
-          
-          for (var item in category['items'] ?? []) {
-            itemsByCategory[categoryName]!.add(item);
-          }
-        }
-        
-        setState(() {
-          _categories = categoriesSet.toList()..sort();
-          _items = itemsByCategory;
-        });
-      } else {
-        throw Exception('Erreur lors de la récupération des articles');
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur: $e')),
-      );
-    }
-  }
-  
-  Future<void> _saveMenu() async {
-    try {
-      final name = _menuNameController.text.trim();
-      final description = _menuDescriptionController.text.trim();
-      final priceText = _menuPriceController.text.trim();
-      
-      if (name.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Le nom du menu est requis')),
+
+        final payload = {
+           'structured_data': {
+             'Menus Globaux': _globalMenus.map((menu) => menu.toJson()).toList(),
+             'Items Indépendants': itemsIndependantsPayload,
+           },
+           'pending_approval': true, // Mark changes as pending
+           'last_modified': DateTime.now().toIso8601String(),
+           // Add history tracking if needed by backend
+        };
+
+        final response = await http.post( // Use POST or PUT depending on API design
+          url,
+          headers: {'Content-Type': 'application/json'},
+          body: json.encode(payload),
         );
-        return;
-      }
-      
-      final price = double.tryParse(priceText.replaceAll(',', '.')) ?? 0;
-      
-      // Ajout des métadonnées pour le système de vérification
-      final now = DateTime.now();
-      final menu = {
-        'nom': name,
-        'description': description,
-        'prix': price,
-        'inclus': _currentMenu?['inclus'] ?? [],
-        'last_modified': now.toIso8601String(),
-        'pending_approval': true,
-      };
-      
-      // Tracker les modifications pour l'historique
-      String modificationDescription = _currentMenu == null 
-          ? "Nouveau menu créé: $name" 
-          : "Menu modifié: ${_currentMenu!['nom']} → $name";
-      
-      // Si nous sommes en mode édition, mettre à jour le menu existant
-      if (_currentMenu != null) {
-        final index = _menus.indexWhere((m) => m['nom'] == _currentMenu!['nom']);
-        if (index >= 0) {
-          setState(() {
-            _menus[index] = menu;
-          });
-        }
-      } else {
-        // Sinon ajouter un nouveau menu
-        setState(() {
-          _menus.add(menu);
-        });
-      }
-      
-      // Sauvegarder les modifications sur le serveur
-      await _updateMenusOnServer(modificationDescription);
-      
+
+        if (!mounted) return;
+
+        if (response.statusCode == 200 || response.statusCode == 201) {
       setState(() {
-        _isEditingMenu = false;
-        _currentMenu = null;
         _pendingApproval = true;
-        _modificationDate = now;
+             _modificationDate = DateTime.now();
+             // Update original data to reflect saved state
+            _originalGlobalMenus = List<Menu>.from(_globalMenus.map((m) => Menu.fromJson(jsonDecode(jsonEncode(m.toJson())))));
+            _originalIndependentItems = Map<String, List<MenuItem>>.from(_independentItems.map((key, value) => MapEntry(key, List<MenuItem>.from(value.map((item) => MenuItem.fromJson(jsonDecode(jsonEncode(item.toJson()))))))));
       });
-      
-      _resetFormControllers();
-      
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Menu sauvegardé avec succès. Les modifications seront vérifiées sous 24h.'),
-          backgroundColor: Colors.orange,
-          duration: Duration(seconds: 5),
+                 content: Text('Modifications enregistrées. En attente de validation.'),
+                 backgroundColor: Colors.green,
         ),
       );
+        } else {
+           throw Exception('Erreur API (${response.statusCode}): ${response.body}');
+        }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur: $e')),
-      );
-    }
+           SnackBar(content: Text('Erreur sauvegarde: ${e.toString()}'), backgroundColor: Colors.red),
+        );
+     } finally {
+       if (mounted) {
+          setState(() => _isLoading = false);
+       }
+     }
   }
-  
-  Future<void> _updateMenusOnServer(String modificationDescription) async {
-    try {
-      final url = Uri.parse('${getBaseUrl()}/api/producers/${widget.producerId}/menu');
-      final now = DateTime.now();
-      final formattedDate = DateFormat('yyyy-MM-dd').format(now);
-      
-      // Ajouter la modification à l'historique
-      if (!_modificationsHistory.containsKey(formattedDate)) {
-        _modificationsHistory[formattedDate] = [];
-      }
-      _modificationsHistory[formattedDate]!.add('[${DateFormat('HH:mm').format(now)}] $modificationDescription');
-      
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({
-          'menus': _menus,
-          'pending_approval': true,
-          'last_modified': now.toIso8601String(),
-          'modifications_history': _modificationsHistory,
-        }),
-      );
-      
-      if (response.statusCode != 200) {
-        throw Exception('Erreur lors de la mise à jour des menus sur le serveur');
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur de synchronisation: $e')),
-      );
-    }
-  }
-  
-  void _editMenu(Map<String, dynamic> menu) {
-    setState(() {
-      _currentMenu = Map<String, dynamic>.from(menu);
-      _isEditingMenu = true;
-      
-      _menuNameController.text = menu['nom'] ?? '';
-      _menuDescriptionController.text = menu['description'] ?? '';
-      _menuPriceController.text = (menu['prix'] ?? '').toString();
-    });
-  }
-  
-  void _deleteMenu(int index) {
-    showDialog(
+
+  // --- Dialogs for Adding/Editing ---
+
+  // Show Dialog for Adding/Editing a Global Menu
+  Future<void> _showEditMenuDialog({Menu? existingMenu}) async {
+    final bool isEditing = existingMenu != null;
+    final _formKey = GlobalKey<FormState>();
+    final _nameController = TextEditingController(text: existingMenu?.name ?? '');
+    final _descriptionController = TextEditingController(text: existingMenu?.description ?? '');
+    final _priceController = TextEditingController(text: existingMenu?.price.toString() ?? '');
+    // Potentially manage included items here if needed within the dialog
+
+    await showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Confirmer la suppression'),
-        content: const Text('Êtes-vous sûr de vouloir supprimer ce menu ? Cette action sera vérifiée par notre équipe sous 24h.'),
+        title: Text(isEditing ? 'Modifier le Menu' : 'Ajouter un Menu Global'),
+        content: SingleChildScrollView( // Make dialog scrollable
+           child: Form(
+             key: _formKey,
+             child: Column(
+               mainAxisSize: MainAxisSize.min,
+               children: [
+                 TextFormField(
+                   controller: _nameController,
+                   decoration: const InputDecoration(labelText: 'Nom du Menu', hintText: 'Ex: Menu Déjeuner'),
+                   validator: (value) => (value?.trim().isEmpty ?? true) ? 'Nom requis' : null,
+                 ),
+                 const SizedBox(height: 16),
+                 TextFormField(
+                   controller: _descriptionController,
+                   decoration: const InputDecoration(labelText: 'Description (Optionnel)', hintText: 'Courte description du menu'),
+                   maxLines: 2,
+                 ),
+                 const SizedBox(height: 16),
+                 TextFormField(
+                   controller: _priceController,
+                   decoration: const InputDecoration(labelText: 'Prix (€)', hintText: 'Ex: 15.90'),
+                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                   validator: (value) {
+                     if (value == null || value.trim().isEmpty) return 'Prix requis';
+                     if (double.tryParse(value.replaceAll(',', '.')) == null) return 'Prix invalide';
+                     return null;
+                   },
+                 ),
+                 // Add controls for 'inclus' items if complex editing is needed here
+                 // For simplicity, assume 'inclus' is managed elsewhere or not in this basic dialog
+               ],
+             ),
+           ),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('Annuler'),
           ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () async {
-              Navigator.pop(context);
-              final deletedMenu = _menus[index];
-              final menuName = deletedMenu['nom'] ?? 'Menu sans nom';
+            onPressed: () {
+              if (_formKey.currentState!.validate()) {
+                final newMenuData = {
+                  'id': existingMenu?.id ?? DateTime.now().millisecondsSinceEpoch.toString(), // Generate new ID or use existing
+                  'nom': _nameController.text.trim(),
+                  'description': _descriptionController.text.trim(),
+                  'prix': _priceController.text.replaceAll(',', '.'),
+                  'inclus': existingMenu?.includedCategories.map((c) => c.toJson()).toList() ?? [], // Preserve existing included items
+                };
               
               setState(() {
-                _menus.removeAt(index);
-                _pendingApproval = true;
-                _modificationDate = DateTime.now();
-              });
-              
-              // Mettre à jour avec une description de suppression
-              await _updateMenusOnServer("Menu supprimé: $menuName");
-              
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Menu supprimé. La suppression sera vérifiée sous 24h.'),
-                  backgroundColor: Colors.orange,
-                  duration: Duration(seconds: 5),
-                ),
-              );
+                  if (isEditing) {
+                    final index = _globalMenus.indexWhere((m) => m.id == existingMenu.id);
+                    if (index != -1) {
+                      _globalMenus[index] = Menu.fromJson(newMenuData);
+                    }
+                  } else {
+                    _globalMenus.add(Menu.fromJson(newMenuData));
+                  }
+                });
+                Navigator.pop(context); // Close dialog
+              }
             },
-            child: const Text('Supprimer'),
+            child: const Text('Sauvegarder'),
           ),
         ],
       ),
     );
   }
   
-  void _resetFormControllers() {
-    _menuNameController.clear();
-    _menuDescriptionController.clear();
-    _menuPriceController.clear();
-  }
-  
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          'Gestion du Menu',
-          style: GoogleFonts.montserrat(fontWeight: FontWeight.bold),
-        ),
-        backgroundColor: Colors.deepOrange,
-        actions: [
-          if (_isEditingMenu)
-            IconButton(
-              icon: const Icon(Icons.close),
-              onPressed: () {
-                setState(() {
-                  _isEditingMenu = false;
-                  _currentMenu = null;
-                  _resetFormControllers();
-                });
-              },
-              tooltip: 'Annuler',
-            ),
-        ],
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : AnimatedSwitcher(
-              duration: _animDuration,
-              child: _isEditingMenu
-                  ? _buildMenuForm()
-                  : _buildMenuContent(),
-            ),
-      floatingActionButton: !_isEditingMenu
-          ? FloatingActionButton(
-              onPressed: () {
-                setState(() {
-                  _isEditingMenu = true;
-                  _currentMenu = null;
-                  _resetFormControllers();
-                });
-              },
-              backgroundColor: Colors.deepOrange,
-              child: const Icon(Icons.add),
-            )
-          : null,
-    );
-  }
 
-  Widget _buildMenuContent() {
-    return Column(
-      children: [
-        // Notification de vérification en attente si nécessaire
-        if (_pendingApproval) _buildPendingApprovalBanner(),
-        
-        // Liste des menus
-        Expanded(
-          child: _buildMenuList(),
-        ),
-      ],
-    );
-  }
-  
-  Widget _buildPendingApprovalBanner() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.orange.shade50,
-        border: Border(bottom: BorderSide(color: Colors.orange.shade200)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+  // Show Dialog for Adding/Editing an Independent Item
+  Future<void> _showEditItemDialog({MenuItem? existingItem, String? initialCategory}) async {
+     final bool isEditing = existingItem != null;
+     final _formKey = GlobalKey<FormState>();
+     final _nameController = TextEditingController(text: existingItem?.name ?? '');
+     final _descriptionController = TextEditingController(text: existingItem?.description ?? '');
+     final _priceController = TextEditingController(text: existingItem?.price.toString() ?? '');
+     String selectedCategory = existingItem?.category ?? initialCategory ?? (_categories.isNotEmpty ? _categories.first : 'Autres');
+     final _newCategoryController = TextEditingController();
+     bool isCreatingNewCategory = false;
+
+     await showDialog(
+        context: context,
+        // Use StatefulBuilder to manage category selection state within the dialog
+        builder: (context) => StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+               title: Text(isEditing ? 'Modifier l'Article' : 'Ajouter un Article'),
+               content: SingleChildScrollView(
+                 child: Form(
+                    key: _formKey,
+                    child: Column(
+                       mainAxisSize: MainAxisSize.min,
+                       children: [
+                         TextFormField(
+                           controller: _nameController,
+                           decoration: const InputDecoration(labelText: 'Nom de l'article', hintText: 'Ex: Salade César'),
+                           validator: (value) => (value?.trim().isEmpty ?? true) ? 'Nom requis' : null,
+                         ),
+                         const SizedBox(height: 16),
+                         TextFormField(
+                           controller: _descriptionController,
+                           decoration: const InputDecoration(labelText: 'Description (Optionnel)', hintText: 'Ingrédients, allergènes...'),
+                           maxLines: 2,
+                         ),
+                         const SizedBox(height: 16),
+                         TextFormField(
+                           controller: _priceController,
+                           decoration: const InputDecoration(labelText: 'Prix (€)', hintText: 'Ex: 8.50'),
+                           keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                           validator: (value) {
+                             if (value == null || value.trim().isEmpty) return 'Prix requis';
+                             if (double.tryParse(value.replaceAll(',', '.')) == null) return 'Prix invalide';
+                             return null;
+                           },
+                         ),
+                         const SizedBox(height: 16),
+                         // Category Selection or Creation
+                         if (!isCreatingNewCategory)
+                           DropdownButtonFormField<String>(
+                             value: _categories.contains(selectedCategory) ? selectedCategory : (_categories.isNotEmpty ? _categories.first : null),
+                             items: [
+                               ..._categories.map((cat) => DropdownMenuItem(value: cat, child: Text(cat))),
+                               const DropdownMenuItem(value: '__new__', child: Text('+ Nouvelle catégorie...')),
+                             ],
+                             onChanged: (value) {
+                               if (value == '__new__') {
+                                 setDialogState(() => isCreatingNewCategory = true);
+                               } else if (value != null) {
+                                 setDialogState(() => selectedCategory = value);
+                               }
+                             },
+                             decoration: const InputDecoration(labelText: 'Catégorie'),
+                              validator: (value) => (value == null && !isCreatingNewCategory) ? 'Catégorie requise' : null,
+                           )
+                         else
           Row(
             children: [
-              Icon(Icons.info_outline, color: Colors.orange.shade800),
-              const SizedBox(width: 12),
               Expanded(
-                child: Text(
-                  'Modifications en attente de vérification',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                    color: Colors.orange.shade800,
-                  ),
-                ),
+                                 child: TextFormField(
+                                    controller: _newCategoryController,
+                                    decoration: const InputDecoration(labelText: 'Nouvelle catégorie'),
+                                    validator: (value) => (value?.trim().isEmpty ?? true) ? 'Nom requis' : null,
+                                    onChanged: (value) => setDialogState(() => selectedCategory = value.trim()), // Update selectedCategory live
+                                 ),
+                               ),
+                               IconButton(
+                                 icon: const Icon(Icons.close),
+                                 tooltip: 'Annuler nouvelle catégorie',
+                                 onPressed: () => setDialogState(() => isCreatingNewCategory = false),
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          Text(
-            _modificationDate != null
-                ? 'Dernière modification: ${DateFormat('dd/MM/yyyy à HH:mm').format(_modificationDate!)}'
-                : 'Des modifications sont en attente de vérification par notre équipe.',
-            style: TextStyle(color: Colors.orange.shade700),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Les modifications seront examinées sous 24h ouvrées afin de vérifier que les éléments supprimés ou modifiés '
-            'ne sont pas effectués uniquement pour les items ayant reçu de mauvaises notes.',
-            style: TextStyle(fontSize: 14, color: Colors.orange.shade700),
-          ),
-        ],
-      ),
-    );
-  }
-  
-  Widget _buildMenuList() {
-    if (_menus.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Colors.orange.withOpacity(0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.restaurant_menu,
-                size: 70,
-                color: Colors.orange,
-              ),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              'Aucun menu disponible',
-              style: GoogleFonts.montserrat(
-                fontSize: 20,
-                fontWeight: FontWeight.w600,
-                color: Colors.grey[800],
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Ajoutez votre premier menu pour présenter vos offres à vos clients',
-              textAlign: TextAlign.center,
-              style: GoogleFonts.nunito(
-                fontSize: 16,
-                color: Colors.grey[600],
-              ),
-            ),
-            const SizedBox(height: 32),
-            ElevatedButton.icon(
-              icon: const Icon(Icons.add_circle_outline),
-              label: const Text('Ajouter un menu'),
-              style: ElevatedButton.styleFrom(
-                foregroundColor: Colors.white,
-                backgroundColor: Colors.deepOrange,
-                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
+                         // TODO: Add fields for photoUrl, nutrition if needed
+                       ],
+                    ),
+                 ),
+               ),
+               actions: [
+                 TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Annuler'),
+                 ),
+                 ElevatedButton(
               onPressed: () {
+                       if (_formKey.currentState!.validate()) {
+                          final finalCategory = (isCreatingNewCategory ? _newCategoryController.text.trim() : selectedCategory);
+                          if (finalCategory.isEmpty) {
+                             ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Le nom de la catégorie ne peut pas être vide.')),
+                             );
+                             return;
+                          }
+
+                          final newItemData = {
+                             'id': existingItem?.id ?? DateTime.now().millisecondsSinceEpoch.toString(),
+                             'nom': _nameController.text.trim(),
+                             'description': _descriptionController.text.trim(),
+                             'prix': _priceController.text.replaceAll(',', '.'),
+                             'catégorie': finalCategory, // Use final determined category
+                             // 'nutrition': ...,
+                             // 'photo': ...,
+                          };
+
+                          final newItem = MenuItem.fromJson(newItemData);
+
                 setState(() {
-                  _isEditingMenu = true;
-                  _currentMenu = null;
-                  _resetFormControllers();
-                });
-              },
-            ),
-          ],
+                             // Remove from old category if editing and category changed
+                             if (isEditing && existingItem.category != finalCategory) {
+                                _independentItems[existingItem.category]?.removeWhere((item) => item.id == existingItem.id);
+                                if (_independentItems[existingItem.category]?.isEmpty ?? false) {
+                                   _independentItems.remove(existingItem.category);
+                                    _categories.remove(existingItem.category);
+                                }
+                             }
+
+                             // Add or update in the new/correct category
+                             _independentItems.putIfAbsent(finalCategory, () => []);
+                             final categoryList = _independentItems[finalCategory]!;
+
+                             if (isEditing) {
+                                final index = categoryList.indexWhere((item) => item.id == existingItem.id);
+                                if (index != -1) {
+                                   categoryList[index] = newItem;
+                                } else { // If it wasn't found (e.g., category changed), add it
+                                   categoryList.add(newItem);
+                                }
+                             } else {
+                                categoryList.add(newItem);
+                             }
+
+                             // Add new category to list if created
+                             if (!_categories.contains(finalCategory)) {
+                                _categories.add(finalCategory);
+                                _categories.sort();
+                             }
+                          });
+                          Navigator.pop(context); // Close dialog
+                       }
+                    },
+                    child: const Text('Sauvegarder'),
+                 ),
+               ],
+            );
+          }
         ),
       );
     }
     
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: _menus.length,
-      itemBuilder: (context, index) {
-        final menu = _menus[index];
-        final includedItems = menu['inclus'] ?? [];
-        final isPending = menu['pending_approval'] == true;
-        
-        return Card(
-          margin: const EdgeInsets.only(bottom: 16),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          elevation: 2,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // En-tête avec le nom du menu et les boutons d'action
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: isPending 
-                      ? Colors.orange.withOpacity(0.1)
-                      : Colors.deepOrange.withOpacity(0.1),
-                  borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(16),
-                    topRight: Radius.circular(16),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    isPending
-                        ? const Icon(Icons.pending, color: Colors.orange)
-                        : const Icon(Icons.restaurant_menu, color: Colors.deepOrange),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            menu['nom'] ?? 'Menu sans nom',
-                            style: GoogleFonts.montserrat(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.grey[800],
-                            ),
-                          ),
-                          if (menu['description'] != null && menu['description'].toString().isNotEmpty)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 4),
-                              child: Text(
-                                menu['description'],
-                                style: GoogleFonts.nunito(
-                                  fontSize: 14,
-                                  color: Colors.grey[600],
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          if (isPending)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 4),
-                              child: Text(
-                                'En attente de vérification',
-                                style: GoogleFonts.nunito(
-                                  fontSize: 12,
-                                  color: Colors.orange,
-                                  fontWeight: FontWeight.bold,
-                                  fontStyle: FontStyle.italic,
-                                ),
-                              ),
+  // --- Delete Actions ---
+  Future<void> _deleteMenu(Menu menuToDelete) async {
+     final confirm = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+           title: const Text('Confirmer la suppression'),
+           content: Text('Voulez-vous vraiment supprimer le menu "${menuToDelete.name}" ?'),
+           actions: [
+             TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Annuler')),
+             TextButton(
+               onPressed: () => Navigator.pop(context, true),
+               child: const Text('Supprimer', style: TextStyle(color: Colors.red)),
                             ),
                         ],
                       ),
-                    ),
-                    Text(
-                      '${menu['prix']} €',
-                      style: GoogleFonts.montserrat(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: isPending ? Colors.orange : Colors.deepOrange,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              
-              // Boutons d'action
-              Padding(
-                padding: const EdgeInsets.all(8),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    TextButton.icon(
-                      icon: const Icon(Icons.edit, size: 18),
-                      label: const Text('Modifier'),
-                      onPressed: () => _editMenu(menu),
-                    ),
-                    const SizedBox(width: 8),
-                    TextButton.icon(
-                      icon: const Icon(Icons.delete, size: 18, color: Colors.red),
-                      label: const Text('Supprimer', style: TextStyle(color: Colors.red)),
-                      onPressed: () => _deleteMenu(index),
+     );
+
+     if (confirm == true) {
+        setState(() {
+           _globalMenus.removeWhere((menu) => menu.id == menuToDelete.id);
+        });
+        // Optionally trigger server update immediately or rely on main save button
+        // await _saveChanges(); 
+     }
+  }
+
+  Future<void> _deleteItem(MenuItem itemToDelete, String category) async {
+    final confirm = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+           title: const Text('Confirmer la suppression'),
+           content: Text('Voulez-vous vraiment supprimer l'article "${itemToDelete.name}" de la catégorie "$category" ?'),
+           actions: [
+             TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Annuler')),
+             TextButton(
+               onPressed: () => Navigator.pop(context, true),
+               child: const Text('Supprimer', style: TextStyle(color: Colors.red)),
                     ),
                   ],
                 ),
-              ),
-              
-              const Divider(height: 1),
-              
-              // Contenu du menu
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+     );
+
+     if (confirm == true) {
+       setState(() {
+         _independentItems[category]?.removeWhere((item) => item.id == itemToDelete.id);
+         if (_independentItems[category]?.isEmpty ?? false) {
+           _independentItems.remove(category);
+           _categories.remove(category);
+         }
+       });
+        // Optionally trigger server update immediately or rely on main save button
+        // await _saveChanges(); 
+     }
+  }
+
+  // --- Build Method ---
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final primaryColor = theme.colorScheme.primary;
+    final secondaryColor = theme.colorScheme.secondary;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text("Gestion Menu & Articles"),
+        backgroundColor: primaryColor,
+        foregroundColor: theme.colorScheme.onPrimary,
+        bottom: TabBar(
+          controller: _tabController,
+          labelColor: theme.colorScheme.onPrimary,
+          unselectedLabelColor: theme.colorScheme.onPrimary.withOpacity(0.7),
+          indicatorColor: theme.colorScheme.onPrimary,
+          tabs: const [
+            Tab(text: 'Menus Globaux'),
+            Tab(text: 'Articles Indépendants'),
+          ],
+        ),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.save, color: theme.colorScheme.onPrimary),
+            onPressed: _isLoading ? null : _saveChanges,
+            tooltip: "Enregistrer les modifications",
+          )
+        ],
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : Column(
                   children: [
-                    Row(
+                if (_pendingApproval) _buildPendingApprovalBanner(),
+                Expanded(
+                  child: TabBarView(
+                    controller: _tabController,
                       children: [
-                        const Icon(Icons.list_alt, size: 18, color: Colors.grey),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Contenu du menu',
-                          style: GoogleFonts.nunito(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
+                      _buildGlobalMenusTab(theme, primaryColor),
+                      _buildIndependentItemsTab(theme, secondaryColor),
+                    ],
                           ),
                         ),
                       ],
                     ),
-                    
-                    if (includedItems.isEmpty)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        child: Center(
-                          child: Text(
-                            'Aucun élément dans ce menu',
-                            style: TextStyle(
-                              fontStyle: FontStyle.italic,
-                              color: Colors.grey[500],
-                            ),
-                          ),
-                        ),
-                      )
-                    else
-                      ListView.builder(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        itemCount: includedItems.length,
-                        itemBuilder: (context, catIndex) {
-                          final category = includedItems[catIndex];
-                          final items = category['items'] ?? [];
-                          
-                          return Padding(
-                            padding: const EdgeInsets.only(top: 16),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 12),
-                                  decoration: BoxDecoration(
-                                    color: Colors.grey[200],
-                                    borderRadius: BorderRadius.circular(16),
-                                  ),
-                                  child: Text(
-                                    category['catégorie'] ?? 'Catégorie non spécifiée',
-                                    style: GoogleFonts.nunito(
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.grey[800],
-                                    ),
-                                  ),
-                                ),
-                                
-                                if (items.isEmpty)
-                                  Padding(
-                                    padding: const EdgeInsets.all(8),
-                                    child: Text(
-                                      'Aucun plat dans cette catégorie',
-                                      style: TextStyle(
-                                        fontStyle: FontStyle.italic,
-                                        color: Colors.grey[500],
-                                        fontSize: 14,
-                                      ),
-                                    ),
-                                  )
-                                else
-                                  ListView.builder(
-                                    shrinkWrap: true,
-                                    physics: const NeverScrollableScrollPhysics(),
-                                    itemCount: items.length,
-                                    itemBuilder: (context, itemIndex) {
-                                      final item = items[itemIndex];
-                                      return Padding(
-                                        padding: const EdgeInsets.only(top: 8, left: 8),
+    );
+  }
+
+  // --- UI Builder Methods ---
+
+  Widget _buildPendingApprovalBanner() {
+    return Material(
+      color: Colors.orange.shade100,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
                                         child: Row(
                                           children: [
-                                            const Icon(Icons.restaurant, size: 16, color: Colors.grey),
-                                            const SizedBox(width: 8),
+            Icon(Icons.warning_amber_rounded, color: Colors.orange.shade800),
+            const SizedBox(width: 12),
                                             Expanded(
                                               child: Text(
-                                                item['nom'] ?? 'Plat sans nom',
-                                                style: GoogleFonts.nunito(fontSize: 14),
-                                              ),
-                                            ),
-                                            if (item['prix'] != null)
-                                              Text(
-                                                '${item['prix']} €',
-                                                style: GoogleFonts.nunito(
-                                                  fontSize: 14,
-                                                  fontWeight: FontWeight.bold,
-                                                  color: Colors.deepOrange,
+                'Des modifications sont en attente de validation (sous 24h).',
+                style: TextStyle(color: Colors.orange.shade900, fontWeight: FontWeight.w500),
                                                 ),
                                               ),
                                           ],
                                         ),
-                                      );
-                                    },
-                                  ),
-                              ],
-                            ),
-                          );
-                        },
-                      ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        );
-      },
+      ),
     );
   }
-  
-  Widget _buildMenuForm() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Card(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
+
+  // Builder for the Global Menus Tab
+  Widget _buildGlobalMenusTab(ThemeData theme, Color primaryColor) {
+    return Scaffold( // Use Scaffold for FAB
+      body: _globalMenus.isEmpty
+          ? Center(child: Text('Aucun menu global défini.', style: theme.textTheme.titleMedium))
+          : ListView.builder(
+              padding: const EdgeInsets.all(12),
+              itemCount: _globalMenus.length,
+              itemBuilder: (context, index) {
+                final menu = _globalMenus[index];
+                return Card(
             elevation: 2,
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    title: Text(menu.name, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                    subtitle: Text('${menu.price.toStringAsFixed(2)} €${menu.description.isNotEmpty ? '\n${menu.description}' : ''}', maxLines: 2, overflow: TextOverflow.ellipsis),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    _currentMenu == null ? 'Ajouter un menu' : 'Modifier le menu',
-                    style: GoogleFonts.montserrat(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.grey[800],
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  
-                  // Nom du menu
-                  TextField(
-                    controller: _menuNameController,
-                    decoration: InputDecoration(
-                      labelText: 'Nom du menu',
-                      hintText: 'Ex: Menu du jour, Menu dégustation...',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      prefixIcon: const Icon(Icons.restaurant_menu),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  
-                  // Description
-                  TextField(
-                    controller: _menuDescriptionController,
-                    decoration: InputDecoration(
-                      labelText: 'Description (optionnel)',
-                      hintText: 'Décrivez brièvement le menu...',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      prefixIcon: const Icon(Icons.description),
-                    ),
-                    maxLines: 3,
-                  ),
-                  const SizedBox(height: 16),
-                  
-                  // Prix
-                  TextField(
-                    controller: _menuPriceController,
-                    decoration: InputDecoration(
-                      labelText: 'Prix (€)',
-                      hintText: 'Ex: 25.90',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      prefixIcon: const Icon(Icons.euro),
-                    ),
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  ),
-                  
-                  const SizedBox(height: 24),
-                  
-                  // Boutons d'action
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      OutlinedButton(
-                        onPressed: () {
-                          setState(() {
-                            _isEditingMenu = false;
-                            _currentMenu = null;
-                            _resetFormControllers();
-                          });
-                        },
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                          side: BorderSide(color: Colors.grey[400]!),
+                        IconButton(
+                          icon: Icon(Icons.edit_outlined, color: primaryColor, size: 20),
+                          tooltip: 'Modifier le menu',
+                          onPressed: () => _showEditMenuDialog(existingMenu: menu),
                         ),
-                        child: const Text('Annuler'),
-                      ),
-                      const SizedBox(width: 16),
-                      ElevatedButton(
-                        onPressed: _saveMenu,
-                        style: ElevatedButton.styleFrom(
-                          foregroundColor: Colors.white,
-                          backgroundColor: Colors.deepOrange,
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                        IconButton(
+                          icon: Icon(Icons.delete_outline, color: theme.colorScheme.error, size: 20),
+                          tooltip: 'Supprimer le menu',
+                          onPressed: () => _deleteMenu(menu),
                         ),
-                        child: Text(_currentMenu == null ? 'Créer le menu' : 'Enregistrer'),
-                      ),
-                    ],
+                      ],
+                    ),
+                    // Optional: Add onTap to view included items if needed
                   ),
-                ],
-              ),
+                );
+              },
             ),
-          ),
-          
-          if (_currentMenu != null) ...[
-            const SizedBox(height: 24),
-            Text(
-              'Éléments inclus dans le menu',
-              style: GoogleFonts.montserrat(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Colors.grey[800],
-              ),
-            ),
-            const SizedBox(height: 16),
-            
-            // Liste des items par catégorie
-            ..._categories.map((category) {
-              final categoryItems = _items[category] ?? [];
-              if (categoryItems.isEmpty) return const SizedBox.shrink();
-              
-              return Card(
-                margin: const EdgeInsets.only(bottom: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
+      floatingActionButton: FloatingActionButton.extended(
+        icon: const Icon(Icons.add),
+        label: const Text('Ajouter Menu'),
+        backgroundColor: primaryColor,
+        foregroundColor: theme.colorScheme.onPrimary,
+        onPressed: () => _showEditMenuDialog(),
+      ),
+    );
+  }
+
+  // Builder for the Independent Items Tab
+  Widget _buildIndependentItemsTab(ThemeData theme, Color secondaryColor) {
+     final categoriesToDisplay = _categories.isNotEmpty ? _categories : _independentItems.keys.toList()..sort();
+
+    return Scaffold( // Use Scaffold for FAB
+      body: categoriesToDisplay.isEmpty
+          ? Center(child: Text('Aucun article indépendant défini.', style: theme.textTheme.titleMedium))
+          : ListView.builder(
+              padding: const EdgeInsets.all(8),
+              itemCount: categoriesToDisplay.length,
+              itemBuilder: (context, index) {
+                final categoryName = categoriesToDisplay[index];
+                final itemsInCategory = _independentItems[categoryName] ?? [];
+
+                // Use ExpansionTile for categories
+                return Card( // Card around ExpansionTile for better separation
+                  margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+                  elevation: 1,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  clipBehavior: Clip.antiAlias,
                 child: ExpansionTile(
+                    key: PageStorageKey(categoryName), // Preserve state on scroll
+                    backgroundColor: secondaryColor.withOpacity(0.03),
+                    collapsedBackgroundColor: Colors.white,
+                    iconColor: secondaryColor,
+                    collapsedIconColor: Colors.grey[600],
                   title: Text(
-                    category,
-                    style: GoogleFonts.nunito(
-                      fontWeight: FontWeight.bold,
+                      categoryName,
+                      style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, color: secondaryColor),
                     ),
-                  ),
-                  leading: const Icon(Icons.category),
+                    subtitle: Text('${itemsInCategory.length} article(s)'),
+                    childrenPadding: const EdgeInsets.only(bottom: 8, left: 8, right: 8),
+                    children: itemsInCategory.map((item) {
+                      return ListTile(
+                         dense: true,
+                         contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 0),
+                         title: Text(item.name, style: theme.textTheme.bodyLarge),
+                         subtitle: Text('${item.price.toStringAsFixed(2)} €${item.description.isNotEmpty ? '\n${item.description}' : ''}', maxLines: 2, overflow: TextOverflow.ellipsis),
+                         trailing: Row(
+                           mainAxisSize: MainAxisSize.min,
                   children: [
-                    ListView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: categoryItems.length,
-                      itemBuilder: (context, index) {
-                        final item = categoryItems[index];
-                        final itemName = item['nom'] ?? 'Item sans nom';
-                        final itemPrice = item['prix'] ?? 'N/A';
-                        
-                        // Vérifier si l'item est déjà dans le menu
-                        bool isIncluded = false;
-                        if (_currentMenu != null) {
-                          final inclus = _currentMenu!['inclus'] ?? [];
-                          for (var cat in inclus) {
-                            if (cat['catégorie'] == category) {
-                              final items = cat['items'] ?? [];
-                              isIncluded = items.any((i) => i['nom'] == itemName);
-                              break;
-                            }
-                          }
-                        }
-                        
-                        return CheckboxListTile(
-                          title: Text(
-                            itemName,
-                            style: GoogleFonts.nunito(),
-                          ),
-                          subtitle: Text(
-                            'Prix: $itemPrice €',
-                            style: GoogleFonts.nunito(
-                              fontSize: 12,
-                              color: Colors.grey[600],
-                            ),
-                          ),
-                          value: isIncluded,
-                          onChanged: (newValue) {
-                            if (newValue == null) return;
-                            
-                            setState(() {
-                              if (_currentMenu == null) {
-                                _currentMenu = {
-                                  'nom': _menuNameController.text,
-                                  'description': _menuDescriptionController.text,
-                                  'prix': _menuPriceController.text,
-                                  'inclus': [],
-                                };
-                              }
-                              
-                              var inclus = _currentMenu!['inclus'] as List<dynamic>;
-                              
-                              // Trouver la catégorie existante ou en créer une nouvelle
-                              var categoryEntry = inclus.firstWhere(
-                                (cat) => cat['catégorie'] == category,
-                                orElse: () {
-                                  final newCat = {'catégorie': category, 'items': []};
-                                  inclus.add(newCat);
-                                  return newCat;
-                                },
-                              );
-                              
-                              var items = categoryEntry['items'] as List<dynamic>;
-                              
-                              if (newValue) {
-                                // Ajouter l'item s'il n'est pas déjà présent
-                                if (!items.any((i) => i['nom'] == itemName)) {
-                                  items.add(item);
-                                }
-                              } else {
-                                // Retirer l'item
-                                items.removeWhere((i) => i['nom'] == itemName);
-                                
-                                // Si la catégorie est vide, la retirer
-                                if (items.isEmpty) {
-                                  inclus.removeWhere((cat) => cat['catégorie'] == category);
-                                }
-                              }
-                              
-                              _currentMenu!['inclus'] = inclus;
-                            });
-                          },
+                             IconButton(
+                               icon: Icon(Icons.edit_outlined, color: secondaryColor, size: 20),
+                               tooltip: 'Modifier l'article',
+                               onPressed: () => _showEditItemDialog(existingItem: item),
+                             ),
+                             IconButton(
+                               icon: Icon(Icons.delete_outline, color: theme.colorScheme.error, size: 20),
+                               tooltip: 'Supprimer l'article',
+                               onPressed: () => _deleteItem(item, categoryName),
+                             ),
+                           ],
+                         ),
+                      );
+                    }).toList(),
+                  ),
                         );
                       },
                     ),
-                  ],
-                ),
-              );
-            }).toList(),
-          ],
-        ],
+       floatingActionButton: FloatingActionButton.extended(
+         icon: const Icon(Icons.add),
+         label: const Text('Ajouter Article'),
+         backgroundColor: secondaryColor,
+         foregroundColor: theme.colorScheme.onSecondary,
+         onPressed: () => _showEditItemDialog(),
       ),
     );
   }

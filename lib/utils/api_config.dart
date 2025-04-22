@@ -1,4 +1,6 @@
+import 'package:flutter/material.dart';
 import 'constants.dart' as constants;
+import '../services/auth_service.dart';
 
 class ApiConfig {
   static const bool isDevelopment = false;
@@ -53,11 +55,24 @@ class ApiConfig {
   static Future<Map<String, String>> getAuthHeaders() async {
     // Pour le moment, nous retournons simplement les headers par défaut
     // Dans une implémentation réelle, on récupérerait le token depuis SharedPreferences
-    return {
+    final headers = {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
-      // 'Authorization': 'Bearer $token', // Ajouter le token si nécessaire
     };
+    
+    try {
+      // Get token from AuthService
+      final authService = AuthService();
+      final token = await authService.getTokenInstance();
+      
+      if (token != null && token.isNotEmpty) {
+        headers['Authorization'] = 'Bearer $token';
+      }
+    } catch (e) {
+      print('❌ Error getting auth token for headers: $e');
+    }
+    
+    return headers;
   }
 
   // Valeur du mode de production

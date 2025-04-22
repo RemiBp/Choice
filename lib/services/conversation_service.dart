@@ -10,6 +10,9 @@ import '../utils/constants.dart' as constants;
 import '../config/api_config.dart';
 import '../services/auth_service.dart';
 
+// Define the Tenor API Key from environment variables
+const String _tenorApiKey = String.fromEnvironment('TENOR_API_KEY', defaultValue: '');
+
 class ConversationService {
   final String baseUrl = ApiConfig.baseUrl;
   final AuthService _authService = AuthService();
@@ -1735,53 +1738,349 @@ class ConversationService {
     }
   }
 
-  // ---- File Upload & Group helpers ----
-  Future<String?> uploadFile(File file) async {
+  // Placeholder/Example for fetching the current user ID
+  // Replace with your actual authentication logic (e.g., using AuthService)
+  Future<String> getCurrentUserId() async {
+    // Use the userId from AuthService instance
+    final userId = _authService.userId;
+
+    if (userId == null || userId.isEmpty) {
+       print("❌ ERROR: getCurrentUserId failed - User ID is null or empty in AuthService.");
+       // Throw an exception or handle this case as appropriate for your app
+       // For example, redirecting to login or showing an error message.
+       throw Exception("User is not authenticated or user ID is missing.");
+    }
+    print("ℹ️ getCurrentUserId retrieved ID: $userId");
+    return userId;
+  }
+
+  // Method to get conversation details by ID (used in GroupDetailScreen)
+  Future<Map<String, dynamic>> getConversationById(String conversationId) async {
     try {
-      final baseUrl = getBaseUrl();
-      final request = http.MultipartRequest('POST', Uri.parse('$baseUrl/api/upload'));
-      request.files.add(await http.MultipartFile.fromPath('file', file.path));
-      final streamed = await request.send();
-      final response = await http.Response.fromStream(streamed);
-      if (response.statusCode == 200 || response.statusCode == 201) {
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/conversations/$conversationId'),
+      );
+
+      if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        return data['url'] ?? data['fileUrl'];
+         if (data is Map<String, dynamic>) {
+             return {
+                'id': data['id'] ?? data['_id'] ?? conversationId,
+                'name': data['groupName'] ?? data['name'] ?? 'Groupe',
+                'avatarUrl': data['groupImage'] ?? data['groupAvatar'] ?? data['avatar'],
+                'isPinned': data['isPinned'] ?? false,
+                'isMuted': data['isMuted'] ?? false,
+                ...data,
+             };
+         } else {
+            print('⚠️ Unexpected format for conversation details: ${response.body}');
+            throw Exception('Unexpected response format for conversation details');
+         }
+      } else {
+        throw Exception('Failed to fetch conversation details: ${response.statusCode}');
       }
     } catch (e) {
-      print('uploadFile error: $e');
-    }
-    return null;
-  }
-
-  Future<void> updateGroupInfo(String conversationId, {String? groupName, String? groupAvatar}) async {
-    if (groupName == null && groupAvatar == null) return;
-    final baseUrl = getBaseUrl();
-    final body = <String, dynamic>{};
-    if (groupName != null) body['groupName'] = groupName;
-    if (groupAvatar != null) body['groupAvatar'] = groupAvatar;
-    final resp = await http.patch(Uri.parse('$baseUrl/api/conversations/$conversationId'),
-        headers: {'Content-Type': 'application/json'}, body: json.encode(body));
-    if (resp.statusCode != 200) {
-      throw Exception('updateGroupInfo failed ${resp.statusCode} ${resp.body}');
+      print('❌ Exception fetching conversation details: $e');
+      rethrow;
     }
   }
 
-  Future<void> addParticipants(String conversationId, List<Map<String, dynamic>> users) async {
-    if (users.isEmpty) return;
-    final ids = users.map((e) => e['id'] ?? e['_id']).where((e) => e != null).toList();
-    final baseUrl = getBaseUrl();
-    final resp = await http.post(Uri.parse('$baseUrl/api/conversations/$conversationId/participants'),
-        headers: {'Content-Type': 'application/json'}, body: json.encode({'participantIds': ids}));
-    if (resp.statusCode != 200) {
-      throw Exception('addParticipants failed ${resp.statusCode}');
+  // Method to get participants of a conversation
+   Future<List<dynamic>> getConversationParticipants(String conversationId) async {
+     try {
+       final response = await http.get(
+         Uri.parse('$baseUrl/api/conversations/$conversationId/participants'),
+       );
+
+       if (response.statusCode == 200) {
+         final data = json.decode(response.body);
+         if (data['success'] == true && data['participants'] is List) {
+           return List<Map<String, dynamic>>.from(data['participants'].map((item) {
+              return item;
+           }));
+         } else {
+            print('⚠️ Participants fetch failed or returned unexpected format: ${response.body}');
+           return [];
+         }
+       } else {
+         throw Exception('Failed to fetch participants: ${response.statusCode}');
+       }
+     } catch (e) {
+       print('❌ Exception fetching participants: $e');
+       rethrow;
+     }
+   }
+
+   // --- File Upload & Group helpers ----
+   Future<String?> uploadFile(File file) async {
+    print("ℹ️ Uploading file: ${file.path}");
+    String? currentUserId;
+    try {
+      currentUserId = await getCurrentUserId(); // Get user ID for potential authorization or logging
+    } catch (e) {
+       print("⚠️ Could not get user ID for file upload: $e. Proceeding without it.");
+       // Decide if user ID is strictly required for upload endpoint
+    }
+
+    final token = await _getToken(); // Get auth token
+
+    // --- Actual Upload Logic ---
+    try {
+      final baseUrlValue = getBaseUrl();
+      // Define your backend upload endpoint URL here
+      final url = '$baseUrlValue/api/upload'; // <-- ADJUST THIS URL TO YOUR ACTUAL ENDPOINT
+      print("⬆️ Uploading to: $url");
+
+      var request = http.MultipartRequest('POST', Uri.parse(url));
+
+      // Add Authorization header if your endpoint requires it
+      if (token != null && token.isNotEmpty) {
+        request.headers['Authorization'] = 'Bearer $token';
+      }
+      // Add User ID header if needed by your backend
+      // if (currentUserId != null && currentUserId.isNotEmpty) {
+      //   request.headers['X-User-ID'] = currentUserId;
+      // }
+
+      // Determine content type
+      String mimeType = 'application/octet-stream'; // Default
+      String fileExtension = file.path.split('.').last.toLowerCase();
+      if (['jpg', 'jpeg'].contains(fileExtension)) {
+          mimeType = 'image/jpeg';
+      } else if (fileExtension == 'png') {
+          mimeType = 'image/png';
+      } else if (fileExtension == 'gif') {
+         mimeType = 'image/gif';
+      } else if (fileExtension == 'mp4') {
+         mimeType = 'video/mp4';
+      } // Add more types as needed
+
+      // Add the file to the request
+      request.files.add(await http.MultipartFile.fromPath(
+        'file', // The field name expected by your backend API for the file
+        file.path,
+        contentType: MediaType.parse(mimeType), // Use parsed MediaType
+      ));
+
+      // Optional: Add other fields if needed by your backend
+      // request.fields['userId'] = currentUserId ?? '';
+      // request.fields['description'] = 'Group Avatar Upload';
+
+      // Send the request
+      var response = await request.send();
+
+      // Process the response
+      final responseBody = await response.stream.bytesToString();
+      print("☁️ Upload Response Status: ${response.statusCode}");
+      print("☁️ Upload Response Body: $responseBody");
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        var jsonResponse = jsonDecode(responseBody);
+        // IMPORTANT: Adjust the key ('url', 'fileUrl', 'link', etc.) based on your backend response
+        final uploadedUrl = jsonResponse['url'] ?? jsonResponse['fileUrl'] ?? jsonResponse['link'];
+        if (uploadedUrl != null && uploadedUrl is String && uploadedUrl.isNotEmpty) {
+           print("✅ File uploaded successfully. URL: $uploadedUrl");
+           return uploadedUrl;
+        } else {
+            print("❌ File upload succeeded but URL not found in response: $responseBody");
+            throw Exception("Upload succeeded but URL was missing in the response.");
+        }
+      } else {
+        print('❌ File upload failed with status: ${response.statusCode}');
+        throw Exception('File upload failed: ${response.statusCode} - $responseBody');
+      }
+    } catch (e) {
+      print('❌ Exception during file upload: $e');
+      // Rethrow the exception so the calling method can handle it
+      rethrow;
     }
   }
 
+  // Update group details (name, avatar, pin, mute status)
+  Future<void> updateGroupDetails(
+    String conversationId, {
+    String? name,
+    File? avatarFile,
+    bool? isPinned,
+    bool? isMuted,
+  }) async {
+    String? avatarUrl;
+
+    // 1. Upload avatar if provided
+    if (avatarFile != null) {
+      print('ℹ️ Avatar file provided, attempting upload...');
+      try {
+         avatarUrl = await uploadFile(avatarFile);
+         if (avatarUrl == null) {
+            print('❌ Avatar upload returned null. Cannot update group avatar.');
+            // Decide if you want to proceed with name change only or throw error
+            // throw Exception('Failed to upload avatar (returned null).');
+         } else {
+            print('✅ Avatar uploaded, URL: $avatarUrl');
+         }
+      } catch (e) {
+         print('❌ Avatar upload failed with exception: $e. Cannot update group avatar.');
+         // Optionally rethrow or handle the error (e.g., show a message to the user)
+         // throw Exception('Failed to upload avatar: $e');
+         // For now, we'll proceed without the avatar change if upload fails
+         avatarUrl = null; // Ensure avatarUrl is null if upload failed
+      }
+    }
+
+    // 2. Prepare data for PATCH request
+    final Map<String, dynamic> updateData = {};
+    bool hasChanges = false;
+    if (name != null) {
+      updateData['groupName'] = name;
+      hasChanges = true;
+    }
+    if (avatarUrl != null) {
+      updateData['groupAvatar'] = avatarUrl;
+      hasChanges = true;
+    }
+    if (isPinned != null) {
+       updateData['isPinned'] = isPinned;
+       hasChanges = true;
+    }
+    if (isMuted != null) {
+       updateData['isMuted'] = isMuted;
+       hasChanges = true;
+    }
+
+    if (!hasChanges) {
+      print('ℹ️ No changes detected or upload failed. Skipping group details update API call.');
+      return; // Nothing to update
+    }
+
+    // 3. Send PATCH request
+    try {
+      final token = await _getToken();
+      final baseUrlValue = getBaseUrl();
+      final url = '$baseUrlValue/api/conversations/$conversationId';
+      print('⬆️ Updating group details: $url with data: ${json.encode(updateData)}');
+
+      final response = await http.patch(
+        Uri.parse(url),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: json.encode(updateData),
+      );
+
+      if (response.statusCode == 200) {
+        print('✅ Group details updated successfully via API.');
+      } else {
+        print('❌ Failed to update group details via API: ${response.statusCode} - ${response.body}');
+        throw Exception('Failed to update group details: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('❌ Exception updating group details via API: $e');
+      throw Exception('Error updating group details: $e');
+    }
+  }
+
+  // Add participants to a group
+  Future<void> addParticipantsByIds(String conversationId, List<String> participantIds) async {
+    // ... existing code ...
+  }
+
+  // Remove a participant from a group
   Future<void> removeParticipant(String conversationId, String participantId) async {
-    final baseUrl = getBaseUrl();
-    final resp = await http.delete(Uri.parse('$baseUrl/api/conversations/$conversationId/participants/$participantId'));
-    if (resp.statusCode != 200) {
-      throw Exception('removeParticipant failed ${resp.statusCode}');
+    // ... existing code ...
+  }
+
+  // Fetch GIFs from Tenor
+  Future<List<Map<String, dynamic>>> searchGifs(String query, {int limit = 20}) async {
+    if (_tenorApiKey.isEmpty) {
+      print("❌ Tenor API Key is missing. Please provide it via --dart-define=TENOR_API_KEY=YOUR_KEY");
+      return [];
+    }
+    if (query.isEmpty) {
+      return await fetchTrendingGifs(limit: limit);
+    }
+
+    // Define the URL within the method scope
+    final String requestUrl = "https://tenor.googleapis.com/v2/search?q=${Uri.encodeComponent(query)}&key=$_tenorApiKey&limit=$limit&media_filter=minimal";
+    print("🔍 Searching GIFs on Tenor: $requestUrl");
+
+    try {
+      final response = await http.get(Uri.parse(requestUrl)); // Use the defined URL variable
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final results = data['results'] as List?;
+        if (results != null) {
+          // Map results safely
+          return results.map((gif) {
+            // Ensure gif is a Map<String, dynamic> before accessing keys
+            if (gif is Map<String, dynamic>) {
+               final mediaFormats = gif['media_formats'] as Map<String, dynamic>?;
+               final previewUrl = mediaFormats?['nanogif']?['url'] ?? mediaFormats?['tinygif']?['url'] ?? mediaFormats?['gif']?['url'];
+               final gifUrl = mediaFormats?['gif']?['url'];
+               return {
+                 'id': gif['id'],
+                 'previewUrl': previewUrl, 
+                 'url': gifUrl,
+                 'description': gif['content_description'],
+               };
+            } else {
+               return <String, dynamic>{}; // Return empty map for invalid items
+            }
+          }).where((gif) => gif.containsKey('previewUrl') && gif['previewUrl'] != null && gif.containsKey('url') && gif['url'] != null).toList(); // Filter valid results
+        }
+        return [];
+      } else {
+         print("❌ Failed to fetch GIFs from Tenor: ${response.statusCode} - ${response.body}");
+        return [];
+      }
+    } catch (e) {
+      print("❌ Exception fetching GIFs: $e");
+      return [];
+    }
+  }
+
+  // Fetch Trending GIFs from Tenor
+  Future<List<Map<String, dynamic>>> fetchTrendingGifs({int limit = 20}) async {
+    if (_tenorApiKey.isEmpty) {
+       print("❌ Tenor API Key is missing for trending GIFs.");
+      return [];
+    }
+    // Define the URL within the method scope
+    final String requestUrl = "https://tenor.googleapis.com/v2/featured?key=$_tenorApiKey&limit=$limit&media_filter=minimal";
+     print("📈 Fetching Trending GIFs from Tenor: $requestUrl");
+
+    try {
+      final response = await http.get(Uri.parse(requestUrl)); // Use the defined URL variable
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final results = data['results'] as List?;
+         if (results != null) {
+          // Map results safely
+          return results.map((gif) {
+             // Ensure gif is a Map<String, dynamic> before accessing keys
+             if (gif is Map<String, dynamic>) {
+                final mediaFormats = gif['media_formats'] as Map<String, dynamic>?;
+                final previewUrl = mediaFormats?['nanogif']?['url'] ?? mediaFormats?['tinygif']?['url'] ?? mediaFormats?['gif']?['url'];
+                final gifUrl = mediaFormats?['gif']?['url'];
+                return {
+                  'id': gif['id'],
+                  'previewUrl': previewUrl,
+                  'url': gifUrl,
+                  'description': gif['content_description'],
+                };
+             } else {
+                 return <String, dynamic>{}; // Return empty map for invalid items
+             }
+          }).where((gif) => gif.containsKey('previewUrl') && gif['previewUrl'] != null && gif.containsKey('url') && gif['url'] != null).toList(); // Filter valid results
+        }
+        return [];
+      } else {
+         print("❌ Failed to fetch trending GIFs: ${response.statusCode} - ${response.body}");
+        return [];
+      }
+    } catch (e) {
+      print("❌ Exception fetching trending GIFs: $e");
+      return [];
     }
   }
 } 

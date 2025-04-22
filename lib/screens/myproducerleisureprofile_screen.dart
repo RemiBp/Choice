@@ -9,12 +9,19 @@ import 'dart:typed_data';
 import 'dart:io';
 import 'package:intl/intl.dart';
 import 'package:shimmer/shimmer.dart';
+import 'package:cached_network_image/cached_network_image.dart'; // Import CachedNetworkImage
+
 import 'eventLeisure_screen.dart';
 import 'utils.dart';
 import '../services/payment_service.dart';
 import '../utils/leisureHelpers.dart';  // Add this import for getEventImageUrl
 import 'login_user.dart';  // Import for LoginUserPage
 import 'myeventsmanagement_screen.dart';  // Import for MyEventsManagementScreen
+import 'myeventsmanagement_screen.dart' show formatDisplayDate;
+// Import a potential User List Screen (adjust path if needed)
+// import 'user_list_screen.dart'; 
+// Import a potential Event Detail Screen (adjust path if needed)
+// import 'event_detail_screen.dart'; 
 import '../services/api_service.dart';
 import '../utils/constants.dart' as constants;
 import '../utils.dart' show getImageProvider;
@@ -66,6 +73,60 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
   String? _errorEvents;
   bool _isLoadingEvents = false;
   List<dynamic> _producerEvents = [];
+
+  // State variables for stats
+  int _followersCount = 0;
+  int _followingCount = 0;
+  int _interestedCount = 0;
+  int _choiceCount = 0;
+  int _eventsCount = 0;
+
+  /// Formatte une date pour l'affichage selon le format français
+  String formatDisplayDate(dynamic dateValue) {
+    try {
+      if (dateValue == null) return 'Date non disponible';
+      
+      DateTime date;
+      
+      // Convertir une chaîne en DateTime
+      if (dateValue is String) {
+        // Essayer différents formats de date
+        try {
+          date = DateTime.parse(dateValue);
+        } catch (e) {
+          // Gérer le format DD/MM/YYYY
+          if (dateValue.contains('/')) {
+            final parts = dateValue.split('/');
+            if (parts.length == 3) {
+              final day = int.parse(parts[0]);
+              final month = int.parse(parts[1]);
+              final year = int.parse(parts[2]);
+              date = DateTime(year, month, day);
+            } else {
+              return dateValue; // Retourner la valeur d'origine si non parsable
+            }
+          } else {
+            return dateValue; // Retourner la valeur d'origine si non parsable
+          }
+        }
+      } 
+      // Utiliser directement un DateTime
+      else if (dateValue is DateTime) {
+        date = dateValue;
+      }
+      // Cas non géré
+      else {
+        return dateValue.toString();
+      }
+      
+      // Formater la date pour l'affichage en français
+      final DateFormat formatter = DateFormat('EEE d MMMM yyyy', 'fr_FR');
+      return formatter.format(date).toLowerCase();
+    } catch (e) {
+      print('❌ Erreur lors du formatage de la date "$dateValue": $e');
+      return 'Date invalide';
+    }
+  }
 
   @override
   void initState() {
@@ -262,7 +323,8 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
   // Méthode pour afficher la photo de profil du producteur avec gestion avancée
   Widget _buildProfileImage(Map<String, dynamic> data) {
     // Chercher l'URL de la photo dans différents champs possibles
-    final photo = data['photo'] ?? data['photo_url'] ?? data['image'] ?? data['picture'];
+    final photo = _getStringSafe(data, ['photo', 'photo_url', 'image', 'picture', 'avatar', 'logoUrl']);
+    final imageProvider = getImageProvider(photo); // Use utility function
     
     return GestureDetector(
       onTap: _updateProfileImage,
@@ -293,39 +355,26 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
                     ),
                   )
                 : ClipOval(
-                    child: photo != null
-                        ? Image.network(
-                            photo,
+                    // Use CachedNetworkImage for better handling
+                    child: imageProvider != null
+                      ? CachedNetworkImage(
+                          imageUrl: photo, // Assume photo is the URL string
                             fit: BoxFit.cover,
                             width: 120,
                             height: 120,
-                            errorBuilder: (context, error, stackTrace) {
-                              print('❌ Erreur de chargement d\'image: $error');
-                              return Container(
+                          placeholder: (context, url) => Container(
                                 color: Colors.grey[300],
-                                child: const Icon(
-                                  Icons.image_not_supported,
-                                  size: 40,
-                                  color: Colors.grey,
-                                ),
-                              );
-                            },
-                            loadingBuilder: (context, child, loadingProgress) {
-                              if (loadingProgress == null) return child;
-                              return Center(
-                                child: CircularProgressIndicator(
-                                  value: loadingProgress.expectedTotalBytes != null
-                                      ? loadingProgress.cumulativeBytesLoaded /
-                                          (loadingProgress.expectedTotalBytes ?? 1)
-                                      : null,
-                                ),
-                              );
-                            },
+                              child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                          ),
+                          errorWidget: (context, url, error) => Container(
+                            color: Colors.grey[300],
+                            child: const Icon(Icons.broken_image, size: 40, color: Colors.grey),
+                          ),
                           )
                         : Container(
                             color: Colors.grey[300],
                             child: const Icon(
-                              Icons.person,
+                            Icons.festival, // More relevant icon for leisure
                               size: 60,
                               color: Colors.grey,
                             ),
@@ -377,7 +426,8 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Colors.blue.shade700, Colors.blue.shade500],
+          // Use a purple gradient for leisure
+          colors: [Colors.deepPurple.shade700, Colors.purple.shade500],
         ),
         boxShadow: [
           BoxShadow(
@@ -400,9 +450,10 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center, // Vertically center content
                   children: [
                     Text(
-                      _getStringSafe(data, ['lieu', 'name']) ?? 'Nom non spécifié',
+                      _getStringSafe(data, ['lieu', 'name']) ?? 'Lieu de Loisir', // Default text
                       style: const TextStyle(
                         fontSize: 22,
                         fontWeight: FontWeight.bold,
@@ -440,12 +491,12 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
                     Row(
                       children: [
                         const Icon(Icons.location_on, size: 16, color: Colors.white70),
-                        const SizedBox(width: 4),
+                        const SizedBox(width: 6),
                         Expanded(
                           child: Text(
                             _getStringSafe(data, ['adresse', 'address']) ?? 'Adresse non spécifiée',
                             style: const TextStyle(color: Colors.white70, fontSize: 14),
-                            maxLines: 2,
+                            maxLines: 2, // Allow 2 lines for address
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
@@ -458,7 +509,7 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
                       Row(
                         children: [
                           const Icon(Icons.star, size: 16, color: Colors.amber),
-                          const SizedBox(width: 4),
+                          const SizedBox(width: 6),
                           Text(
                             '${_formatRating(data)} / 5',
                             style: const TextStyle(
@@ -479,26 +530,34 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
             ],
           ),
           // Edit Profile Button
-          Positioned(
-            top: 10,
-            right: 10,
+          Align(
+             alignment: Alignment.topRight,
+             child: Padding(
+               padding: const EdgeInsets.only(top: 4.0), // Adjust padding
             child: Container(
               decoration: BoxDecoration(
                 color: Colors.black.withOpacity(0.5),
                 shape: BoxShape.circle,
               ),
               child: IconButton(
-                icon: const Icon(Icons.edit, color: Colors.white, size: 20),
+                   icon: const Icon(Icons.edit, color: Colors.white, size: 18), // Smaller icon
                 onPressed: () => _showEditLeisureProfileDialog(data),
                 tooltip: 'Modifier le profil',
+                   constraints: BoxConstraints(), // Remove default constraints for smaller button
+                   padding: EdgeInsets.all(6), // Adjust padding
               ),
             ),
           ),
-          
-          // Statistiques rapides
-          const SizedBox(height: 24),
-          Container(
-            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+           )
+        ], // Row: Image + Text
+      ), // Container padding
+    ); // Outer Container
+  }
+  
+  // NEW: Widget for the stats bar
+  Widget _buildStatsBar(Map<String, dynamic> data) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8), // Reduced horizontal padding
             decoration: BoxDecoration(
               color: Colors.white.withOpacity(0.15),
               borderRadius: BorderRadius.circular(12),
@@ -506,58 +565,77 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                _buildStatItem(
-                  icon: Icons.calendar_today,
-                  value: data['nombre_evenements']?.toString() ?? '0',
+          _buildStatItemClickable(
+            // Use state variables updated in _fetchProducerData
                   label: 'Événements',
+            value: _eventsCount, 
+            icon: Icons.event_note, 
+            onTap: () { _tabController.animateTo(1); } // Navigate to Events tab
                 ),
-                _buildStatItem(
-                  icon: Icons.people,
-                  value: data['abonnés']?.length.toString() ?? '0',
+          _buildStatItemClickable(
                   label: 'Abonnés',
-                ),
-                _buildStatItem(
-                  icon: Icons.favorite,
-                  value: data['likes']?.toString() ?? '0',
-                  label: 'J\'aime',
-                ),
-              ],
-            ),
+            value: _followersCount, 
+            icon: Icons.people_outline, // Use outline icons
+            onTap: () => _navigateToUserList('followers', data['_id'])
+          ),
+          _buildStatItemClickable(
+            label: 'Intéressés', 
+            value: _interestedCount,
+            icon: Icons.star_border, // Use outline icons
+            onTap: () => _navigateToUserList('interested', data['_id'])
+          ),
+          _buildStatItemClickable(
+            label: 'Choix', 
+            value: _choiceCount,
+            icon: Icons.check_circle_outline, // Use outline icons
+            onTap: () => _navigateToUserList('choices', data['_id'])
           ),
         ],
       ),
     );
   }
   
-  Widget _buildStatItem({
-    required IconData icon,
-    required String value,
+  // NEW: Reusable clickable stat item
+  Widget _buildStatItemClickable({
     required String label,
+    required int value,
+    required IconData icon,
+    required VoidCallback onTap,
   }) {
-    return Column(
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 8.0), // Add padding
+        child: Column(
+          mainAxisSize: MainAxisSize.min, // Prevent taking too much space
       children: [
-        Icon(icon, color: Colors.white, size: 24),
-        const SizedBox(height: 6),
+            Icon(icon, color: Colors.white, size: 22), // Slightly smaller icon
+            const SizedBox(height: 4),
         Text(
-          value,
+              NumberFormat.compact().format(value), // Format large numbers
           style: const TextStyle(
             color: Colors.white,
             fontWeight: FontWeight.bold,
-            fontSize: 18,
+                fontSize: 16, // Slightly smaller font
           ),
         ),
+            const SizedBox(height: 2),
         Text(
           label,
           style: TextStyle(
             color: Colors.white.withOpacity(0.8),
-            fontSize: 12,
+                fontSize: 11, // Smaller label font
           ),
         ),
       ],
+        ),
+      ),
     );
   }
 
   Future<Map<String, dynamic>> _fetchProducerData(String userId) async {
+    _isLoading = true; // Set loading state
     try {
       final baseUrl = await constants.getBaseUrl();
       final client = http.Client();
@@ -699,6 +777,26 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
         // Save producer data for use in events
         _producerData = producerData;
         
+        // ---> Update state variables for stats bar
+        setState(() {
+          // Check if _producerData is not null before accessing it
+          if (_producerData != null) { 
+            _followersCount = _getSafeCount(_producerData!, 'followers', numberKey: 'abonnés');
+            _followingCount = _getSafeCount(_producerData!, 'following'); // Assuming 'following' key exists
+            _interestedCount = _getSafeCount(_producerData!, 'interestedUsers');
+            _choiceCount = _getSafeCount(_producerData!, 'choiceUsers');
+            _eventsCount = _getSafeCount(_producerData!, 'evenements', listKey: 'nombre_evenements');
+          } else {
+             // Set counts to 0 if _producerData is null
+             _followersCount = 0;
+             _followingCount = 0;
+             _interestedCount = 0;
+             _choiceCount = 0;
+             _eventsCount = 0;
+          }
+        });
+        // <--- End stats update
+        
         return producerData;
       } else {
         print('❌ Failed to find producer data for ID: $userId');
@@ -741,6 +839,12 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
       print('⚠️ Using default data after network error');
       _producerData = defaultData;
       return defaultData;
+    } finally {
+      if(mounted) { // Check if mounted before calling setState
+        setState(() {
+          _isLoading = false; // Clear loading state
+        });
+      }
     }
   }
   
@@ -1492,8 +1596,9 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
       body: FutureBuilder<Map<String, dynamic>>(
         future: _producerFuture,
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator(color: Colors.deepPurple));
+          if (snapshot.connectionState == ConnectionState.waiting || _isLoading) { // Show indicator also when _isLoading is true
+            // Use Shimmer for a nicer loading effect
+            return _buildLoadingShimmer(); 
           } else if (snapshot.hasError) {
             return Center(
               child: Column(
@@ -1525,9 +1630,12 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
                   elevation: 0,
                   floating: true,
                   pinned: true,
-                  expandedHeight: 320,
+                  expandedHeight: 380, // Increased height to accommodate stats bar
                   flexibleSpace: FlexibleSpaceBar(
                     background: _buildHeaderWithPhoto(producer),
+                    // Remove title to prevent overlap
+                    titlePadding: EdgeInsets.zero, 
+                    title: null, 
                   ),
                   bottom: TabBar(
                     controller: _tabController,
@@ -1544,7 +1652,8 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
               controller: _tabController,
               children: [
                 _buildProfileTab(producer),
-                _buildEventsTab(producer),
+                // Pass producer data to events tab if needed
+                _buildEventsTabForProfile(producer), 
                 _buildStatisticsTab(producer),
               ],
             ),
@@ -1758,14 +1867,12 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
   }
 
   // Construire l'onglet d'événements
-  Widget _buildEventsTab(Map<String, dynamic> producer) {
+  Widget _buildEventsTabForProfile(Map<String, dynamic> producer) {
     return FutureBuilder<List<dynamic>>(
       future: _fetchProducerEvents(widget.userId),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(
-            child: CircularProgressIndicator(),
-          );
+          return const Center(child: CircularProgressIndicator(color: Colors.deepPurple));
         }
         
         if (snapshot.hasError) {
@@ -1778,9 +1885,7 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
                 Text('Erreur: ${snapshot.error}'),
                 const SizedBox(height: 16),
                 ElevatedButton(
-                  onPressed: () {
-                    setState(() {});
-                  },
+                  onPressed: () => setState(() {}), // Simple refresh trigger
                   child: const Text('Réessayer'),
                 ),
               ],
@@ -1789,7 +1894,103 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
         }
         
         final events = snapshot.data ?? [];
-        return _buildEventsSection(events);
+        
+        // ---> NEW: Calculate aggregated stats from events
+        int totalInterested = 0;
+        int totalChoices = 0;
+        for (var event in events) {
+          if (event is Map<String, dynamic>) {
+            // Use interest_count if available, otherwise length of interestedUsers array
+            final interestCount = event['interest_count'] ?? 
+                                  (event['interestedUsers'] is List ? event['interestedUsers'].length : 0);
+            final choiceCount = event['choice_count'] ?? 0;
+            
+            totalInterested += (interestCount is int) ? interestCount : 0;
+            totalChoices += (choiceCount is int) ? choiceCount : 0;
+          }
+        }
+        
+        // ---> NEW: Update state variables after frame build
+        // Use WidgetsBinding.instance.addPostFrameCallback to avoid calling setState during build
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && (_interestedCount != totalInterested || _choiceCount != totalChoices)) {
+            setState(() {
+              _interestedCount = totalInterested;
+              _choiceCount = totalChoices;
+              // Note: _eventsCount should probably be events.length, ensure it's updated elsewhere if needed
+              // _eventsCount = events.length; 
+            });
+          }
+        });
+        // <--- End stats calculation and update
+        
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 24, 16, 20),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Text(
+                    'Mes événements (${events.length})',
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  ElevatedButton.icon(
+                    // Navigate to management screen without specific ID for creation
+                    onPressed: () => _navigateToManagementScreen(null),
+                    icon: const Icon(Icons.settings, size: 18), // Use settings icon
+                    label: const Text('Gérer tout'), // Changed label
+                    style: ElevatedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      backgroundColor: Colors.deepPurple, // Match theme
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: events.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.event_busy, size: 60, color: Colors.grey[300]),
+                          const SizedBox(height: 16),
+                          const Text('Aucun événement programmé', style: TextStyle(fontSize: 16, color: Colors.grey)),
+                          const SizedBox(height: 16),
+                          ElevatedButton.icon(
+                             onPressed: () => _navigateToManagementScreen(null),
+                             icon: const Icon(Icons.add),
+                             label: const Text('Créer un événement'),
+                             style: ElevatedButton.styleFrom(
+                               backgroundColor: Colors.deepPurple,
+                               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                             ),
+                           ),
+                        ],
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                      itemCount: events.length,
+                      itemBuilder: (context, index) {
+                        final event = events[index];
+                        // Use the new simplified card for profile view
+                        return _buildEventCardForProfile(event); 
+                      },
+                    ),
+            ),
+          ],
+        );
       },
     );
   }
@@ -2035,6 +2236,9 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
   Widget _buildEventCard(Map<String, dynamic> event, bool isUpcoming) {
     // Extraire l'URL de l'image avec gestion de différents formats
     final imageUrl = _getEventImageUrl(event);
+    // Use the utility function to get an ImageProvider
+    final imageProvider = getImageProvider(imageUrl);
+
     final title = event['intitulé'] ?? event['titre'] ?? event['name'] ?? 'Événement sans titre';
     final location = event['lieu'] ?? event['adresse'] ?? '';
     
@@ -2078,42 +2282,24 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Image de l'événement
+            // Image de l'événement (using CachedNetworkImage)
             Stack(
               children: [
                 AspectRatio(
                   aspectRatio: 16/9,
-                  child: imageUrl != null && imageUrl.isNotEmpty
-                    ? Image.network(
-                        imageUrl,
+                  child: imageProvider != null
+                    ? CachedNetworkImage(
+                        // Assume imageUrl is the string URL here
+                        imageUrl: imageUrl!, 
                         fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => Container(
+                        placeholder: (context, url) => Container(
                           color: Colors.grey[200],
-                          child: const Center(
-                            child: Icon(
-                              Icons.image_not_supported,
-                              size: 40,
-                              color: Colors.grey,
-                            ),
-                          ),
+                            child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
                         ),
-                        loadingBuilder: (_, child, loadingProgress) {
-                          if (loadingProgress == null) return child;
-                          return Container(
+                        errorWidget: (context, url, error) => Container(
                             color: Colors.grey[200],
-                            child: Center(
-                              child: CircularProgressIndicator(
-                                value: loadingProgress.expectedTotalBytes != null
-                                    ? loadingProgress.cumulativeBytesLoaded /
-                                        (loadingProgress.expectedTotalBytes ?? 1)
-                                    : null,
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  Colors.blue.shade300,
-                                ),
-                              ),
-                            ),
-                          );
-                        },
+                            child: const Center(child: Icon(Icons.event_busy, size: 40, color: Colors.grey)),
+                        ),
                       )
                     : Container(
                         color: Colors.grey[200],
@@ -2322,15 +2508,25 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
 
   // Navigation vers les détails d'un événement
   void _navigateToEventDetails(BuildContext context, dynamic event) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => MyEventsManagementScreen(
-          producerId: widget.userId,
-          token: widget.token,
-        ),
-      ),
-    );
+    final eventId = event['_id']?.toString();
+    if (eventId != null) {
+      print("Navigating to details for event: $eventId");
+      // TODO: Implement EventDetailScreen or use a fallback screen
+      // Navigator.push(
+      //   context,
+      //   MaterialPageRoute(
+      //     builder: (context) => EventDetailScreen(eventId: eventId), 
+      //   ),
+      // );
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("L'écran de détail d'événement n'est pas encore disponible.")),
+      );
+    } else {
+      print("Error: Event ID is null, cannot navigate.");
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Impossible d'afficher les détails de cet événement.")), 
+      );
+    }
   }
   
   // Navigation vers l'édition d'un événement
@@ -2693,6 +2889,176 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
       return (data[numberKey] as num).toInt();
     }
     return 0;
+  }
+
+  // NEW: Navigation to User List Screen
+  void _navigateToUserList(String listType, String producerId) {
+    // TODO: Implement UserListScreen or use a fallback screen
+    print("Navigating to user list: type=$listType, producerId=$producerId");
+    // Navigator.push(
+    //   context,
+    //   MaterialPageRoute(
+    //     builder: (context) => UserListScreen(
+    //       parentId: producerId, 
+    //       listType: listType, // e.g., 'followers', 'following', 'interested', 'choices'
+    //     ),
+    //   ),
+    // );
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text("L'écran de liste d'utilisateurs n'est pas encore disponible.")),
+    );
+  }
+
+  // Build Shimmer Loading Placeholder
+  Widget _buildLoadingShimmer() {
+    return Scaffold(
+      body: Shimmer.fromColors(
+        baseColor: Colors.grey[300]!,
+        highlightColor: Colors.grey[100]!,
+        child: SingleChildScrollView(
+          physics: NeverScrollableScrollPhysics(), // Disable scroll while loading
+          child: Column(
+            children: [
+              // Shimmer Header
+              Container(
+                height: 380, // Match expanded AppBar height
+                color: Colors.white,
+              ),
+              // Shimmer Tab Content Placeholder
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(width: double.infinity, height: 150.0, color: Colors.white),
+                    const SizedBox(height: 16),
+                    Container(width: double.infinity, height: 100.0, color: Colors.white),
+                    const SizedBox(height: 16),
+                    Container(width: 200, height: 20.0, color: Colors.white),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // NEW: Simplified Event Card for the Profile Screen
+  Widget _buildEventCardForProfile(Map<String, dynamic> event) {
+    final imageUrl = _getEventImageUrl(event);
+    final imageProvider = getImageProvider(imageUrl);
+    final title = event['intitulé'] ?? event['titre'] ?? event['name'] ?? 'Événement sans titre';
+    final dateStr = event['date_debut'] ?? event['prochaines_dates'] ?? '';
+    final formattedDate = dateStr.isNotEmpty ? formatDisplayDate(dateStr) : 'Date inconnue';
+    final isPublished = event['published'] ?? true; // Assume published if null
+    final eventId = event['_id']?.toString();
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Image and Status Badge
+          Stack(
+            children: [
+              AspectRatio(
+                aspectRatio: 16 / 9,
+                child: imageProvider != null
+                    ? CachedNetworkImage(
+                        imageUrl: imageUrl!, 
+                        fit: BoxFit.cover,
+                        placeholder: (context, url) => Container(color: Colors.grey[200]),
+                        errorWidget: (context, url, error) => Container(color: Colors.grey[200], child: Icon(Icons.broken_image, color: Colors.grey[400])),
+                      )
+                    : Container(color: Colors.grey[200], child: Icon(Icons.event, color: Colors.grey[400], size: 50)),
+              ),
+              Positioned(
+                top: 8, right: 8,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: isPublished ? Colors.green.withOpacity(0.8) : Colors.orange.withOpacity(0.8),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    isPublished ? 'Publié' : 'Brouillon',
+                    style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          // Text Content and Manage Button
+          Padding(
+            padding: const EdgeInsets.all(12.0),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        formattedDate,
+                        style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                // Manage Button
+                TextButton.icon(
+                  icon: const Icon(Icons.settings_outlined, size: 18),
+                  label: const Text('Gérer'),
+                  style: TextButton.styleFrom(
+                     foregroundColor: Colors.deepPurple,
+                     backgroundColor: Colors.deepPurple.withOpacity(0.1),
+                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                     padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6), // Smaller padding
+                     textStyle: TextStyle(fontSize: 12, fontWeight: FontWeight.w600), // Smaller text
+                  ),
+                  onPressed: eventId != null 
+                      ? () => _navigateToManagementScreen(eventId) 
+                      : null, // Disable if no ID
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // MODIFIED: Navigate to Management Screen (optionally with specific event)
+  void _navigateToManagementScreen(String? eventId) {
+     print("Navigating to management screen${eventId != null ? ' for event $eventId' : ''}");
+     Navigator.push(
+       context,
+       MaterialPageRoute(
+         builder: (context) => MyEventsManagementScreen(
+           producerId: widget.userId,
+           token: widget.token,
+           initialEventId: eventId, // Pass the event ID
+         ),
+       ),
+     ).then((_) {
+       // Refresh data when returning from management screen
+       setState(() {
+         _producerFuture = _fetchProducerData(widget.userId);
+       });
+     });
   }
 }
 

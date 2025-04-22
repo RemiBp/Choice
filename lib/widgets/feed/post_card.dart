@@ -346,39 +346,41 @@ class _PostCardState extends State<PostCard> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Row(
-            children: [
-              // Like button
-              _buildInteractionButton(
-                icon: _isLiked ? Icons.favorite : Icons.favorite_border,
-                label: 'J\'aime',
-                count: _likesCount,
-                isActive: _isLiked,
-                color: Colors.red,
-                onPressed: () => _handleLike(),
-              ),
-              
-              // Interest button (for producer posts)
-              if (post.isProducerPost ?? false)
+          Expanded(
+            child: Row(
+              children: [
+                // Like button
                 _buildInteractionButton(
-                  icon: _isInterested ? Icons.star : Icons.star_border,
-                  label: 'Intéressé',
-                  count: _interestedCount,
-                  isActive: _isInterested,
-                  color: (post.isLeisureProducer ?? false) ? Colors.purple : Colors.amber,
-                  onPressed: () => _handleInterested(),
+                  icon: _isLiked ? Icons.favorite : Icons.favorite_border,
+                  label: 'J\'aime',
+                  count: _likesCount,
+                  isActive: _isLiked,
+                  color: Colors.red,
+                  onPressed: () => _handleLike(),
                 ),
-              
-              // Comment button
-              _buildInteractionButton(
-                icon: Icons.chat_bubble_outline,
-                label: 'Commentaires',
-                count: _commentsCount,
-                isActive: false,
-                color: Colors.blue,
-                onPressed: () => widget.onCommentTap(post),
-              ),
-            ],
+                
+                // Interest button (for producer posts)
+                if (post.isProducerPost ?? false)
+                  _buildInteractionButton(
+                    icon: _isInterested ? Icons.star : Icons.star_border,
+                    label: 'Intéressé',
+                    count: _interestedCount,
+                    isActive: _isInterested,
+                    color: (post.isLeisureProducer ?? false) ? Colors.purple : Colors.amber,
+                    onPressed: () => _handleInterested(),
+                  ),
+                
+                // Comment button
+                _buildInteractionButton(
+                  icon: Icons.chat_bubble_outline,
+                  label: 'Commentaires',
+                  count: _commentsCount,
+                  isActive: false,
+                  color: Colors.blue,
+                  onPressed: () => widget.onCommentTap(post),
+                ),
+              ],
+            ),
           ),
           
           // Right side buttons

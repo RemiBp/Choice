@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../../utils.dart' show getImageProvider;
 
 class ProfileHeader extends StatelessWidget {
   final Map<String, dynamic> data;
@@ -63,16 +67,24 @@ class ProfileHeader extends StatelessWidget {
                     ],
                   ),
                   child: Hero(
-                    tag: 'producer-photo-${data['_id'] ?? data['id'] ?? data['producerId'] ?? ''}',
+                    tag: 'producer-photo-${data['_id'] ?? data['id'] ?? ''}',
                     child: ClipOval(
-                      child: Image.network(
-                        data['photo'] ?? 'https://via.placeholder.com/100',
+                      child: Image(
+                        image: getImageProvider(data['photo'] ?? '') 
+                            ?? const AssetImage('assets/images/default_avatar.png'),
                         fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) => 
-                          Container(
-                            color: Colors.grey[200],
-                            child: const Icon(Icons.restaurant, size: 50, color: Colors.grey),
+                        width: 100,
+                        height: 100,
+                        errorBuilder: (context, error, stackTrace) => Container(
+                          width: 100,
+                          height: 100,
+                          color: Colors.grey[200],
+                          child: Icon(
+                            Icons.restaurant,
+                            size: 50,
+                            color: Colors.grey[400],
                           ),
+                        ),
                       ),
                     ),
                   ),

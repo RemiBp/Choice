@@ -162,9 +162,6 @@ class _LoginUserPageState extends State<LoginUserPage> {
             : '429425452401-dibk2q2t0tlgpa2gpj2n2o8439qosdal.apps.googleusercontent.com',
       );
       
-      // Déconnexion préalable pour éviter les problèmes de cache
-      await googleSignIn.signOut();
-      
       // Tentative de connexion avec timeout
       final GoogleSignInAccount? googleUser = await googleSignIn.signIn().timeout(
         const Duration(seconds: 15),

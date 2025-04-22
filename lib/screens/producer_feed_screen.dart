@@ -39,14 +39,36 @@ class _ProducerFeedScreenState extends State<ProducerFeedScreen> with SingleTick
   // Track visible posts for auto-playing videos
   String? _currentlyPlayingVideoId;
   
-  // Check if we're a leisure producer
-  bool _isLeisureProducer = false;
+  // Producer type information determined during initState
+  late bool _isLeisureProducer;
+  late String _producerTypeString;
   
   @override
   void initState() {
     super.initState();
-    // Initialize controller with required userId
-    _controller = ProducerFeedScreenController(userId: widget.userId);
+
+    // Determine producer type immediately using AuthService from context
+    // Note: Accessing Provider here relies on the context being available,
+    // which it is in initState.
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final accountType = authService.accountType;
+
+    _isLeisureProducer = accountType == 'LeisureProducer';
+    // Determine the string representation for the API
+    if (accountType == 'LeisureProducer') {
+      _producerTypeString = 'leisure';
+    } else if (accountType == 'WellnessProducer') {
+      _producerTypeString = 'wellness';
+    } else {
+      // Default to restaurant if not leisure or wellness
+      _producerTypeString = 'restaurant';
+    }
+
+    // Initialize controller with required userId and producerTypeString
+    _controller = ProducerFeedScreenController(
+      userId: widget.userId,
+      producerTypeString: _producerTypeString, // Pass the determined type string
+    );
     
     // Set up tab controller for feed filters
     _tabController = TabController(length: 4, vsync: this); // Increased length to 4
@@ -58,19 +80,7 @@ class _ProducerFeedScreenState extends State<ProducerFeedScreen> with SingleTick
     // Add scroll listener for pagination
     _scrollController.addListener(_handleScroll);
 
-    // Detect account type
-    _detectProducerType();
-  }
-  
-  void _detectProducerType() async {
-    // Ici, vous pourriez appeler un service pour déterminer le type de producteur
-    // Pour l'instant, on utilise une valeur par défaut
-    final authService = Provider.of<AuthService>(context, listen: false);
-    final accountType = authService.accountType;
-    
-    setState(() {
-      _isLeisureProducer = accountType == 'LeisureProducer';
-    });
+    // No need for async _detectProducerType anymore
   }
   
   void _handleTabChange() {
@@ -232,22 +242,23 @@ class _ProducerFeedScreenState extends State<ProducerFeedScreen> with SingleTick
           body: AnimatedBuilder(
             animation: _controller,
             builder: (context, child) {
+              // Use the state variable _isLeisureProducer for UI elements
               if (_controller.loadState == ProducerFeedLoadState.initial || 
                   _controller.loadState == ProducerFeedLoadState.loading) {
-                return _buildLoadingView();
+                return _buildLoadingView(); // Uses _isLeisureProducer
               }
               
               if (_controller.loadState == ProducerFeedLoadState.error) {
-                return _buildErrorView();
+                return _buildErrorView(); // Uses _isLeisureProducer
               }
               
               if (_controller.feedItems.isEmpty) {
-                return _buildEmptyView();
+                return _buildEmptyView(); // Uses _isLeisureProducer
               }
               
               return RefreshIndicator(
                 onRefresh: () => _controller.refreshFeed(),
-                color: _isLeisureProducer ? Colors.deepPurple : Colors.orange,
+                color: _isLeisureProducer ? Colors.deepPurple : Colors.orange, // Use state variable
                 child: ListView.builder(
                   controller: _scrollController,
                   padding: const EdgeInsets.only(top: 8, bottom: 20),
@@ -258,7 +269,9 @@ class _ProducerFeedScreenState extends State<ProducerFeedScreen> with SingleTick
                       return const Center(
                         child: Padding(
                           padding: EdgeInsets.all(16.0),
-                          child: CircularProgressIndicator(),
+                          child: CircularProgressIndicator(
+                            color: _isLeisureProducer ? Colors.deepPurple : Colors.orange, // Use state variable
+                          ),
                         ),
                       );
                     }
@@ -2546,6 +2559,7 @@ class _ProducerFeedScreenState extends State<ProducerFeedScreen> with SingleTick
 // Special controller for the producer feed that only shows posts related to the producer
 class ProducerFeedScreenController extends ChangeNotifier {
   final String userId;
+  final String producerTypeString; // Added producer type string
   List<dynamic> _feedItems = [];
   ProducerFeedLoadState _loadState = ProducerFeedLoadState.initial;
   ProducerFeedContentType _currentFilter = ProducerFeedContentType.venue;
@@ -2554,7 +2568,10 @@ class ProducerFeedScreenController extends ChangeNotifier {
   int _page = 1;
   final ApiService _apiService = ApiService();
   
-  ProducerFeedScreenController({required this.userId});
+  ProducerFeedScreenController({
+    required this.userId,
+    required this.producerTypeString, // Require producer type string
+  });
   
   List<dynamic> get feedItems => _feedItems;
   ProducerFeedLoadState get loadState => _loadState;
@@ -2626,14 +2643,15 @@ class ProducerFeedScreenController extends ChangeNotifier {
     try {
       // Determine producer type string based on _isLeisureProducer
       // TODO: Need a more robust way if Wellness producers use this screen/controller too.
-      final authService = Provider.of<AuthService>(context, listen: false);
-      final accountType = authService.accountType; // Get account type from AuthService
-      String producerTypeString = 'restaurant'; // Default
-      if (accountType == 'LeisureProducer') {
-        producerTypeString = 'leisure';
-      } else if (accountType == 'WellnessProducer') {
-        producerTypeString = 'wellness';
-      }
+      // Removed AuthService call from here - use the passed producerTypeString
+      // final authService = Provider.of<AuthService>(context, listen: false);
+      // final accountType = authService.accountType; // Get account type from AuthService
+      // String producerTypeString = 'restaurant'; // Default
+      // if (accountType == 'LeisureProducer') {
+      //   producerTypeString = 'leisure';
+      // } else if (accountType == 'WellnessProducer') {
+      //   producerTypeString = 'wellness';
+      // }
 
       // Utiliser la nouvelle méthode getProducerFeed pour toutes les requêtes
       return await _apiService.getProducerFeed(
@@ -2641,7 +2659,7 @@ class ProducerFeedScreenController extends ChangeNotifier {
         contentType: filter, // Pass the enum value directly
         page: page,
         limit: 10,
-        // Only add producerType query parameter if the filter is followers
+        // Only add producerType query parameter if the filter is followers, use stored type
         producerType: filter == ProducerFeedContentType.followers ? producerTypeString : null,
       );
     } catch (e) {
@@ -2855,4 +2873,20 @@ String _getVisualBadge(dynamic post) {
   if (isRestaurant) return '🍽️';
   if (isWellness) return '🧘'; // Uncommented wellness badge
   return '👤'; // Default for users
+}
+
+// Utility function to get ImageProvider, handling potential errors
+ImageProvider? getImageProvider(String url) {
+  if (url.isEmpty || !Uri.parse(url).isAbsolute) {
+    print('⚠️ Invalid image URL: $url');
+    return null; // Return null for invalid URLs
+  }
+  try {
+    // Prioritize CachedNetworkImageProvider for performance and caching
+    return CachedNetworkImageProvider(url);
+  } catch (e) {
+    print('❌ Error creating ImageProvider for $url: $e');
+    // Fallback or error handling could go here, e.g., return a default image provider
+    return null; // Indicate failure
+  }
 }

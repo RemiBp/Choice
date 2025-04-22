@@ -127,265 +127,172 @@ class FilteredItemsList extends StatelessWidget {
     }
 
     int catIndex = 0;
-    return Container(
-      margin: const EdgeInsets.all(16.0),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Row(
+    // Use ListView.builder for potentially many categories/items
+    return ListView.separated(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: filteredItems.length,
+      separatorBuilder: (context, index) => const Divider(height: 16, indent: 16, endIndent: 16),
+      itemBuilder: (context, catIndex) {
+        final entry = filteredItems.entries.elementAt(catIndex);
+        final categoryName = entry.key;
+        final categoryItems = entry.value;
+        final isFirst = catIndex == 0;
+
+        return Theme(
+          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+          child: ExpansionTile(
+            initiallyExpanded: isFirst, // Expand the first category by default
+            tilePadding: const EdgeInsets.symmetric(horizontal: 16.0), // Adjust padding
+            title: Row(
               children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.green.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(Icons.restaurant, color: Colors.green),
-                ),
+                Icon(Icons.category_outlined, size: 20, color: Theme.of(context).colorScheme.primary), // Use theme color
                 const SizedBox(width: 12),
-                const Text(
-                  'Plats Filtrés',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
-                ),
-              ],
-            ),
-          ),
-          const Divider(height: 1),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-            child: Row(
-              children: [
-                Chip(
-                  label: Text('Carbone: $selectedCarbon'),
-                  avatar: const Icon(Icons.eco, size: 16, color: Colors.green),
-                  backgroundColor: Colors.green.withOpacity(0.1),
-                ),
-                const SizedBox(width: 8),
-                Chip(
-                  label: Text('NutriScore: $selectedNutriScore'),
-                  avatar: const Icon(Icons.health_and_safety, size: 16, color: Colors.blue),
-                  backgroundColor: Colors.blue.withOpacity(0.1),
-                ),
-                const SizedBox(width: 8),
-                Chip(
-                  label: Text('Max: ${selectedMaxCalories.toInt()} cal'),
-                  avatar: const Icon(Icons.local_fire_department, size: 16, color: Colors.orange),
-                  backgroundColor: Colors.orange.withOpacity(0.1),
-                ),
-              ],
-            ),
-          ),
-          ...filteredItems.entries.map((entry) {
-            final categoryName = entry.key;
-            final categoryItems = entry.value;
-            final isFirst = catIndex == 0;
-            catIndex++;
-            return Theme(
-              data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-              child: ExpansionTile(
-                initiallyExpanded: isFirst,
-                title: Row(
-                  children: [
-                    const Icon(Icons.category, size: 18, color: Colors.grey),
-                    const SizedBox(width: 8),
-                    Text(
-                      categoryName,
-                      style: const TextStyle(
-                        fontSize: 16, 
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black87,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: Colors.grey[200],
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        '${categoryItems.length}',
-                        style: const TextStyle(
-                          fontSize: 12,
+                Expanded( // Allow category name to take space
+                  child: Text(
+                    categoryName,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.bold,
-                          color: Colors.black54,
+                          // color: Colors.black87,
                         ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    '${categoryItems.length}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            childrenPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8), // Padding for the children ListTiles
+            children: categoryItems.map<Widget>((item) {
+              // Ensure item is a Map
+              final itemData = item as Map<String, dynamic>; 
+              final originalPrice = double.tryParse(itemData['prix']?.toString() ?? '0') ?? 0;
+              final discountedPrice = hasActivePromotion
+                  ? originalPrice * (1 - promotionDiscount / 100)
+                  : null;
+              final itemName = itemData['nom']?.toString() ?? 'Nom non spécifié';
+              final itemDesc = itemData['description']?.toString();
+              final itemRating = itemData['note']; // Keep original type for rating widget
+              final carbonFootprint = itemData['carbon_footprint']?.toString();
+              final nutriScore = itemData['nutri_score']?.toString();
+              // Safe access to nested calories
+              final caloriesData = itemData['nutrition']?['calories'] ?? itemData['calories'];
+              final calories = caloriesData?.toString();
+
+              // Use ListTile for each item
+              return ListTile(
+                dense: true,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+                title: Text(
+                  itemName,
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w500),
+                ),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (itemDesc != null && itemDesc.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4.0),
+                        child: Text(
+                          itemDesc,
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey[700]),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    // Nutritional Info Row (better layout with Wrap)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6.0),
+                      child: Wrap(
+                        spacing: 12.0, // Horizontal space between chips
+                        runSpacing: 4.0, // Vertical space between lines
+                        children: [
+                          if (carbonFootprint != null && carbonFootprint.isNotEmpty)
+                            _buildInfoChip(context, Icons.eco, '$carbonFootprint kg CO2e', Colors.green),
+                          if (nutriScore != null && nutriScore.isNotEmpty && nutriScore != 'N/A')
+                            _buildInfoChip(context, Icons.health_and_safety, 'Nutri: $nutriScore', Colors.blue),
+                          if (calories != null && calories.isNotEmpty && calories != 'N/A')
+                            _buildInfoChip(context, Icons.local_fire_department, '$calories cal', Colors.orange),
+                        ],
                       ),
                     ),
                   ],
                 ),
-                children: categoryItems.map<Widget>((item) {
-                  final originalPrice = double.tryParse(item['prix']?.toString() ?? '0') ?? 0;
-                  final discountedPrice = hasActivePromotion 
-                      ? originalPrice * (1 - promotionDiscount / 100) 
-                      : null;
-                  return Card(
-                    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                    elevation: 2,
-                    color: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      side: BorderSide(color: Colors.grey[200]!),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      children: [
-                                        Expanded(
-                                          child: Text(
-                                            item['nom'] ?? 'Nom non spécifié',
-                                            style: const TextStyle(
-                                              fontSize: 16,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                        ),
-                                        if (item['note'] != null)
-                                          _buildCompactRatingStars(item['note']),
-                                      ],
-                                    ),
-                                    if (item['description'] != null && item['description'].toString().isNotEmpty)
-                                      Padding(
-                                        padding: const EdgeInsets.only(top: 4),
-                                        child: Text(
-                                          item['description'],
-                                          style: TextStyle(
-                                            fontSize: 14,
-                                            color: Colors.grey[700],
-                                          ),
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                  ],
+                trailing: originalPrice > 0
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        if (hasActivePromotion && discountedPrice != null)
+                          Text(
+                            '${originalPrice.toStringAsFixed(2)} €',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                  decoration: TextDecoration.lineThrough,
+                                  color: Colors.grey,
+                                ),
+                          ),
+                        Text(
+                          hasActivePromotion && discountedPrice != null
+                              ? '${discountedPrice.toStringAsFixed(2)} €'
+                              : '${originalPrice.toStringAsFixed(2)} €',
+                          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                                fontWeight: FontWeight.bold,
+                                color: hasActivePromotion ? Colors.redAccent : Theme.of(context).colorScheme.onSurface,
+                              ),
+                        ),
+                        if (hasActivePromotion)
+                           Container(
+                              margin: const EdgeInsets.only(top: 2), // Space above badge
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.redAccent,
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                'PROMO -${promotionDiscount.toStringAsFixed(0)}%',
+                                style: const TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
                                 ),
                               ),
-                              if (originalPrice > 0)
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.end,
-                                  children: [
-                                    if (hasActivePromotion && discountedPrice != null)
-                                      Text(
-                                        '${originalPrice.toStringAsFixed(2)} €',
-                                        style: const TextStyle(
-                                          fontSize: 12,
-                                          decoration: TextDecoration.lineThrough,
-                                          color: Colors.grey,
-                                        ),
-                                      ),
-                                    Text(
-                                      hasActivePromotion && discountedPrice != null
-                                          ? '${discountedPrice.toStringAsFixed(2)} €'
-                                          : '${originalPrice.toStringAsFixed(2)} €',
-                                      style: TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.bold,
-                                        color: hasActivePromotion ? Colors.red : Colors.black87,
-                                      ),
-                                    ),
-                                    if (hasActivePromotion)
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                        decoration: BoxDecoration(
-                                          color: Colors.red,
-                                          borderRadius: BorderRadius.circular(8),
-                                        ),
-                                        child: Text(
-                                          '-${promotionDiscount.toStringAsFixed(0)}%',
-                                          style: const TextStyle(
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.white,
-                                          ),
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          const Divider(height: 1),
-                          const SizedBox(height: 8),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Row(
-                                children: [
-                                  const Icon(Icons.eco, size: 16, color: Colors.green),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    '${item['carbon_footprint']} kg',
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.green,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              Row(
-                                children: [
-                                  const Icon(Icons.health_and_safety, size: 16, color: Colors.blue),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    'NutriScore: ${item['nutri_score'] ?? 'N/A'}',
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.blue,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              Row(
-                                children: [
-                                  const Icon(Icons.local_fire_department, size: 16, color: Colors.orange),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    '${item['nutrition']?['calories'] ?? 'N/A'} cal',
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.orange,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                }).toList(),
-              ),
-            );
-          }).toList(),
-        ],
-      ),
+                            ),
+                      ],
+                    )
+                  : null,
+                isThreeLine: (itemDesc != null && itemDesc.isNotEmpty), // Adjust height if description exists
+              );
+            }).toList(),
+          ),
+        );
+      },
+    );
+  }
+
+  // Helper widget for nutritional info chips
+  Widget _buildInfoChip(BuildContext context, IconData icon, String label, Color color) {
+    return Chip(
+      avatar: Icon(icon, size: 14, color: color),
+      label: Text(label),
+      labelStyle: TextStyle(fontSize: 11, color: Colors.black87),
+      backgroundColor: color.withOpacity(0.1),
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      visualDensity: VisualDensity.compact,
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 0),
+      side: BorderSide.none,
     );
   }
 

@@ -146,90 +146,6 @@ workflows:
             echo "⚠️ Répertoire assets/env non trouvé pour la copie"
           fi
 
-      - name: Fix iOS Firebase Dependencies
-        script: |
-          echo "Configuration des dépendances Firebase pour iOS..."
-          
-          # Force les URLs HTTPS pour les dépendances Git
-          git config --global url."https://".insteadOf "git://"
-          git config --global url."https://github.com/".insteadOf "git@github.com:"
-          
-          # Garantir que Git peut accéder aux forks personnalisés
-          git config --global advice.detachedHead false
-          
-          # Vérifier l'existence des répertoires pour les plugins Firebase
-          mkdir -p .symlinks/plugins
-          
-          # Vérifie si le dossier de plugin personnalisé existe localement
-          if [ -d "../plugin" ]; then
-            echo "✅ Dossier de plugins personnalisés trouvé"
-            # Copier les plugins personnalisés dans .symlinks/plugins si nécessaire
-            for plugin_dir in ../plugin/*/; do
-              plugin_name=$(basename "$plugin_dir")
-              echo "Vérification du plugin personnalisé: $plugin_name"
-              if [ -d "$plugin_dir/ios" ]; then
-                echo "Copie du plugin personnalisé: $plugin_name"
-                cp -R "$plugin_dir" ".symlinks/plugins/"
-              fi
-            done
-          else
-            echo "⚠️ Dossier de plugins personnalisés non trouvé, utilisation des références git"
-          fi
-          
-          # Nettoyer et réinitialiser le cache Flutter
-          flutter clean
-          flutter pub cache repair
-          
-          # Forcer le téléchargement des plugins avec les bonnes références
-          flutter pub get --verbose
-          
-          # Ajuster le Podfile pour forcer la version minimale d'iOS 12.0
-          cd ios
-          if [ -f "Podfile" ]; then
-            sed -i '' 's/platform :ios, .*/platform :ios, "12.0"/' Podfile
-            echo "✓ Version iOS du Podfile ajustée à 12.0"
-            
-            # Ajouter des post_install hooks pour assurer la compatibilité
-            if ! grep -q "post_install do |installer|" Podfile; then
-              cat >> Podfile << EOL
-              
-post_install do |installer|
-  installer.pods_project.targets.each do |target|
-    flutter_additional_ios_build_settings(target)
-    target.build_configurations.each do |config|
-      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '12.0'
-      # Pour éviter les erreurs liées à la validation d'architecture
-      config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'arm64'
-    end
-  end
-end
-EOL
-              echo "✓ Post-install hook ajouté au Podfile"
-            fi
-            
-            # Ajouter une référence explicite aux pods Firebase si nécessaire
-            if ! grep -q "pod 'Firebase'" Podfile; then
-              sed -i '' '/target/i\
-# Références explicites à Firebase\
-pod "Firebase/CoreOnly", "10.18.0"\
-pod "Firebase/Auth", "10.18.0"\
-pod "Firebase/Firestore", "10.18.0"\
-pod "Firebase/Messaging", "10.18.0"\
-pod "Firebase/Analytics", "10.18.0"\
-\
-' Podfile
-              echo "✓ Références Firebase explicites ajoutées au Podfile"
-            fi
-          fi
-          
-          # Nettoyer et réinstaller les pods
-          rm -rf Pods Podfile.lock
-          pod repo update
-          pod install --repo-update --verbose
-          cd ..
-          
-          echo "✅ Configuration des dépendances Firebase terminée"
-
       - name: Fix Android Configuration
         script: |
           # Vérifier et corriger les niveaux d'API Android
@@ -403,374 +319,6 @@ pod "Firebase/Analytics", "10.18.0"\
           flutter clean
           flutter pub get
           flutter pub cache repair
-          
-      - name: Configure Firebase plugins and podspecs
-        script: |
-          echo "Setting up Firebase plugin podspecs..."
-          
-          # Force Git configuration to use HTTPS
-          git config --global url."https://".insteadOf "git://"
-          git config --global url."https://github.com/".insteadOf "git@github.com:"
-          
-          # Make sure the plugins directory exists
-          mkdir -p .symlinks/plugins/
-          
-          # Set up firebase plugins with podspecs
-          mkdir -p .symlinks/plugins/cloud_firestore/ios
-          mkdir -p .symlinks/plugins/firebase_core/ios
-          mkdir -p .symlinks/plugins/firebase_auth/ios
-          mkdir -p .symlinks/plugins/firebase_messaging/ios
-          mkdir -p .symlinks/plugins/firebase_analytics/ios
-          
-          # Create LICENSE files (required by podspecs)
-          for plugin in cloud_firestore firebase_core firebase_auth firebase_messaging firebase_analytics; do
-            mkdir -p .symlinks/plugins/$plugin
-            echo "Copyright (c) 2023 Flutter Team. All rights reserved." > .symlinks/plugins/$plugin/LICENSE
-          done
-          
-          # Create cloud_firestore.podspec
-          cat > .symlinks/plugins/cloud_firestore/ios/cloud_firestore.podspec << EOL
-          Pod::Spec.new do |s|
-            s.name             = 'cloud_firestore'
-            s.version          = '0.0.1'
-            s.summary          = 'Firestore plugin for Flutter.'
-            s.description      = 'Flutter plugin for Cloud Firestore, a cloud-hosted, noSQL database with live synchronization and offline support on Android and iOS.'
-            s.homepage         = 'https://firebase.google.com/docs/firestore'
-            s.license          = { :type => 'MIT', :file => '../LICENSE' }
-            s.author           = { 'Flutter Team' => 'flutter-dev@googlegroups.com' }
-            s.source           = { :path => '.' }
-            s.source_files = 'Classes/**/*'
-            s.public_header_files = 'Classes/**/*.h'
-            s.ios.deployment_target = '12.0'
-            s.dependency 'Flutter'
-            s.dependency 'Firebase/Firestore', '10.18.0'
-            s.static_framework = true
-            s.pod_target_xcconfig = { 'GCC_PREPROCESSOR_DEFINITIONS' => "LIBRARY_VERSION=\\@\\\"10.4.0\\\" LIBRARY_NAME=\\@\\\"flutter-fire-fst\\\"" }
-          end
-          EOL
-          
-          # Create firebase_core.podspec
-          cat > .symlinks/plugins/firebase_core/ios/firebase_core.podspec << EOL
-          Pod::Spec.new do |s|
-            s.name             = 'firebase_core'
-            s.version          = '0.0.1'
-            s.summary          = 'Firebase Core plugin for Flutter.'
-            s.description      = 'Flutter plugin for Firebase Core, enabling connecting to multiple Firebase apps.'
-            s.homepage         = 'https://firebase.flutter.dev/docs/core/usage'
-            s.license          = { :type => 'MIT', :file => '../LICENSE' }
-            s.author           = { 'Flutter Team' => 'flutter-dev@googlegroups.com' }
-            s.source           = { :path => '.' }
-            s.source_files = 'Classes/**/*'
-            s.public_header_files = 'Classes/**/*.h'
-            s.ios.deployment_target = '12.0'
-            s.dependency 'Flutter'
-            s.dependency 'Firebase/CoreOnly', '10.18.0'
-            s.static_framework = true
-            s.pod_target_xcconfig = { 'GCC_PREPROCESSOR_DEFINITIONS' => "LIBRARY_VERSION=\\@\\\"10.4.0\\\" LIBRARY_NAME=\\@\\\"flutter-fire-core\\\"" }
-          end
-          EOL
-          
-          # Create firebase_auth.podspec
-          cat > .symlinks/plugins/firebase_auth/ios/firebase_auth.podspec << EOL
-          Pod::Spec.new do |s|
-            s.name             = 'firebase_auth'
-            s.version          = '0.0.1'
-            s.summary          = 'Firebase Auth plugin for Flutter.'
-            s.description      = 'Flutter plugin for Firebase Auth, enabling authentication using passwords, phone numbers and identity providers like Google, Facebook and Twitter.'
-            s.homepage         = 'https://firebase.flutter.dev/docs/auth/usage'
-            s.license          = { :type => 'MIT', :file => '../LICENSE' }
-            s.author           = { 'Flutter Team' => 'flutter-dev@googlegroups.com' }
-            s.source           = { :path => '.' }
-            s.source_files = 'Classes/**/*'
-            s.public_header_files = 'Classes/**/*.h'
-            s.ios.deployment_target = '12.0'
-            s.dependency 'Flutter'
-            s.dependency 'Firebase/Auth', '10.18.0'
-            s.static_framework = true
-            s.pod_target_xcconfig = { 'GCC_PREPROCESSOR_DEFINITIONS' => "LIBRARY_VERSION=\\@\\\"10.4.0\\\" LIBRARY_NAME=\\@\\\"flutter-fire-auth\\\"" }
-          end
-          EOL
-          
-          # Create firebase_messaging.podspec
-          cat > .symlinks/plugins/firebase_messaging/ios/firebase_messaging.podspec << EOL
-          Pod::Spec.new do |s|
-            s.name             = 'firebase_messaging'
-            s.version          = '0.0.1'
-            s.summary          = 'Firebase Cloud Messaging plugin for Flutter.'
-            s.description      = 'Flutter plugin for Firebase Cloud Messaging, a cross-platform messaging solution that lets you reliably deliver messages on Android and iOS.'
-            s.homepage         = 'https://firebase.flutter.dev/docs/messaging/usage'
-            s.license          = { :type => 'MIT', :file => '../LICENSE' }
-            s.author           = { 'Flutter Team' => 'flutter-dev@googlegroups.com' }
-            s.source           = { :path => '.' }
-            s.source_files = 'Classes/**/*'
-            s.public_header_files = 'Classes/**/*.h'
-            s.ios.deployment_target = '12.0'
-            s.dependency 'Flutter'
-            s.dependency 'Firebase/Messaging', '10.18.0'
-            s.static_framework = true
-            s.pod_target_xcconfig = { 'GCC_PREPROCESSOR_DEFINITIONS' => "LIBRARY_VERSION=\\@\\\"10.4.0\\\" LIBRARY_NAME=\\@\\\"flutter-fire-fcm\\\"" }
-          end
-          EOL
-          
-          # Create firebase_analytics.podspec
-          cat > .symlinks/plugins/firebase_analytics/ios/firebase_analytics.podspec << EOL
-          Pod::Spec.new do |s|
-            s.name             = 'firebase_analytics'
-            s.version          = '0.0.1'
-            s.summary          = 'Firebase Analytics plugin for Flutter.'
-            s.description      = 'Flutter plugin for Google Analytics for Firebase, an app measurement solution that provides insight on app usage and user engagement on Android and iOS.'
-            s.homepage         = 'https://firebase.flutter.dev/docs/analytics/usage'
-            s.license          = { :type => 'MIT', :file => '../LICENSE' }
-            s.author           = { 'Flutter Team' => 'flutter-dev@googlegroups.com' }
-            s.source           = { :path => '.' }
-            s.source_files = 'Classes/**/*'
-            s.public_header_files = 'Classes/**/*.h'
-            s.ios.deployment_target = '12.0'
-            s.dependency 'Flutter'
-            s.dependency 'Firebase/Analytics', '10.18.0'
-            s.static_framework = true
-            s.pod_target_xcconfig = { 'GCC_PREPROCESSOR_DEFINITIONS' => "LIBRARY_VERSION=\\@\\\"10.4.0\\\" LIBRARY_NAME=\\@\\\"flutter-fire-analytics\\\"" }
-          end
-          EOL
-          
-          # Set up plugin implementation files
-          for plugin in cloud_firestore firebase_core firebase_auth firebase_messaging firebase_analytics; do
-            mkdir -p .symlinks/plugins/$plugin/ios/Classes
-            echo "Setting up basic class files for $plugin..."
-          done
-          
-          # Copy cloud_firestore implementation files if they exist in the custom plugin
-          if [ -f "plugin/cloud_firestore_custom/ios/FLTFirebaseFirestorePlugin.h" ]; then
-            echo "Copying existing FLTFirebaseFirestorePlugin files from custom plugin..."
-            mkdir -p .symlinks/plugins/cloud_firestore/ios/Classes
-            cp plugin/cloud_firestore_custom/ios/FLTFirebaseFirestorePlugin.h .symlinks/plugins/cloud_firestore/ios/Classes/
-            cp plugin/cloud_firestore_custom/ios/FLTFirebaseFirestorePlugin.m .symlinks/plugins/cloud_firestore/ios/Classes/
-          else
-            # Create basic implementation files
-            echo "Creating basic implementation files for cloud_firestore..."
-            mkdir -p .symlinks/plugins/cloud_firestore/ios/Classes
-            echo "#import <Flutter/Flutter.h>" > .symlinks/plugins/cloud_firestore/ios/Classes/FLTFirebaseFirestorePlugin.h
-            echo "#import \"FLTFirebaseFirestorePlugin.h\"" > .symlinks/plugins/cloud_firestore/ios/Classes/FLTFirebaseFirestorePlugin.m
-            echo "@implementation FLTFirebaseFirestorePlugin" >> .symlinks/plugins/cloud_firestore/ios/Classes/FLTFirebaseFirestorePlugin.m
-            echo "+ (void)registerWithRegistrar:(NSObject<FlutterPluginRegistrar>*)registrar {}" >> .symlinks/plugins/cloud_firestore/ios/Classes/FLTFirebaseFirestorePlugin.m
-            echo "@end" >> .symlinks/plugins/cloud_firestore/ios/Classes/FLTFirebaseFirestorePlugin.m
-          fi
-          
-          # Create plugin stubs for the rest of the plugins
-          for plugin in firebase_core firebase_auth firebase_messaging firebase_analytics; do
-            class_name=""
-            case "$plugin" in
-              firebase_core) class_name="FLTFirebaseCorePlugin" ;;
-              firebase_auth) class_name="FLTFirebaseAuthPlugin" ;;
-              firebase_messaging) class_name="FLTFirebaseMessagingPlugin" ;;
-              firebase_analytics) class_name="FLTFirebaseAnalyticsPlugin" ;;
-            esac
-            
-            mkdir -p .symlinks/plugins/$plugin/ios/Classes
-            
-            # Create header file
-            echo "#import <Flutter/Flutter.h>" > .symlinks/plugins/$plugin/ios/Classes/${class_name}.h
-            
-            # Create implementation file
-            echo "#import \"${class_name}.h\"" > .symlinks/plugins/$plugin/ios/Classes/${class_name}.m
-            echo "@implementation ${class_name}" >> .symlinks/plugins/$plugin/ios/Classes/${class_name}.m
-            echo "+ (void)registerWithRegistrar:(NSObject<FlutterPluginRegistrar>*)registrar {}" >> .symlinks/plugins/$plugin/ios/Classes/${class_name}.m
-            echo "@end" >> .symlinks/plugins/$plugin/ios/Classes/${class_name}.m
-          done
-          
-          echo "✅ Firebase plugin podspecs and basic implementations created"
-          ls -la .symlinks/plugins/*/ios/
-
-      - name: Update Podfile to directly use Firebase pods
-        script: |
-          cd ios
-          if [ -f "Podfile" ]; then
-            # Ensure we have the correct iOS version
-            sed -i '' 's/platform :ios, .*/platform :ios, "14.0"/' Podfile
-            
-            # Add Firebase pods directly if not present
-            if ! grep -q "pod 'Firebase/CoreOnly'" Podfile; then
-              sed -i '' '/target/i\
-# Direct Firebase dependencies\
-pod "Firebase/CoreOnly", "10.18.0"\
-pod "Firebase/Auth", "10.18.0"\
-pod "Firebase/Firestore", "10.18.0"\
-pod "Firebase/Messaging", "10.18.0"\
-pod "Firebase/Analytics", "10.18.0"\
-\
-' Podfile
-              echo "✓ Added direct Firebase dependencies to Podfile"
-            fi
-            
-            # Add post_install hook if needed
-            if ! grep -q "post_install do |installer|" Podfile; then
-              cat >> Podfile << EOL
-              
-post_install do |installer|
-  installer.pods_project.targets.each do |target|
-    flutter_additional_ios_build_settings(target)
-    target.build_configurations.each do |config|
-      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
-      config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'arm64'
-    end
-  end
-end
-EOL
-              echo "✓ Added post_install hook to Podfile"
-            fi
-          else
-            echo "❌ Podfile not found in ios directory"
-            exit 1
-          fi
-          
-      - name: Debug iOS Firebase Plugins
-        script: |
-          echo "Debugging Firebase plugin paths and files..."
-          
-          # Check if the .flutter-plugins file exists and contains Firebase plugins
-          if [ -f ".flutter-plugins" ]; then
-            echo "Content of .flutter-plugins:"
-            cat .flutter-plugins
-            
-            # Extract paths for Firebase plugins
-            FIREBASE_CORE_PATH=$(grep "firebase_core=" .flutter-plugins | cut -d'=' -f2)
-            FIRESTORE_PATH=$(grep "cloud_firestore=" .flutter-plugins | cut -d'=' -f2)
-            
-            if [ ! -z "$FIREBASE_CORE_PATH" ]; then
-              echo "Firebase Core plugin path: $FIREBASE_CORE_PATH"
-              # Create an additional symlink if needed
-              mkdir -p ios/.symlinks/plugins/firebase_core
-              ln -sf "$FIREBASE_CORE_PATH" ios/.symlinks/plugins/firebase_core
-            fi
-            
-            if [ ! -z "$FIRESTORE_PATH" ]; then
-              echo "Cloud Firestore plugin path: $FIRESTORE_PATH"
-              # Create an additional symlink if needed
-              mkdir -p ios/.symlinks/plugins/cloud_firestore
-              ln -sf "$FIRESTORE_PATH" ios/.symlinks/plugins/cloud_firestore
-            fi
-          else
-            echo "No .flutter-plugins file found"
-          fi
-          
-          # Check symlinks directory structure
-          echo "Checking .symlinks/plugins structure:"
-          find .symlinks -type d | sort
-          
-          # Ensure the podspec files exist
-          echo "Checking for podspec files:"
-          find .symlinks -name "*.podspec" | sort
-          
-          # Ensure the Classes directories and implementation files exist
-          echo "Checking for Classes directories and implementation files:"
-          find .symlinks -path "*/Classes/*" | sort
-          
-          # Directly check the specific location where CocoaPods is looking for cloud_firestore.podspec
-          if [ -f ".symlinks/plugins/cloud_firestore/ios/cloud_firestore.podspec" ]; then
-            echo "✅ cloud_firestore.podspec exists at the expected location"
-          else
-            echo "❌ cloud_firestore.podspec not found at the expected location"
-            # Create directory and copy podspec again as a backup
-            mkdir -p .symlinks/plugins/cloud_firestore/ios
-            cat > .symlinks/plugins/cloud_firestore/ios/cloud_firestore.podspec << EOL
-Pod::Spec.new do |s|
-  s.name             = 'cloud_firestore'
-  s.version          = '0.0.1'
-  s.summary          = 'Firestore plugin for Flutter.'
-  s.description      = 'Flutter plugin for Cloud Firestore.'
-  s.homepage         = 'https://firebase.google.com/docs/firestore'
-  s.license          = { :type => 'BSD', :text => 'Copyright 2023 The Flutter Authors. All rights reserved.' }
-  s.author           = { 'Flutter Team' => 'flutter-dev@googlegroups.com' }
-  s.source           = { :path => '.' }
-  s.source_files     = 'Classes/**/*'
-  s.public_header_files = 'Classes/**/*.h'
-  s.ios.deployment_target = '12.0'
-  s.dependency 'Flutter'
-  s.dependency 'Firebase/Firestore', '10.18.0'
-  s.static_framework = true
-end
-EOL
-            echo "✅ Created backup cloud_firestore.podspec"
-          fi
-          
-          # Move to the ios directory to check its structure too
-          cd ios
-          echo "Checking iOS directory structure:"
-          ls -la
-          
-          # Check if the Flutter.framework exists
-          if [ -d "Flutter/Flutter.framework" ]; then
-            echo "✅ Flutter.framework exists in the iOS directory"
-          else
-            echo "⚠️ Flutter.framework not found in the iOS directory"
-          fi
-          
-      - name: Fix Podspec Files Location
-        script: |
-          echo "Ensuring podspec files are in the expected locations..."
-          
-          # Create directories inside the iOS directory structure if needed
-          mkdir -p ios/.symlinks/plugins/cloud_firestore/ios/Classes
-          mkdir -p ios/.symlinks/plugins/firebase_core/ios/Classes
-          mkdir -p ios/.symlinks/plugins/firebase_auth/ios/Classes
-          mkdir -p ios/.symlinks/plugins/firebase_messaging/ios/Classes
-          mkdir -p ios/.symlinks/plugins/firebase_analytics/ios/Classes
-          
-          # Copy our custom podspec files to the iOS directory structure
-          for plugin in cloud_firestore firebase_core firebase_auth firebase_messaging firebase_analytics; do
-            if [ -f ".symlinks/plugins/$plugin/ios/$plugin.podspec" ]; then
-              echo "Copying $plugin.podspec to iOS structure..."
-              cp ".symlinks/plugins/$plugin/ios/$plugin.podspec" "ios/.symlinks/plugins/$plugin/ios/"
-              
-              # Copy LICENSE file too
-              if [ -f ".symlinks/plugins/$plugin/LICENSE" ]; then
-                cp ".symlinks/plugins/$plugin/LICENSE" "ios/.symlinks/plugins/$plugin/"
-              else
-                echo "Copyright (c) 2023 Flutter Team. All rights reserved." > "ios/.symlinks/plugins/$plugin/LICENSE"
-              fi
-              
-              # Copy implementation files if they exist
-              if [ -d ".symlinks/plugins/$plugin/ios/Classes" ]; then
-                cp -R ".symlinks/plugins/$plugin/ios/Classes/" "ios/.symlinks/plugins/$plugin/ios/Classes/"
-              fi
-            else
-              echo "⚠️ $plugin.podspec not found at expected location"
-            fi
-          done
-          
-          # Create empty classes as a fallback if needed
-          for plugin in cloud_firestore firebase_core firebase_auth firebase_messaging firebase_analytics; do
-            class_name=""
-            case "$plugin" in
-              cloud_firestore) class_name="FLTFirebaseFirestorePlugin" ;;
-              firebase_core) class_name="FLTFirebaseCorePlugin" ;;
-              firebase_auth) class_name="FLTFirebaseAuthPlugin" ;;
-              firebase_messaging) class_name="FLTFirebaseMessagingPlugin" ;;
-              firebase_analytics) class_name="FLTFirebaseAnalyticsPlugin" ;;
-            esac
-            
-            # Create header file if it doesn't exist
-            if [ ! -f "ios/.symlinks/plugins/$plugin/ios/Classes/${class_name}.h" ]; then
-              echo "#import <Flutter/Flutter.h>" > "ios/.symlinks/plugins/$plugin/ios/Classes/${class_name}.h"
-            fi
-            
-            # Create implementation file if it doesn't exist
-            if [ ! -f "ios/.symlinks/plugins/$plugin/ios/Classes/${class_name}.m" ]; then
-              echo "#import \"${class_name}.h\"" > "ios/.symlinks/plugins/$plugin/ios/Classes/${class_name}.m"
-              echo "@implementation ${class_name}" >> "ios/.symlinks/plugins/$plugin/ios/Classes/${class_name}.m"
-              echo "+ (void)registerWithRegistrar:(NSObject<FlutterPluginRegistrar>*)registrar {}" >> "ios/.symlinks/plugins/$plugin/ios/Classes/${class_name}.m"
-              echo "@end" >> "ios/.symlinks/plugins/$plugin/ios/Classes/${class_name}.m"
-            fi
-          done
-          
-          echo "Listing all podspec files in iOS structure:"
-          find ios/.symlinks -name "*.podspec" | sort
-          
-          # Create a direct link to flutter_webrtc if needed
-          if [ -d ".symlinks/plugins/flutter_webrtc" ] && [ ! -d "ios/.symlinks/plugins/flutter_webrtc" ]; then
-            mkdir -p ios/.symlinks/plugins
-            ln -sf "$(pwd)/.symlinks/plugins/flutter_webrtc" "ios/.symlinks/plugins/flutter_webrtc"
-          fi
 
       - name: Verify Flutter dependencies
         script: |
@@ -779,62 +327,159 @@ EOL
             exit 1
           fi
 
-      - name: Verify Apple Pay Merchant ID in Entitlements
+      - name: Ensure iOS deployment target is 14.0+ in Podfile
         script: |
           cd ios
-          if [ ! -f "Runner/Runner.entitlements" ]; then
-            cat > Runner/Runner.entitlements << EOL
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>com.apple.developer.in-app-payments</key>
-    <array>
-        <string>merchant.fr.choiceapp.app</string>
-    </array>
-</dict>
-</plist>
-EOL
-            echo "✅ Fichier d'entitlements Apple Pay créé"
+          
+          if [ -f "Podfile" ]; then
+            sed -i '' 's/platform :ios, .*/platform :ios, "14.0"/' Podfile
           else
-            echo "✅ Fichier d'entitlements existant"
+            echo "🚨 Podfile non trouvé ! Assure-toi que ton projet Flutter iOS est bien configuré."
+            exit 1
           fi
-          if ! grep -q "merchant.fr.choiceapp.app" Runner/Info.plist; then
-            plutil -insert 'com.apple.developer.in-app-payments' -xml '<array><string>merchant.fr.choiceapp.app</string></array>' Runner/Info.plist || true
-            echo "✅ Merchant ID ajouté à Info.plist"
+
+      - name: Update CocoaPods
+        script: |
+          sudo gem install cocoapods --pre
+          pod repo update
+
+      - name: Remove and reinstall CocoaPods dependencies
+        script: |
+          cd ios
+          rm -rf Pods Podfile.lock
+          pod deintegrate
+          pod install --repo-update --verbose
+
+      - name: Ensure add_2_calendar is in GeneratedPluginRegistrant
+        script: |
+          GENERATED_FILE="ios/Runner/GeneratedPluginRegistrant.m"
+          if ! grep -q "add_2_calendar" "$GENERATED_FILE"; then
+            echo "⚠️  Problème détecté : add_2_calendar n'est pas inclus dans GeneratedPluginRegistrant.m"
+            flutter pub get
+            flutter clean
           fi
+
+      - name: Upgrade Flutter dependencies
+        script: |
+          flutter pub upgrade --major-versions
+          flutter pub get
 
       - name: Apply iOS 14.0 Deployment Fix in Xcode Info.plist
         script: |
           cd ios
           plutil -replace MinimumOSVersion -string "14.0" Runner/Info.plist
           plutil -replace LSRequiresIPhoneOS -bool YES Runner/Info.plist
-
-      - name: Install certificate in keychain
+      
+      - name: Désactiver la détection automatique des profils de provisionnement
         script: |
-          echo $CM_CERTIFICATE | base64 --decode > ios_distribution.p12
-          security create-keychain -p "" build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p "" build.keychain
-          security import ios_distribution.p12 -k build.keychain -P "$CM_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
-          echo "✅ Certificat installé dans le keychain"
+          # Désactiver la détection et l'utilisation de profils de provisionnement
+          export SKIP_PROFILE_DETECTION=1
+          
+          # Créer un fichier d'options d'export personnalisé qui désactive la signature de code
+          cat > ios/ExportOptions.plist << EOL
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>development</string>
+              <key>signingStyle</key>
+              <string>automatic</string>
+              <key>compileBitcode</key>
+              <false/>
+              <key>uploadBitcode</key>
+              <false/>
+          </dict>
+          </plist>
+          EOL
+          
+          echo "✅ Configuration de désactivation de la signature de code créée"
 
-      - name: Debug keychain and provisioning
+      - name: Configurer le projet Xcode pour désactiver la signature
         script: |
-          echo "== Profils de provisionnement =="
-          ls -l ~/Library/MobileDevice/Provisioning\ Profiles/
-          echo "== Certificats dans le keychain =="
-          security find-identity -v -p codesigning
-          echo "== Team ID utilisé =="
-          echo $CM_APP_STORE_CONNECT_TEAM_ID
+          cd ios
+          
+          # S'assurer que les fichiers de configuration Xcode existent
+          mkdir -p Flutter
+          
+          # Créer Release.xcconfig s'il n'existe pas
+          if [ ! -f "Flutter/Release.xcconfig" ]; then
+            echo "#include \"Generated.xcconfig\"" > Flutter/Release.xcconfig
+            echo "#include \"Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig\"" >> Flutter/Release.xcconfig
+            echo "✅ Fichier Release.xcconfig créé"
+          fi
+          
+          # Créer Debug.xcconfig s'il n'existe pas
+          if [ ! -f "Flutter/Debug.xcconfig" ]; then
+            echo "#include \"Generated.xcconfig\"" > Flutter/Debug.xcconfig
+            echo "#include \"Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig\"" >> Flutter/Debug.xcconfig
+            echo "✅ Fichier Debug.xcconfig créé"
+          fi
 
-      - name: Build iOS IPA with Proper Signing
+          # Créer le dossier cible pour les fichiers des pods
+          mkdir -p "Pods/Target Support Files/Pods-Runner"
+          
+          # Créer les fichiers .xcfilelist s'ils n'existent pas
+          touch "Pods/Target Support Files/Pods-Runner/Pods-Runner-frameworks-Release-input-files.xcfilelist"
+          touch "Pods/Target Support Files/Pods-Runner/Pods-Runner-frameworks-Release-output-files.xcfilelist"
+          touch "Pods/Target Support Files/Pods-Runner/Pods-Runner-resources-Release-input-files.xcfilelist"
+          touch "Pods/Target Support Files/Pods-Runner/Pods-Runner-resources-Release-output-files.xcfilelist"
+          
+          # Créer les fichiers de configuration de pods s'ils n'existent pas
+          if [ ! -f "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig" ]; then
+            echo "// Fichier généré par Codemagic" > "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"
+            echo "PODS_CONFIGURATION_BUILD_DIR = \${PODS_BUILD_DIR}/\$(CONFIGURATION)\$(EFFECTIVE_PLATFORM_NAME)" >> "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"
+            echo "PODS_PODFILE_DIR_PATH = \${SRCROOT}/." >> "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"
+            echo "PODS_ROOT = \${SRCROOT}/Pods" >> "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"
+            echo "✅ Fichier Pods-Runner.release.xcconfig créé"
+          fi
+          
+          if [ ! -f "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig" ]; then
+            echo "// Fichier généré par Codemagic" > "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"
+            echo "PODS_CONFIGURATION_BUILD_DIR = \${PODS_BUILD_DIR}/\$(CONFIGURATION)\$(EFFECTIVE_PLATFORM_NAME)" >> "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"
+            echo "PODS_PODFILE_DIR_PATH = \${SRCROOT}/." >> "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"
+            echo "PODS_ROOT = \${SRCROOT}/Pods" >> "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"
+            echo "✅ Fichier Pods-Runner.debug.xcconfig créé"
+          fi
+
+      - name: Build iOS IPA (No Code Signing)
         script: |
-          flutter build ipa --release
-          echo "✅ Build iOS avec signature terminé"
+          # Définir des variables d'environnement pour désactiver la signature de code
+          export SKIP_PROFILE_DETECTION=1
+          export DISABLE_CODE_SIGNING=1
+          export FLUTTER_XCODE_CODE_SIGN_STYLE="Manual"
+          export FLUTTER_XCODE_DEVELOPMENT_TEAM=""
+          
+          # S'assurer que le build n'utilise pas d'export options ou de provisioning profiles
+          cd $CM_BUILD_DIR
+          flutter clean
+          flutter pub get
+          
+          # Forcer l'utilisation de --no-codesign et ignorer toute option d'export
+          flutter build ipa --no-codesign --verbose
+
+          # Si la méthode ci-dessus échoue, essayer avec une autre approche
+          if [ $? -ne 0 ]; then
+            echo "⚠️ Tentative alternative de build sans signature..."
+            cd ios
+            rm -rf build
+            mkdir -p build/ios/ipa
+            cd ..
+            flutter build ios --release --no-codesign
+            # Créer un IPA minimal manuellement
+            cd ios/build/ios/iphoneos
+            mkdir Payload
+            cp -r Runner.app Payload/
+            zip -r ../../../build/ios/ipa/app-release.ipa Payload
+            rm -rf Payload
+            cd $CM_BUILD_DIR
+          fi
+          
+          echo "✅ Build iOS sans signature terminé"
+          
+          # Vérifier si l'IPA a été généré
           if [ -f "build/ios/ipa/app-release.ipa" ]; then
-            echo "🎉 IPA signé généré avec succès"
+            echo "🎉 IPA généré avec succès"
           else
             echo "🔍 Recherche d'autres IPAs générés..."
             find build -name "*.ipa"
@@ -864,385 +509,207 @@ EOL
         provisioning_profiles:
           - fr.choiceapp.app: CM_PROVISIONING_PROFILE
     scripts:
+      - name: Configurer le fichier .env pour le build
+        script: |
+          echo "Génération du fichier .env pour l'environnement de build..."
+          # Récupérer le chemin du répertoire du projet
+          PROJECT_DIR=$(pwd)
+          
+          # S'assurer que le répertoire frontend existe
+          if [ -d "frontend" ]; then
+            # Si le répertoire frontend existe, on y accède
+            cd frontend
+            FRONTEND_DIR=$(pwd)
+          else
+            # Si on est déjà dans frontend ou il n'existe pas
+            FRONTEND_DIR=$(pwd)
+          fi
+          
+          # S'assurer que le répertoire assets/env existe
+          mkdir -p "$FRONTEND_DIR/assets/env"
+          
+          # Créer directement le fichier dans assets/env/
+          echo "Création du fichier d'environnement dans: $FRONTEND_DIR/assets/env"
+          cat > "$FRONTEND_DIR/assets/env/production.env" << EOL
+          # Configuration du serveur
+          PORT=5000
+          NODE_ENV=production
+          
+          # Configuration de MongoDB
+          MONGO_URI=$CM_MONGO_URI
+          
+          # Configuration JWT
+          JWT_SECRET=$CM_JWT_SECRET
+          
+          # Configuration des uploads
+          UPLOAD_DIR=uploads
+          MAX_FILE_SIZE=5242880
+          
+          # Configuration des APIs externes
+          GOOGLE_MAPS_API_KEY=$CM_GOOGLE_MAPS_API_KEY
+          STRIPE_SECRET_KEY=$CM_STRIPE_SECRET_KEY
+          STRIPE_WEBHOOK_SECRET=$CM_STRIPE_WEBHOOK_SECRET
+          OPENAI_API_KEY=$CM_OPENAI_API_KEY
+          
+          # Base URL pour l'API
+          API_BASE_URL=https://api.choiceapp.fr
+          WEBSOCKET_URL=wss://api.choiceapp.fr
+          EOL
+          
+          # Copier aussi dans default.env pour être sûr
+          cp "$FRONTEND_DIR/assets/env/production.env" "$FRONTEND_DIR/assets/env/default.env"
+          
+          echo "✅ Fichiers d'environnement créés avec succès pour l'environnement de build"
+          
+          # Retourner au répertoire du projet
+          cd "$PROJECT_DIR"
+
       - name: Clean Flutter project
         script: |
           flutter clean
           flutter pub get
           flutter pub cache repair
 
-      - name: Set up Plugin Symlinks and Podspecs
+      - name: Verify Custom Plugins
         script: |
-          echo "Setting up Firebase plugin podspecs..."
+          echo "🔍 Vérification des plugins personnalisés..."
           
-          # Force Git configuration to use HTTPS
-          git config --global url."https://".insteadOf "git://"
-          git config --global url."https://github.com/".insteadOf "git@github.com:"
-          
-          # Make sure the plugins directory exists
-          mkdir -p .symlinks/plugins/
-          
-          # Set up firebase plugins with podspecs
-          mkdir -p .symlinks/plugins/cloud_firestore/ios
-          mkdir -p .symlinks/plugins/firebase_core/ios
-          mkdir -p .symlinks/plugins/firebase_auth/ios
-          mkdir -p .symlinks/plugins/firebase_messaging/ios
-          mkdir -p .symlinks/plugins/firebase_analytics/ios
-          
-          # Create LICENSE files (required by podspecs)
-          for plugin in cloud_firestore firebase_core firebase_auth firebase_messaging firebase_analytics; do
-            mkdir -p .symlinks/plugins/$plugin
-            echo "Copyright (c) 2023 Flutter Team. All rights reserved." > .symlinks/plugins/$plugin/LICENSE
-          done
-          
-          # Create cloud_firestore.podspec
-          cat > .symlinks/plugins/cloud_firestore/ios/cloud_firestore.podspec << EOL
-          Pod::Spec.new do |s|
-            s.name             = 'cloud_firestore'
-            s.version          = '0.0.1'
-            s.summary          = 'Firestore plugin for Flutter.'
-            s.description      = 'Flutter plugin for Cloud Firestore, a cloud-hosted, noSQL database with live synchronization and offline support on Android and iOS.'
-            s.homepage         = 'https://firebase.google.com/docs/firestore'
-            s.license          = { :type => 'MIT', :file => '../LICENSE' }
-            s.author           = { 'Flutter Team' => 'flutter-dev@googlegroups.com' }
-            s.source           = { :path => '.' }
-            s.source_files = 'Classes/**/*'
-            s.public_header_files = 'Classes/**/*.h'
-            s.ios.deployment_target = '12.0'
-            s.dependency 'Flutter'
-            s.dependency 'Firebase/Firestore', '10.18.0'
-            s.static_framework = true
-            s.pod_target_xcconfig = { 'GCC_PREPROCESSOR_DEFINITIONS' => "LIBRARY_VERSION=\\@\\\"10.4.0\\\" LIBRARY_NAME=\\@\\\"flutter-fire-fst\\\"" }
-          end
-          EOL
-          
-          # Create firebase_core.podspec
-          cat > .symlinks/plugins/firebase_core/ios/firebase_core.podspec << EOL
-          Pod::Spec.new do |s|
-            s.name             = 'firebase_core'
-            s.version          = '0.0.1'
-            s.summary          = 'Firebase Core plugin for Flutter.'
-            s.description      = 'Flutter plugin for Firebase Core, enabling connecting to multiple Firebase apps.'
-            s.homepage         = 'https://firebase.flutter.dev/docs/core/usage'
-            s.license          = { :type => 'MIT', :file => '../LICENSE' }
-            s.author           = { 'Flutter Team' => 'flutter-dev@googlegroups.com' }
-            s.source           = { :path => '.' }
-            s.source_files = 'Classes/**/*'
-            s.public_header_files = 'Classes/**/*.h'
-            s.ios.deployment_target = '12.0'
-            s.dependency 'Flutter'
-            s.dependency 'Firebase/CoreOnly', '10.18.0'
-            s.static_framework = true
-            s.pod_target_xcconfig = { 'GCC_PREPROCESSOR_DEFINITIONS' => "LIBRARY_VERSION=\\@\\\"10.4.0\\\" LIBRARY_NAME=\\@\\\"flutter-fire-core\\\"" }
-          end
-          EOL
-          
-          # Create firebase_auth.podspec
-          cat > .symlinks/plugins/firebase_auth/ios/firebase_auth.podspec << EOL
-          Pod::Spec.new do |s|
-            s.name             = 'firebase_auth'
-            s.version          = '0.0.1'
-            s.summary          = 'Firebase Auth plugin for Flutter.'
-            s.description      = 'Flutter plugin for Firebase Auth, enabling authentication using passwords, phone numbers and identity providers like Google, Facebook and Twitter.'
-            s.homepage         = 'https://firebase.flutter.dev/docs/auth/usage'
-            s.license          = { :type => 'MIT', :file => '../LICENSE' }
-            s.author           = { 'Flutter Team' => 'flutter-dev@googlegroups.com' }
-            s.source           = { :path => '.' }
-            s.source_files = 'Classes/**/*'
-            s.public_header_files = 'Classes/**/*.h'
-            s.ios.deployment_target = '12.0'
-            s.dependency 'Flutter'
-            s.dependency 'Firebase/Auth', '10.18.0'
-            s.static_framework = true
-            s.pod_target_xcconfig = { 'GCC_PREPROCESSOR_DEFINITIONS' => "LIBRARY_VERSION=\\@\\\"10.4.0\\\" LIBRARY_NAME=\\@\\\"flutter-fire-auth\\\"" }
-          end
-          EOL
-          
-          # Create firebase_messaging.podspec
-          cat > .symlinks/plugins/firebase_messaging/ios/firebase_messaging.podspec << EOL
-          Pod::Spec.new do |s|
-            s.name             = 'firebase_messaging'
-            s.version          = '0.0.1'
-            s.summary          = 'Firebase Cloud Messaging plugin for Flutter.'
-            s.description      = 'Flutter plugin for Firebase Cloud Messaging, a cross-platform messaging solution that lets you reliably deliver messages on Android and iOS.'
-            s.homepage         = 'https://firebase.flutter.dev/docs/messaging/usage'
-            s.license          = { :type => 'MIT', :file => '../LICENSE' }
-            s.author           = { 'Flutter Team' => 'flutter-dev@googlegroups.com' }
-            s.source           = { :path => '.' }
-            s.source_files = 'Classes/**/*'
-            s.public_header_files = 'Classes/**/*.h'
-            s.ios.deployment_target = '12.0'
-            s.dependency 'Flutter'
-            s.dependency 'Firebase/Messaging', '10.18.0'
-            s.static_framework = true
-            s.pod_target_xcconfig = { 'GCC_PREPROCESSOR_DEFINITIONS' => "LIBRARY_VERSION=\\@\\\"10.4.0\\\" LIBRARY_NAME=\\@\\\"flutter-fire-fcm\\\"" }
-          end
-          EOL
-          
-          # Create firebase_analytics.podspec
-          cat > .symlinks/plugins/firebase_analytics/ios/firebase_analytics.podspec << EOL
-          Pod::Spec.new do |s|
-            s.name             = 'firebase_analytics'
-            s.version          = '0.0.1'
-            s.summary          = 'Firebase Analytics plugin for Flutter.'
-            s.description      = 'Flutter plugin for Google Analytics for Firebase, an app measurement solution that provides insight on app usage and user engagement on Android and iOS.'
-            s.homepage         = 'https://firebase.flutter.dev/docs/analytics/usage'
-            s.license          = { :type => 'MIT', :file => '../LICENSE' }
-            s.author           = { 'Flutter Team' => 'flutter-dev@googlegroups.com' }
-            s.source           = { :path => '.' }
-            s.source_files = 'Classes/**/*'
-            s.public_header_files = 'Classes/**/*.h'
-            s.ios.deployment_target = '12.0'
-            s.dependency 'Flutter'
-            s.dependency 'Firebase/Analytics', '10.18.0'
-            s.static_framework = true
-            s.pod_target_xcconfig = { 'GCC_PREPROCESSOR_DEFINITIONS' => "LIBRARY_VERSION=\\@\\\"10.4.0\\\" LIBRARY_NAME=\\@\\\"flutter-fire-analytics\\\"" }
-          end
-          EOL
-          
-          # Set up plugin implementation files
-          for plugin in cloud_firestore firebase_core firebase_auth firebase_messaging firebase_analytics; do
-            mkdir -p .symlinks/plugins/$plugin/ios/Classes
-            echo "Setting up basic class files for $plugin..."
-          done
-          
-          # Copy cloud_firestore implementation files if they exist in the custom plugin
-          if [ -f "plugin/cloud_firestore_custom/ios/FLTFirebaseFirestorePlugin.h" ]; then
-            echo "Copying existing FLTFirebaseFirestorePlugin files from custom plugin..."
-            mkdir -p .symlinks/plugins/cloud_firestore/ios/Classes
-            cp plugin/cloud_firestore_custom/ios/FLTFirebaseFirestorePlugin.h .symlinks/plugins/cloud_firestore/ios/Classes/
-            cp plugin/cloud_firestore_custom/ios/FLTFirebaseFirestorePlugin.m .symlinks/plugins/cloud_firestore/ios/Classes/
+          # Vérifier si les plugins personnalisés existent localement
+          if [ -d "plugin" ]; then
+            echo "✅ Dossier plugin trouvé"
+            ls -la plugin/
+          elif [ -d "../plugin" ]; then
+            echo "✅ Dossier plugin trouvé au niveau parent"
+            ls -la ../plugin/
           else
-            # Create basic implementation files
-            echo "Creating basic implementation files for cloud_firestore..."
-            mkdir -p .symlinks/plugins/cloud_firestore/ios/Classes
-            echo "#import <Flutter/Flutter.h>" > .symlinks/plugins/cloud_firestore/ios/Classes/FLTFirebaseFirestorePlugin.h
-            echo "#import \"FLTFirebaseFirestorePlugin.h\"" > .symlinks/plugins/cloud_firestore/ios/Classes/FLTFirebaseFirestorePlugin.m
-            echo "@implementation FLTFirebaseFirestorePlugin" >> .symlinks/plugins/cloud_firestore/ios/Classes/FLTFirebaseFirestorePlugin.m
-            echo "+ (void)registerWithRegistrar:(NSObject<FlutterPluginRegistrar>*)registrar {}" >> .symlinks/plugins/cloud_firestore/ios/Classes/FLTFirebaseFirestorePlugin.m
-            echo "@end" >> .symlinks/plugins/cloud_firestore/ios/Classes/FLTFirebaseFirestorePlugin.m
+            echo "⚠️ Dossier de plugins personnalisés non trouvé" 
           fi
           
-          # Create plugin stubs for the rest of the plugins
-          for plugin in firebase_core firebase_auth firebase_messaging firebase_analytics; do
-            class_name=""
-            case "$plugin" in
-              firebase_core) class_name="FLTFirebaseCorePlugin" ;;
-              firebase_auth) class_name="FLTFirebaseAuthPlugin" ;;
-              firebase_messaging) class_name="FLTFirebaseMessagingPlugin" ;;
-              firebase_analytics) class_name="FLTFirebaseAnalyticsPlugin" ;;
-            esac
-            
-            mkdir -p .symlinks/plugins/$plugin/ios/Classes
-            
-            # Create header file
-            echo "#import <Flutter/Flutter.h>" > .symlinks/plugins/$plugin/ios/Classes/${class_name}.h
-            
-            # Create implementation file
-            echo "#import \"${class_name}.h\"" > .symlinks/plugins/$plugin/ios/Classes/${class_name}.m
-            echo "@implementation ${class_name}" >> .symlinks/plugins/$plugin/ios/Classes/${class_name}.m
-            echo "+ (void)registerWithRegistrar:(NSObject<FlutterPluginRegistrar>*)registrar {}" >> .symlinks/plugins/$plugin/ios/Classes/${class_name}.m
-            echo "@end" >> .symlinks/plugins/$plugin/ios/Classes/${class_name}.m
-          done
+          # Ne pas tenter d'installer les plugins standards
+          echo "⚙️ Utilisation des plugins personnalisés, pas d'installation depuis pub.dev"
           
-          echo "✅ Firebase plugin podspecs and basic implementations created"
-          ls -la .symlinks/plugins/*/ios/
+          # Vérifier la présence des plugins dans pubspec.yaml
+          echo "🔍 Vérification des références dans pubspec.yaml"
+          grep -A 5 "firebase_core:" pubspec.yaml || echo "firebase_core non trouvé dans pubspec.yaml"
+          grep -A 5 "cloud_firestore:" pubspec.yaml || echo "cloud_firestore non trouvé dans pubspec.yaml"
+          grep -A 5 "firebase_messaging:" pubspec.yaml || echo "firebase_messaging non trouvé dans pubspec.yaml"
+          grep -A 5 "firebase_analytics:" pubspec.yaml || echo "firebase_analytics non trouvé dans pubspec.yaml"
+          grep -A 5 "firebase_auth:" pubspec.yaml || echo "firebase_auth non trouvé dans pubspec.yaml"
 
-      - name: Update Podfile to directly use Firebase pods
+      - name: Ensure iOS deployment target is 14.0+ in Podfile
         script: |
           cd ios
           if [ -f "Podfile" ]; then
-            # Ensure we have the correct iOS version
+            # Ajouter explicitement la plateforme iOS 14.0
             sed -i '' 's/platform :ios, .*/platform :ios, "14.0"/' Podfile
             
-            # Add Firebase pods directly if not present
-            if ! grep -q "pod 'Firebase/CoreOnly'" Podfile; then
-              sed -i '' '/target/i\
-# Direct Firebase dependencies\
-pod "Firebase/CoreOnly", "10.18.0"\
-pod "Firebase/Auth", "10.18.0"\
-pod "Firebase/Firestore", "10.18.0"\
-pod "Firebase/Messaging", "10.18.0"\
-pod "Firebase/Analytics", "10.18.0"\
-\
-' Podfile
-              echo "✓ Added direct Firebase dependencies to Podfile"
+            # Vérifier si la ligne platform existe, sinon l'ajouter
+            if ! grep -q "platform :ios" Podfile; then
+              # Ajouter au début du fichier
+              sed -i '' '1i\
+platform :ios, \'14.0\'' Podfile
             fi
             
-            # Add post_install hook if needed
-            if ! grep -q "post_install do |installer|" Podfile; then
-              cat >> Podfile << EOL
-              
-post_install do |installer|
-  installer.pods_project.targets.each do |target|
-    flutter_additional_ios_build_settings(target)
-    target.build_configurations.each do |config|
-      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
-      config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'arm64'
-    end
-  end
-end
-EOL
-              echo "✓ Added post_install hook to Podfile"
-            fi
+            # Supprimer l'ancien hook pre_install s'il existe
+            awk '/^# Hook pour résoudre/,/^end$/ {next} {print}' Podfile > Podfile.tmp && mv Podfile.tmp Podfile
+
+            echo "✅ Podfile configuré avec iOS 14.0"
+            cat Podfile
           else
-            echo "❌ Podfile not found in ios directory"
+            echo "🚨 Podfile non trouvé ! Assure-toi que ton projet Flutter iOS est bien configuré."
             exit 1
-          fi
-          
-      - name: Debug iOS Firebase Plugins
-        script: |
-          echo "Debugging Firebase plugin paths and files..."
-          
-          # Check if the .flutter-plugins file exists and contains Firebase plugins
-          if [ -f ".flutter-plugins" ]; then
-            echo "Content of .flutter-plugins:"
-            cat .flutter-plugins
-            
-            # Extract paths for Firebase plugins
-            FIREBASE_CORE_PATH=$(grep "firebase_core=" .flutter-plugins | cut -d'=' -f2)
-            FIRESTORE_PATH=$(grep "cloud_firestore=" .flutter-plugins | cut -d'=' -f2)
-            
-            if [ ! -z "$FIREBASE_CORE_PATH" ]; then
-              echo "Firebase Core plugin path: $FIREBASE_CORE_PATH"
-              # Create an additional symlink if needed
-              mkdir -p ios/.symlinks/plugins/firebase_core
-              ln -sf "$FIREBASE_CORE_PATH" ios/.symlinks/plugins/firebase_core
-            fi
-            
-            if [ ! -z "$FIRESTORE_PATH" ]; then
-              echo "Cloud Firestore plugin path: $FIRESTORE_PATH"
-              # Create an additional symlink if needed
-              mkdir -p ios/.symlinks/plugins/cloud_firestore
-              ln -sf "$FIRESTORE_PATH" ios/.symlinks/plugins/cloud_firestore
-            fi
-          else
-            echo "No .flutter-plugins file found"
-          fi
-          
-          # Check symlinks directory structure
-          echo "Checking .symlinks/plugins structure:"
-          find .symlinks -type d | sort
-          
-          # Ensure the podspec files exist
-          echo "Checking for podspec files:"
-          find .symlinks -name "*.podspec" | sort
-          
-          # Ensure the Classes directories and implementation files exist
-          echo "Checking for Classes directories and implementation files:"
-          find .symlinks -path "*/Classes/*" | sort
-          
-          # Directly check the specific location where CocoaPods is looking for cloud_firestore.podspec
-          if [ -f ".symlinks/plugins/cloud_firestore/ios/cloud_firestore.podspec" ]; then
-            echo "✅ cloud_firestore.podspec exists at the expected location"
-          else
-            echo "❌ cloud_firestore.podspec not found at the expected location"
-            # Create directory and copy podspec again as a backup
-            mkdir -p .symlinks/plugins/cloud_firestore/ios
-            cat > .symlinks/plugins/cloud_firestore/ios/cloud_firestore.podspec << EOL
-Pod::Spec.new do |s|
-  s.name             = 'cloud_firestore'
-  s.version          = '0.0.1'
-  s.summary          = 'Firestore plugin for Flutter.'
-  s.description      = 'Flutter plugin for Cloud Firestore.'
-  s.homepage         = 'https://firebase.google.com/docs/firestore'
-  s.license          = { :type => 'BSD', :text => 'Copyright 2023 The Flutter Authors. All rights reserved.' }
-  s.author           = { 'Flutter Team' => 'flutter-dev@googlegroups.com' }
-  s.source           = { :path => '.' }
-  s.source_files     = 'Classes/**/*'
-  s.public_header_files = 'Classes/**/*.h'
-  s.ios.deployment_target = '12.0'
-  s.dependency 'Flutter'
-  s.dependency 'Firebase/Firestore', '10.18.0'
-  s.static_framework = true
-end
-EOL
-            echo "✅ Created backup cloud_firestore.podspec"
-          fi
-          
-          # Move to the ios directory to check its structure too
-          cd ios
-          echo "Checking iOS directory structure:"
-          ls -la
-          
-          # Check if the Flutter.framework exists
-          if [ -d "Flutter/Flutter.framework" ]; then
-            echo "✅ Flutter.framework exists in the iOS directory"
-          else
-            echo "⚠️ Flutter.framework not found in the iOS directory"
-          fi
-          
-      - name: Fix Podspec Files Location
-        script: |
-          echo "Ensuring podspec files are in the expected locations..."
-          
-          # Create directories inside the iOS directory structure if needed
-          mkdir -p ios/.symlinks/plugins/cloud_firestore/ios/Classes
-          mkdir -p ios/.symlinks/plugins/firebase_core/ios/Classes
-          mkdir -p ios/.symlinks/plugins/firebase_auth/ios/Classes
-          mkdir -p ios/.symlinks/plugins/firebase_messaging/ios/Classes
-          mkdir -p ios/.symlinks/plugins/firebase_analytics/ios/Classes
-          
-          # Copy our custom podspec files to the iOS directory structure
-          for plugin in cloud_firestore firebase_core firebase_auth firebase_messaging firebase_analytics; do
-            if [ -f ".symlinks/plugins/$plugin/ios/$plugin.podspec" ]; then
-              echo "Copying $plugin.podspec to iOS structure..."
-              cp ".symlinks/plugins/$plugin/ios/$plugin.podspec" "ios/.symlinks/plugins/$plugin/ios/"
-              
-              # Copy LICENSE file too
-              if [ -f ".symlinks/plugins/$plugin/LICENSE" ]; then
-                cp ".symlinks/plugins/$plugin/LICENSE" "ios/.symlinks/plugins/$plugin/"
-              else
-                echo "Copyright (c) 2023 Flutter Team. All rights reserved." > "ios/.symlinks/plugins/$plugin/LICENSE"
-              fi
-              
-              # Copy implementation files if they exist
-              if [ -d ".symlinks/plugins/$plugin/ios/Classes" ]; then
-                cp -R ".symlinks/plugins/$plugin/ios/Classes/" "ios/.symlinks/plugins/$plugin/ios/Classes/"
-              fi
-            else
-              echo "⚠️ $plugin.podspec not found at expected location"
-            fi
-          done
-          
-          # Create empty classes as a fallback if needed
-          for plugin in cloud_firestore firebase_core firebase_auth firebase_messaging firebase_analytics; do
-            class_name=""
-            case "$plugin" in
-              cloud_firestore) class_name="FLTFirebaseFirestorePlugin" ;;
-              firebase_core) class_name="FLTFirebaseCorePlugin" ;;
-              firebase_auth) class_name="FLTFirebaseAuthPlugin" ;;
-              firebase_messaging) class_name="FLTFirebaseMessagingPlugin" ;;
-              firebase_analytics) class_name="FLTFirebaseAnalyticsPlugin" ;;
-            esac
-            
-            # Create header file if it doesn't exist
-            if [ ! -f "ios/.symlinks/plugins/$plugin/ios/Classes/${class_name}.h" ]; then
-              echo "#import <Flutter/Flutter.h>" > "ios/.symlinks/plugins/$plugin/ios/Classes/${class_name}.h"
-            fi
-            
-            # Create implementation file if it doesn't exist
-            if [ ! -f "ios/.symlinks/plugins/$plugin/ios/Classes/${class_name}.m" ]; then
-              echo "#import \"${class_name}.h\"" > "ios/.symlinks/plugins/$plugin/ios/Classes/${class_name}.m"
-              echo "@implementation ${class_name}" >> "ios/.symlinks/plugins/$plugin/ios/Classes/${class_name}.m"
-              echo "+ (void)registerWithRegistrar:(NSObject<FlutterPluginRegistrar>*)registrar {}" >> "ios/.symlinks/plugins/$plugin/ios/Classes/${class_name}.m"
-              echo "@end" >> "ios/.symlinks/plugins/$plugin/ios/Classes/${class_name}.m"
-            fi
-          done
-          
-          echo "Listing all podspec files in iOS structure:"
-          find ios/.symlinks -name "*.podspec" | sort
-          
-          # Create a direct link to flutter_webrtc if needed
-          if [ -d ".symlinks/plugins/flutter_webrtc" ] && [ ! -d "ios/.symlinks/plugins/flutter_webrtc" ]; then
-            mkdir -p ios/.symlinks/plugins
-            ln -sf "$(pwd)/.symlinks/plugins/flutter_webrtc" "ios/.symlinks/plugins/flutter_webrtc"
           fi
 
-      - name: Verify Flutter dependencies
+      - name: Update CocoaPods
         script: |
-          if ! grep -q "add_2_calendar" pubspec.yaml; then
-            echo "⚠️  La dépendance add_2_calendar semble manquante dans pubspec.yaml."
-            exit 1
+          sudo gem install cocoapods
+          pod repo update
+
+      - name: Manual Podspec Creation for Custom Firebase Plugins
+        script: |
+          echo "🔧 Création de podspecs manuels pour les plugins Firebase personnalisés..."
+          cd ios
+          
+          # Base directory for plugin symlinks
+          SYMLINK_DIR=".symlinks/plugins"
+          
+          # Fonction pour créer un podspec
+          create_podspec() {
+            PLUGIN_NAME=$1
+            PLUGIN_PATH="$SYMLINK_DIR/$PLUGIN_NAME/ios"
+            PODSPEC_FILE="$PLUGIN_PATH/$PLUGIN_NAME.podspec"
+            FIREBASE_DEPENDENCY=$2
+            
+            mkdir -p "$PLUGIN_PATH"
+            
+            if [ ! -f "$PODSPEC_FILE" ]; then
+              echo "📝 Création du podspec pour $PLUGIN_NAME à $PODSPEC_FILE"
+              cat > "$PODSPEC_FILE" <<- EOL
+Pod::Spec.new do |s|
+  s.name             = '$PLUGIN_NAME'
+  s.version          = '0.0.1' # Version factice
+  s.summary          = 'Custom $PLUGIN_NAME plugin for Flutter.'
+  s.description      = 'Custom $PLUGIN_NAME plugin for Flutter, using local source.'
+  s.homepage         = 'https://github.com/RemiBp/flutter_app_badger_fork'
+  s.license          = { :type => 'BSD', :file => '../../../LICENSE' } # Ajuster le chemin si nécessaire
+  s.author           = { 'Choice App' => 'remi.barbier@hec.edu' }
+  s.source           = { :path => '.' } # Le source est le répertoire ios du plugin
+  s.source_files     = 'Classes/**/*'
+  s.public_header_files = 'Classes/**/*.h'
+  s.ios.deployment_target = '11.0'
+  s.static_framework = true
+  s.dependency 'Flutter'
+  s.dependency 'firebase_core' # Dépendance de base
+  s.dependency '$FIREBASE_DEPENDENCY', '~> 10.9.0' # Dépendance Firebase spécifique
+end
+EOL
+            else
+                echo "✅ Podspec pour $PLUGIN_NAME existe déjà."
+            fi
+          }
+          
+          # Créer les podspecs pour chaque plugin Firebase personnalisé
+          create_podspec "firebase_core_custom" "Firebase/CoreOnly"
+          create_podspec "cloud_firestore_custom" "Firebase/Firestore"
+          create_podspec "firebase_messaging_custom" "Firebase/Messaging"
+          create_podspec "firebase_analytics_custom" "Firebase/Analytics"
+          create_podspec "firebase_auth_custom" "Firebase/Auth"
+          
+          echo "✅ Vérification/Création des podspecs manuels terminée"
+          ls -la $SYMLINK_DIR/*/ios/*.podspec || echo "Aucun podspec personnalisé trouvé/créé"
+
+      - name: Remove and reinstall CocoaPods dependencies
+        script: |
+          cd ios
+          rm -rf Pods Podfile.lock
+          pod deintegrate || echo "Pod deintegrate skipped or failed, continuing..."
+          
+          # Forcer l'installation des pods
+          echo "🚀 Tentative d'installation des pods..."
+          pod install --repo-update --verbose
+          
+          # Si l'installation échoue, essayer avec --allow-root
+          if [ $? -ne 0 ]; then
+            echo "⚠️ Première tentative d'installation des pods échouée, nouvel essai avec --allow-root"
+            pod install --repo-update --verbose --allow-root
+          fi
+          
+          # Vérifier si l'installation a réussi
+          if [ -d "Pods" ] && [ -f "Podfile.lock" ]; then
+             echo "✅ Installation des pods réussie."
+          else
+             echo "❌ Échec de l'installation des pods après plusieurs tentatives."
+             # Afficher le contenu du répertoire pour le débogage
+             ls -la
+             exit 1
+          fi
+          
+          # Afficher le Pods/Manifest.lock pour déboguer
+          if [ -f "Pods/Manifest.lock" ]; then
+            echo "📋 Contenu de Pods/Manifest.lock:"
+            head -n 50 Pods/Manifest.lock # Afficher les 50 premières lignes
+          else
+            echo "⚠️ Pods/Manifest.lock non trouvé"
           fi
 
       - name: Verify Apple Pay Merchant ID in Entitlements

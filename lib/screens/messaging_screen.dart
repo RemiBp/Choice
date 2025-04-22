@@ -819,7 +819,10 @@ class _MessagingScreenState extends State<MessagingScreen>
    // Méthode pour épingler/désépingler
   Future<void> _togglePinConversation(String conversationId, bool shouldPin) async {
     try {
-      await _conversationService.updateGroupInfo(conversationId);
+      await _conversationService.updateGroupDetails(
+         conversationId,
+         isPinned: shouldPin,
+      );
       setState(() {
         final index = _conversations.indexWhere((c) => c['id'] == conversationId);
         if (index != -1) {
@@ -849,7 +852,10 @@ class _MessagingScreenState extends State<MessagingScreen>
 
   Future<void> _toggleMuteConversation(String conversationId, bool shouldMute) async {
     try {
-      await _conversationService.updateGroupInfo(conversationId);
+      await _conversationService.updateGroupDetails(
+         conversationId,
+         isMuted: shouldMute,
+      );
       setState(() {
         final index = _conversations.indexWhere((c) => c['id'] == conversationId);
         if (index != -1) {
@@ -945,11 +951,12 @@ class _MessagingScreenState extends State<MessagingScreen>
                     userId: widget.userId,
                     isDarkMode: _isDarkMode,
                     onConversationCreated: (conversation) {
+                      // Gérer la navigation après création (peut être redondant si onResultSelected gère déjà ça)
                       // Fermer la modale
                       Navigator.pop(context);
                       
                       // Naviguer vers la conversation
-                      _navigateToConversation(conversation);
+                      _navigateToConversation(conversation); // Peut-être pas nécessaire si _startConversationWithUser navigue déjà
                       
                       // Rafraîchir la liste des conversations
                       _fetchConversations();

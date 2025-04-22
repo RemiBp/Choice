@@ -172,6 +172,14 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> wit
 
     _recipientName = widget.recipientName;
     _recipientAvatar = widget.recipientAvatar;
+
+    // Charger les détails du groupe si nécessaire
+    if (widget.isGroup) {
+       // Si le nom ou l'avatar n'est pas passé, essayer de les charger
+       if (_recipientName.isEmpty || _recipientAvatar.isEmpty) {
+            _loadGroupDetails();
+       }
+    }
   }
 
   @override
@@ -770,170 +778,7 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> wit
     final String otherUserType = widget.isProducer ? 'restaurant' : 'user'; // Simplified type guessing
 
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: _primaryColor,
-        title: Row(
-          children: [
-            GestureDetector(
-              // Navigate on avatar tap ONLY for non-group chats
-              onTap: (!widget.isGroup && otherUserId != null)
-                  ? () => _navigateToProfile(otherUserId ?? '', otherUserType)
-                  : null,
-              child: CircleAvatar(
-                radius: 20,
-                backgroundImage: getImageProvider(widget.recipientAvatar) ?? const AssetImage('assets/images/default_avatar.png'),
-                child: getImageProvider(widget.recipientAvatar) == null ? Icon(Icons.person, color: Colors.grey[400]) : null,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    widget.recipientName,
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white), // Ensure text color is white
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  if (widget.isGroup)
-                    Text(
-                      // Use actual participant count if available, otherwise fallback
-                      '${widget.participants?.length ?? '...'} participants',
-                      style: TextStyle(fontSize: 12, color: Colors.white70),
-                    )
-                  else
-                    Text(
-                      'En ligne', // Statut par défaut, à remplacer par le vrai statut
-                      style: TextStyle(fontSize: 12, color: Colors.white70),
-                    ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        iconTheme: IconThemeData(color: Colors.white), // Set icon color to white
-        actionsIconTheme: IconThemeData(color: Colors.white), // Set actions icon color to white
-        actions: [
-          IconButton(
-            icon: Icon(Icons.videocam),
-            onPressed: () => _initiateCall(true),
-          ),
-          IconButton(
-            icon: Icon(Icons.call),
-            onPressed: () => _initiateCall(false),
-          ),
-          if (widget.isGroup)
-            IconButton(
-              icon: Icon(Icons.info_outline),
-              tooltip: 'Détails du groupe',
-              onPressed: () async {
-                final result = await Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => GroupDetailsScreen(
-                      conversationId: widget.conversationId,
-                      currentUserId: widget.userId,
-                      groupName: widget.recipientName,
-                      groupAvatar: widget.recipientAvatar,
-                      participants: (widget.participants ?? []).map((p) {
-                        if (p is Map<String, dynamic>) return p;
-                        if (p is String) return {'id': p, 'name': '', 'avatar': ''};
-                        return <String, dynamic>{};
-                      }).toList().cast<Map<String, dynamic>>(),
-                    ),
-                  ),
-                );
-                if (result != null && mounted) {
-                  setState(() {
-                    if (result['groupName'] != null) _recipientName = result['groupName'];
-                    if (result['groupAvatar'] != null) _recipientAvatar = result['groupAvatar'];
-                  });
-                }
-              },
-            ),
-          PopupMenuButton<String>(
-            onSelected: (value) async {
-              if (value == 'search') {
-                // Rechercher dans les messages
-              } else if (value == 'clear') {
-                // Effacer la conversation
-              } else if (value == 'add_participant' && widget.isGroup) {
-                  // TODO: Add participant logic
-              } else if (value == 'group_info' && widget.isGroup) {
-                  // TODO: Show group info screen
-              } else if (value == 'pin') {
-                await _togglePin();
-              } else if (value == 'mute') {
-                await _toggleMute();
-              }
-            },
-            itemBuilder: (BuildContext context) => [
-              PopupMenuItem<String>(
-                value: 'search',
-                child: Row(
-                  children: [
-                    Icon(Icons.search, color: Colors.grey[700]),
-                    const SizedBox(width: 8),
-                    Text('Rechercher'),
-                  ],
-                ),
-              ),
-              PopupMenuItem<String>(
-                value: 'pin',
-                child: Row(
-                  children: [
-                    Icon(_isPinned ? Icons.push_pin : Icons.push_pin_outlined, color: Colors.grey[700]),
-                    const SizedBox(width: 8),
-                    Text(_isPinned ? 'Désépingler' : 'Épingler'),
-                  ],
-                ),
-              ),
-              PopupMenuItem<String>(
-                value: 'mute',
-                child: Row(
-                  children: [
-                    Icon(_isMuted ? Icons.volume_off : Icons.volume_up, color: Colors.grey[700]),
-                    const SizedBox(width: 8),
-                    Text(_isMuted ? 'Activer notifications' : 'Mettre en sourdine'),
-                  ],
-                ),
-              ),
-              if (widget.isGroup)
-                PopupMenuItem<String>(
-                  value: 'add_participant',
-                  child: Row(
-                    children: [
-                      Icon(Icons.group_add, color: Colors.grey[700]),
-                      const SizedBox(width: 8),
-                      Text('Ajouter participant'),
-                    ],
-                  ),
-                ),
-                if (widget.isGroup)
-                 PopupMenuItem<String>(
-                   value: 'group_info',
-                   child: Row(
-                     children: [
-                       Icon(Icons.info_outline, color: Colors.grey[700]),
-                       const SizedBox(width: 8),
-                       Text('Infos du groupe'),
-                     ],
-                   ),
-                 ),
-              PopupMenuItem<String>(
-                value: 'clear',
-                child: Row(
-                  children: [
-                    Icon(Icons.delete, color: Colors.grey[700]),
-                    const SizedBox(width: 8),
-                    Text('Effacer la conversation'),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
+      appBar: _buildAppBar(),
       body: Column(
         children: [
           // --- Mention Suggestions List ---
@@ -1283,11 +1128,152 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> wit
     );
   }
   
-  void _viewGroupDetails() {
-    // Implémenter la navigation vers les détails du groupe
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Détails du groupe non implémentés')),
+  AppBar _buildAppBar() {
+    final Color appBarColor = _isDarkMode ? Color(0xFF1F1F1F) : Colors.white;
+    final Color textColor = _isDarkMode ? Colors.white : Colors.black;
+    final Color iconColor = _isDarkMode ? Colors.white70 : Colors.black54;
+
+    // Action à exécuter lors du clic sur le titre/avatar
+    VoidCallback? onTitleTap;
+    if (widget.isGroup) {
+      onTitleTap = () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => GroupDetailScreen(
+              conversationId: widget.conversationId,
+              userId: widget.userId,
+              groupName: _recipientName, // Passer le nom actuel
+              groupAvatar: _recipientAvatar, // Passer l'avatar actuel
+              isDarkMode: _isDarkMode,
+              conversationService: _conversationService, // Passer le service
+            ),
+          ),
+        ).then((_) {
+          // Optionnel: Rafraîchir les détails si des modifs ont eu lieu
+          _loadGroupDetails(); 
+          _fetchPinMuteStatus();
+        });
+      };
+    }
+
+    return AppBar(
+      elevation: 1,
+      backgroundColor: appBarColor,
+      leading: IconButton(
+        icon: Icon(Icons.arrow_back_ios_new, color: textColor),
+        onPressed: () => Navigator.of(context).pop(),
+      ),
+      titleSpacing: 0,
+      title: GestureDetector( // Rendre le titre cliquable
+        onTap: onTitleTap, // Action conditionnelle
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 20,
+              backgroundImage: getImageProvider(_recipientAvatar),
+              backgroundColor: Colors.grey.shade300,
+              child: getImageProvider(_recipientAvatar) == null
+                  ? Icon(widget.isGroup ? Icons.group : Icons.person, size: 24, color: Colors.grey.shade500)
+                  : null,
+            ),
+            SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _recipientName, // Utiliser la variable d'état
+                    style: GoogleFonts.poppins(
+                      color: textColor,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  // Optionnel: Ajouter un statut (En ligne, membres, etc.)
+                  // Text(
+                  //   widget.isGroup ? 'X membres' : 'En ligne',
+                  //   style: GoogleFonts.poppins(
+                  //     color: textColor.withOpacity(0.7),
+                  //     fontSize: 12,
+                  //   ),
+                  // ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        // Icônes d'appel (conditionnelles ou à implémenter)
+        // IconButton(
+        //   icon: Icon(Icons.videocam_outlined, color: iconColor),
+        //   onPressed: _initiateVideoCall,
+        // ),
+        // IconButton(
+        //   icon: Icon(Icons.call_outlined, color: iconColor),
+        //   onPressed: _initiateAudioCall,
+        // ),
+        // Menu Kebab (Plus d'options)
+        PopupMenuButton<String>(
+          icon: Icon(Icons.more_vert, color: iconColor),
+          color: appBarColor,
+          onSelected: _handleMenuSelection,
+          itemBuilder: (BuildContext context) {
+            return <PopupMenuEntry<String>>[
+              PopupMenuItem<String>(
+                value: 'toggle_pin',
+                child: Text(_isPinned ? 'Désépingler' : 'Épingler', style: TextStyle(color: textColor)),
+              ),
+              PopupMenuItem<String>(
+                value: 'toggle_mute',
+                child: Text(_isMuted ? 'Activer notifications' : 'Mettre en sourdine', style: TextStyle(color: textColor)),
+              ),
+              if (widget.isGroup)
+                 PopupMenuItem<String>(
+                   value: 'group_info',
+                   child: Text('Infos du groupe', style: TextStyle(color: textColor)),
+                 ),
+              // Ajouter d'autres options ici (Rechercher, Bloquer, etc.)
+            ];
+          },
+        ),
+      ],
     );
+  }
+
+  void _handleMenuSelection(String value) {
+    switch (value) {
+      case 'toggle_pin':
+        _togglePinConversation(!_isPinned);
+        break;
+      case 'toggle_mute':
+        _toggleMuteConversation(!_isMuted);
+        break;
+      case 'group_info':
+         // Naviguer vers les détails du groupe (même action que le clic sur le titre)
+         if (widget.isGroup) {
+           Navigator.push(
+             context,
+             MaterialPageRoute(
+               builder: (context) => GroupDetailScreen(
+                 conversationId: widget.conversationId,
+                 userId: widget.userId,
+                 groupName: _recipientName,
+                 groupAvatar: _recipientAvatar,
+                 isDarkMode: _isDarkMode,
+                 conversationService: _conversationService, 
+               ),
+             ),
+           ).then((_) {
+             _loadGroupDetails(); 
+             _fetchPinMuteStatus();
+           });
+         }
+        break;
+      // Gérer d'autres cas
+    }
   }
 
   // Helper to find the word starting with @ under the cursor
@@ -1648,13 +1634,27 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> wit
       );
 
     try {
-       // Corrected call to use positional arguments
-       await _callService.startCall( 
-         widget.userId,
-         recipientId!, // Pass recipientId directly (with null check)
-         isVideoCall, // Pass isVideoCall directly
-       );
-       // Dialog is popped automatically by startCall or in finally/catchError
+       // Corrected call to use initiateCall and recipientIds
+       final recipientId = _otherParticipantId; // Get the ID
+       if (recipientId != null) { // Check if not null
+           await _callService.initiateCall(
+               recipientIds: [recipientId], // Pass as list
+               type: isVideoCall ? 'video' : 'audio', // Use correct parameter
+           );
+           // Dialog is popped automatically by initiateCall or in finally/catchError
+       } else {
+          // Handle the case where recipientId is null (e.g., show an error)
+          print("Error: Could not determine recipient ID for call.");
+          // Close dialog if still visible and context is valid
+          if (Navigator.of(currentContext).canPop()) {
+             Navigator.of(currentContext).pop();
+          }
+          if (currentContext.mounted) { // Check context validity
+              ScaffoldMessenger.of(currentContext).showSnackBar(
+                  const SnackBar(content: Text('Erreur: Impossible de déterminer le destinataire.'))
+              );
+          }
+       }
      } catch (error) {
        print("Error initiating call: $error");
        // Close dialog if still visible and context is valid
@@ -1946,31 +1946,47 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> wit
     }
   }
 
-  Future<void> _togglePin() async {
+  Future<void> _togglePinConversation(bool isPinned) async {
     try {
-      await _conversationService.updateGroupInfo(widget.conversationId);
-      setState(() => _isPinned = !_isPinned);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_isPinned ? 'Conversation épinglée' : 'Conversation désépinglée')),
+      // Use updateGroupDetails with the isPinned parameter
+      await _conversationService.updateGroupDetails(
+        widget.conversationId,
+        isPinned: isPinned,
       );
+      if (mounted) {
+         setState(() => _isPinned = isPinned);
+         ScaffoldMessenger.of(context).showSnackBar(
+           SnackBar(content: Text(isPinned ? 'Conversation épinglée' : 'Conversation désépinglée')),
+         );
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
-      );
+       if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+           SnackBar(content: Text('Erreur épinglage: $e'), backgroundColor: Colors.red),
+         );
+       }
     }
   }
 
-  Future<void> _toggleMute() async {
+  Future<void> _toggleMuteConversation(bool isMuted) async {
     try {
-      await _conversationService.updateGroupInfo(widget.conversationId);
-      setState(() => _isMuted = !_isMuted);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_isMuted ? 'Conversation muette' : 'Notifications activées')),
+       // Use updateGroupDetails with the isMuted parameter
+      await _conversationService.updateGroupDetails(
+        widget.conversationId,
+        isMuted: isMuted,
       );
+       if (mounted) {
+          setState(() => _isMuted = isMuted);
+          ScaffoldMessenger.of(context).showSnackBar(
+           SnackBar(content: Text(isMuted ? 'Conversation muette' : 'Notifications activées')),
+         );
+       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
-      );
+       if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+           SnackBar(content: Text('Erreur notifications: $e'), backgroundColor: Colors.red),
+         );
+       }
     }
   }
 

@@ -35,11 +35,13 @@ extension TimeOfDayExtension on TimeOfDay {
 class MyEventsManagementScreen extends StatefulWidget {
   final String producerId;
   final String? token; // Ajouter le token comme paramètre optionnel
+  final String? initialEventId; // <-- Add this parameter
 
   const MyEventsManagementScreen({
     Key? key,
     required this.producerId,
     this.token,
+    this.initialEventId, // <-- Add to constructor
   }) : super(key: key);
 
   @override
@@ -122,7 +124,83 @@ class _MyEventsManagementScreenState extends State<MyEventsManagementScreen>
   @override
   void initState() {
     super.initState();
-    _loadProducerEvents();
+    // Initialize TabController after TickerProvider is ready
+    _tabController = TabController(length: 3, vsync: this);
+    // Fetch all events initially
+    _fetchEvents();
+    // Check if we need to load and edit a specific event
+    if (widget.initialEventId != null) {
+      print("Received initialEventId: ${widget.initialEventId}");
+      _loadAndEditEvent(widget.initialEventId!);
+    }
+  }
+
+  // NEW: Method to load a single event and open the edit dialog
+  Future<void> _loadAndEditEvent(String eventId) async {
+    setState(() { _isLoading = true; }); // Show loading indicator
+    try {
+      final eventData = await _fetchSingleEvent(eventId);
+      if (eventData != null && mounted) {
+        print("Event data fetched for editing: ${eventData['_id']}");
+        // Ensure build is complete before showing dialog
+        WidgetsBinding.instance.addPostFrameCallback((_) { 
+          _showEditEventDialog(eventData);
+        });
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Impossible de charger l'événement $eventId pour modification."), backgroundColor: Colors.orange),
+        );
+      }
+    } catch (e) {
+      print("Error in _loadAndEditEvent: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Erreur lors du chargement de l'événement: $e"), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() { _isLoading = false; });
+      }
+    }
+  }
+
+  // NEW: Method to fetch a single event by ID
+  Future<Map<String, dynamic>?> _fetchSingleEvent(String eventId) async {
+    print("Fetching single event: $eventId");
+    try {
+      final baseUrl = ApiService.baseUrl;
+      Uri url;
+      // Assume the standard /api/events/:id endpoint exists
+      final endpoint = '/api/events/$eventId'; 
+
+      if (baseUrl.startsWith('http://')) {
+        final domain = baseUrl.replaceFirst('http://', '');
+        url = Uri.http(domain, endpoint);
+      } else {
+        final domain = baseUrl.replaceFirst('https://', '');
+        url = Uri.https(domain, endpoint);
+      }
+
+      print("Attempting GET request to: $url");
+      final response = await http.get(url, headers: { 
+         // Add auth header if needed by the endpoint
+         // if (widget.token != null) 'Authorization': 'Bearer ${widget.token}'
+      });
+
+      if (response.statusCode == 200) {
+        print("Single event fetched successfully");
+        return json.decode(response.body);
+      } else {
+        print("Failed to fetch single event: ${response.statusCode} - ${response.body}");
+        // Optionally try alternative endpoints if the primary one fails
+        // e.g., /api/leisureProducers/:producerId/events/:eventId
+        return null;
+      }
+    } catch (e) {
+      print("Error fetching single event $eventId: $e");
+      return null;
+    }
   }
 
   Future<void> _loadProducerEvents() async {

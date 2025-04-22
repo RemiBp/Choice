@@ -284,212 +284,128 @@ class Post {
     ].contains(key);
   }
 
+  // --- Add fromJson Factory Constructor --- 
   factory Post.fromJson(Map<String, dynamic> json) {
-    try {
-      DateTime parseDateTime(dynamic value) {
-        if (value == null) return DateTime.now();
-        if (value is DateTime) return value;
-        
-        // Essayer de parser en tant que chaîne
-        if (value is String) {
-          try {
-            return DateTime.parse(value);
-          } catch (e) {
-            print('❌ Erreur de parsing de date: $e');
-            return DateTime.now();
-          }
-        }
-        
-        // Essayer de parser en tant que timestamp
-        if (value is int) {
-          try {
-            return DateTime.fromMillisecondsSinceEpoch(value);
-          } catch (e) {
-            print('❌ Erreur de parsing de timestamp: $e');
-            return DateTime.now();
-          }
-        }
-        
-        return DateTime.now();
+    // Helper to safely parse lists of strings
+    List<String> _parseStringList(dynamic list) {
+      if (list is List) {
+        return list.map((e) => e.toString()).toList();
       }
+      return [];
+    }
+
+    // Helper to safely parse lists of app_media.Media
+    List<app_media.Media> _parseMediaList(dynamic list) {
+       if (list is List) {
+         return list
+           .where((item) => item is Map<String, dynamic>)
+           .map((item) => app_media.Media.fromJson(item as Map<String, dynamic>))
+           .toList();
+       } 
+       return [];
+    }
+
+    // Helper to safely parse lists of Comment
+    List<Comment> _parseCommentList(dynamic list) {
+       if (list is List) {
+         return list
+           .where((item) => item is Map<String, dynamic>)
+           .map((item) => Comment.fromJson(item as Map<String, dynamic>))
+           .toList();
+       } 
+       return [];
+    }
+
+    // Determine author details, preferring specific author fields over producer/user fallbacks
+    String determinedAuthorId = json['author_id']?.toString() 
+                             ?? json['userId']?.toString() 
+                             ?? json['producer_id']?.toString() 
+                             ?? '';
+    String determinedAuthorName = json['author_name']?.toString() 
+                               ?? json['userName']?.toString() 
+                               ?? json['producer_name']?.toString() 
+                               ?? 'Utilisateur Inconnu';
+    String? determinedAuthorAvatar = json['author_avatar']?.toString() 
+                                 ?? json['userPhotoUrl']?.toString() 
+                                 ?? json['producer_photo']?.toString();
+
+    // Safely parse dates
+    DateTime? parsedPostedAt = json['posted_at'] != null 
+                               ? DateTime.tryParse(json['posted_at'].toString()) 
+                               : null;
+    DateTime parsedCreatedAt = json['createdAt'] != null 
+                              ? DateTime.tryParse(json['createdAt'].toString()) ?? DateTime.now() // Fallback to now
+                              : parsedPostedAt ?? DateTime.now(); // Fallback to postedAt or now
+
+    // Safely parse counts, allowing for List lengths as fallback
+    int parsedLikesCount = (json['likes_count'] as num?)?.toInt() 
+                        ?? (json['likes'] as List?)?.length 
+                        ?? 0;
+    int parsedInterestedCount = (json['interested_count'] as num?)?.toInt() 
+                             ?? (json['interestedUsers'] as List?)?.length 
+                             ?? (json['interested'] as List?)?.length 
+                             ?? 0;
+    int parsedChoiceCount = (json['choice_count'] as num?)?.toInt() 
+                         ?? (json['choiceUsers'] as List?)?.length 
+                         ?? (json['choices'] as List?)?.length 
+                         ?? 0;
+    int parsedCommentsCount = (json['comments_count'] as num?)?.toInt() 
+                           ?? (json['comments'] as List?)?.length 
+                           ?? 0;
+
+    return Post(
+      id: json['_id']?.toString() ?? json['id']?.toString() ?? '', 
+      userId: json['userId']?.toString() ?? determinedAuthorId, // Ensure userId is populated
+      userName: json['userName']?.toString() ?? determinedAuthorName, // Ensure userName is populated
+      userPhotoUrl: json['userPhotoUrl']?.toString() ?? determinedAuthorAvatar, // Ensure userPhotoUrl is populated
+      imageUrl: json['imageUrl']?.toString() ?? (json['media'] as List?)?.firstWhere((m) => m is Map && m['type'] == 'image', orElse: () => {})?['url']?.toString(), // Fallback image from media
+      createdAt: parsedCreatedAt, 
+      location: json['location']?.toString(),
+      locationName: json['location_name']?.toString() ?? json['location']?.toString(),
+      description: json['description']?.toString() ?? json['content']?.toString() ?? '', // Fallback description/content
+      likes: parsedLikesCount, // Use parsed count
+      comments: _parseCommentList(json['comments']), 
+      isLiked: json['isLiked'] as bool? ?? false, // Default to false if null
+      category: json['category']?.toString(),
+      metadata: json['metadata'] as Map<String, dynamic>?,
       
-      String extractId(dynamic value) {
-        if (value == null) return '';
-        if (value is String) return value;
-        if (value is Map && value['_id'] != null) return value['_id'].toString();
-        return '';
-      }
+      // Additional fields mapping
+      likesCount: parsedLikesCount,
+      interestedCount: parsedInterestedCount,
+      choiceCount: parsedChoiceCount,
+      // isInterested/isChoice might depend on user context, often not in the raw post data
+      isInterested: json['isInterested'] as bool?, 
+      isChoice: json['isChoice'] as bool?,
+      isProducerPost: json['isProducerPost'] as bool? ?? (json['producer_id'] != null),
+      isLeisureProducer: json['isLeisureProducer'] as bool? ?? json['type'] == 'leisure',
+      isBeautyProducer: json['isBeautyProducer'] as bool? ?? json['type'] == 'wellness',
+      isRestaurationProducer: json['isRestaurationProducer'] as bool? ?? json['type'] == 'restaurant',
+      isAutomated: json['isAutomated'] as bool?,
+      targetId: json['target_id']?.toString(),
+      referencedEventId: json['referenced_event_id']?.toString(),
+      title: json['title']?.toString() ?? json['description']?.toString() ?? '', // Fallback title
+      subtitle: json['subtitle']?.toString(),
+      content: json['content']?.toString() ?? json['description']?.toString(), // Fallback content
+      authorId: determinedAuthorId,
+      authorName: determinedAuthorName,
+      authorAvatar: determinedAuthorAvatar,
+      postedAt: parsedPostedAt, 
+      media: _parseMediaList(json['media']), 
       
-      // Extraire les médias depuis différents formats possibles
-      List<app_media.Media> extractMedia(dynamic mediaInput) {
-        List<app_media.Media> result = [];
-        
-        try {
-          if (mediaInput == null) return [];
-          
-          if (mediaInput is List) {
-            for (var item in mediaInput) {
-              if (item is Map<String, dynamic>) {
-                String url = '';
-                String type = 'image';
-                
-                if (item.containsKey('url')) {
-                  url = item['url']?.toString() ?? '';
-                } else if (item.containsKey('media_url')) {
-                  url = item['media_url']?.toString() ?? '';
-                }
-                
-                if (item.containsKey('type')) {
-                  type = item['type']?.toString() ?? 'image';
-                } else if (item.containsKey('media_type')) {
-                  type = item['media_type']?.toString() ?? 'image';
-                }
-                
-                if (url.isNotEmpty) {
-                  result.add(app_media.Media(url: url, type: type));
-                }
-              } else if (item is String) {
-                // Si l'élément est juste une URL
-                result.add(app_media.Media(url: item, type: 'image'));
-              }
-            }
-          } else if (mediaInput is Map<String, dynamic>) {
-            // Si media est un objet unique au lieu d'une liste
-            String url = mediaInput['url']?.toString() ?? mediaInput['media_url']?.toString() ?? '';
-            String type = mediaInput['type']?.toString() ?? mediaInput['media_type']?.toString() ?? 'image';
-            
-            if (url.isNotEmpty) {
-              result.add(app_media.Media(url: url, type: type));
-            }
-          } else if (mediaInput is String) {
-            // Si media est directement une URL
-            result.add(app_media.Media(url: mediaInput, type: 'image'));
-          }
-        } catch (e) {
-          print('❌ Erreur lors de l\'extraction des médias: $e');
-        }
-        
-        return result;
-      }
+      // New fields mapping
+      tags: _parseStringList(json['tags']), 
+      mediaUrls: _parseStringList((json['media'] as List?)?.map((m) => m is Map ? m['url'] : null).where((url) => url != null)), // Extract URLs if needed
+      commentsCount: parsedCommentsCount,
+      type: json['type']?.toString(),
+      author: json['author'], // Keep raw author if needed
       
-      // Extraire les informations de l'auteur
-      Map<String, dynamic> extractAuthor(dynamic authorInput) {
-        String authorId = '';
-        String authorName = '';
-        String authorAvatar = '';
-        
-        try {
-          if (authorInput is Map<String, dynamic>) {
-            authorId = authorInput['id']?.toString() ?? 
-                      authorInput['_id']?.toString() ?? '';
-            authorName = authorInput['name']?.toString() ?? 
-                        authorInput['userName']?.toString() ?? '';
-            authorAvatar = authorInput['avatar']?.toString() ?? 
-                          authorInput['photo']?.toString() ?? 
-                          authorInput['photoUrl']?.toString() ?? '';
-          }
-        } catch (e) {
-          print('❌ Erreur lors de l\'extraction des données de l\'auteur: $e');
-        }
-        
-        return {
-          'id': authorId,
-          'name': authorName,
-          'avatar': authorAvatar
-        };
-      }
-      
-      // Extraire l'ID du document
-      String id = json['_id']?.toString() ?? 
-                 json['id']?.toString() ?? '';
-      
-      // Extraire les données de l'auteur
-      String userId = json['user_id']?.toString() ?? 
-                     json['userId']?.toString() ?? 
-                     json['authorId']?.toString() ?? 
-                     json['author_id']?.toString() ?? '';
-      
-      String userName = json['user_name']?.toString() ?? 
-                       json['userName']?.toString() ?? 
-                       json['authorName']?.toString() ?? 
-                       json['author_name']?.toString() ?? 'Utilisateur';
-      
-      String userPhotoUrl = json['user_photo_url']?.toString() ?? 
-                           json['userPhotoUrl']?.toString() ?? 
-                           json['authorAvatar']?.toString() ?? 
-                           json['author_photo']?.toString() ?? '';
-      
-      // Extraire les informations sur l'auteur si présentes sous forme d'objet
-      if (json.containsKey('author') && json['author'] != null) {
-        final authorData = extractAuthor(json['author']);
-        if (userId.isEmpty) userId = authorData['id'] ?? '';
-        if (userName == 'Utilisateur') userName = authorData['name'] ?? 'Utilisateur';
-        if (userPhotoUrl.isEmpty) userPhotoUrl = authorData['avatar'] ?? '';
-      }
-      
-      // Extraction des commentaires
-      List<Comment> commentsList = [];
-      if (json['comments'] is List) {
-        commentsList = (json['comments'] as List)
-            .where((c) => c is Map<String, dynamic>)
-            .map((c) => Comment.fromJson(c as Map<String, dynamic>))
-            .toList();
-      }
-      
-      return Post(
-        id: id,
-        userId: userId,
-        userName: userName,
-        userPhotoUrl: userPhotoUrl,
-        imageUrl: json['image_url']?.toString() ?? json['imageUrl']?.toString(),
-        createdAt: parseDateTime(json['created_at'] ?? json['createdAt'] ?? json['postedAt'] ?? json['posted_at'] ?? json['time_posted'] ?? json['timePosted'] ?? DateTime.now()),
-        location: json['location']?.toString(),
-        locationName: json['location_name']?.toString() ?? json['locationName']?.toString(),
-        description: json['description']?.toString() ?? json['content']?.toString() ?? '',
-        likes: int.tryParse(json['likes']?.toString() ?? '0') ?? 0,
-        likesCount: int.tryParse(json['likes_count']?.toString() ?? json['likesCount']?.toString() ?? '0') ?? 0,
-        comments: commentsList,
-        commentsCount: int.tryParse(json['comments_count']?.toString() ?? json['commentsCount']?.toString() ?? '0') ?? 0,
-        isLiked: json['isLiked'] == true || json['is_liked'] == true,
-        category: json['category']?.toString(),
-        metadata: json['metadata'] as Map<String, dynamic>?,
-        interestedCount: int.tryParse(json['interested_count']?.toString() ?? json['interestedCount']?.toString() ?? '0') ?? 0,
-        choiceCount: int.tryParse(json['choice_count']?.toString() ?? json['choiceCount']?.toString() ?? '0') ?? 0,
-        isInterested: json['isInterested'] == true || json['interested'] == true,
-        isChoice: json['isChoice'] == true || json['choice'] == true,
-        isProducerPost: json['isProducerPost'] == true || json['is_producer_post'] == true || json['producer_id'] != null,
-        isLeisureProducer: json['isLeisureProducer'] == true || json['is_leisure_producer'] == true,
-        isBeautyProducer: json['isBeautyProducer'] == true || json['is_beauty_producer'] == true || json['beauty_producer'] == true,
-        isRestaurationProducer: json['isRestaurationProducer'] == true || json['is_restauration_producer'] == true || json['is_restaurant_post'] == true,
-        isAutomated: json['isAutomated'] == true || json['is_automated'] == true,
-        targetId: json['targetId']?.toString() ?? json['target_id']?.toString(),
-        referencedEventId: json['referencedEventId']?.toString() ?? json['referenced_event_id']?.toString(),
-        title: json['title']?.toString() ?? '',
-        subtitle: json['subtitle']?.toString(),
-        content: json['content']?.toString() ?? json['description']?.toString() ?? '',
-        authorId: json['authorId']?.toString() ?? json['author_id']?.toString() ?? userId,
-        authorName: json['authorName']?.toString() ?? json['author_name']?.toString() ?? userName,
-        authorAvatar: json['authorAvatar']?.toString() ?? json['author_photo']?.toString() ?? userPhotoUrl,
-        postedAt: parseDateTime(json['postedAt'] ?? json['posted_at'] ?? json['time_posted'] ?? json['timePosted']),
-        media: extractMedia(json['media']),
-        tags: json['tags'] is List ? List<String>.from(json['tags']) : null,
-        mediaUrls: json['mediaUrls'] is List ? List<String>.from(json['mediaUrls']) : null,
-        type: json['type']?.toString(),
-        author: json['author'],
-        relevanceScore: json['relevanceScore']?.toDouble(),
-        producerId: json['producerId']?.toString(),
+      relevanceScore: (json['relevanceScore'] as num?)?.toDouble(), // Parse relevance score
+
+      producerId: json['producer_id']?.toString(),
         url: json['url']?.toString(),
       );
-    } catch (e) {
-      print('❌ Erreur lors de la conversion JSON -> Post: $e');
-      // Retourner un Post vide mais valide en cas d'erreur
-      return Post(
-        id: 'error',
-        createdAt: DateTime.now(),
-        description: 'Erreur de chargement du post',
-      );
-    }
   }
+  // --- End fromJson Factory --- 
 
   Map<String, dynamic> toJson() {
     return {
