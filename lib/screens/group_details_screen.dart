@@ -184,7 +184,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
       print("Error saving changes: $e");
       if (mounted) {
         setState(() { _isLoading = false; });
-        ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Erreur lors de la sauvegarde: $e'), backgroundColor: Colors.red),
         );
       }
@@ -248,10 +248,10 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
             });
           },
         ),
-        IconButton(
-          icon: const Icon(Icons.save),
+            IconButton(
+              icon: const Icon(Icons.save),
           tooltip: 'Sauvegarder',
-          onPressed: _saveChanges,
+              onPressed: _saveChanges,
         ),
       ];
     } else {
@@ -331,8 +331,8 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
   Widget _buildAvatarEditor(String? currentAvatarUrl) {
     return Stack(
       alignment: Alignment.bottomRight,
-      children: [
-        CircleAvatar(
+              children: [
+                CircleAvatar(
           radius: 40,
           backgroundImage: _newAvatarFile != null
               ? FileImage(_newAvatarFile!)
@@ -349,7 +349,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
            clipBehavior: Clip.antiAlias,
            elevation: 2,
            child: InkWell(
-             onTap: _pickNewAvatar,
+                    onTap: _pickNewAvatar,
              child: const Padding(
                padding: EdgeInsets.all(4.0),
                child: Icon(Icons.edit, color: Colors.white, size: 18),
@@ -435,7 +435,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
       ),
     );
   }
-  
+
   Widget _buildActions(Color cardColor, Color textColor, Color primaryColor) {
     return Container(
       color: cardColor,

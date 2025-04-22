@@ -1955,13 +1955,13 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> wit
       );
       if (mounted) {
          setState(() => _isPinned = isPinned);
-         ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(
            SnackBar(content: Text(isPinned ? 'Conversation épinglée' : 'Conversation désépinglée')),
-         );
+      );
       }
     } catch (e) {
        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(
            SnackBar(content: Text('Erreur épinglage: $e'), backgroundColor: Colors.red),
          );
        }
@@ -1977,15 +1977,15 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> wit
       );
        if (mounted) {
           setState(() => _isMuted = isMuted);
-          ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(
            SnackBar(content: Text(isMuted ? 'Conversation muette' : 'Notifications activées')),
-         );
+      );
        }
     } catch (e) {
        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(
            SnackBar(content: Text('Erreur notifications: $e'), backgroundColor: Colors.red),
-         );
+      );
        }
     }
   }

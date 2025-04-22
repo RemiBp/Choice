@@ -218,7 +218,7 @@ class CallService {
           // Backend gets initiatorId from auth token
         }),
       );
-
+      
       final responseBody = json.decode(response.body);
 
       if (response.statusCode == 201) {
@@ -260,7 +260,7 @@ class CallService {
       );
 
       final responseBody = json.decode(response.body);
-
+      
       if (response.statusCode == 200) {
         print('✅ CallService: Joined call successfully: $responseBody');
          joinCallRoom(callId); // Join socket room on successful API call
@@ -297,7 +297,7 @@ class CallService {
       );
 
       final responseBody = json.decode(response.body);
-
+      
       if (response.statusCode == 200) {
         print('✅ CallService: Call declined successfully.');
         // No return needed, success indicated by lack of exception
@@ -330,9 +330,9 @@ class CallService {
           'callId': callId,
         }),
       );
-
+      
       final responseBody = json.decode(response.body);
-
+      
       if (response.statusCode == 200) {
         print('✅ CallService: Call ended successfully.');
          leaveCallRoom(callId); // Leave socket room

@@ -1643,9 +1643,9 @@ class ConversationService {
           // Le backend devrait déterminer le type de targetId ou on pourrait l'ajouter ici si connu
         }),
       );
-      
-      print('📤 Réponse create-or-get: ${response.statusCode}, body: ${response.body}');
 
+      print('📤 Réponse create-or-get: ${response.statusCode}, body: ${response.body}');
+      
       if (response.statusCode == 200 || response.statusCode == 201) {
         final result = json.decode(response.body);
         print('✅ Conversation créée/récupérée: ${result['conversation']?['_id'] ?? result['conversationId'] ?? 'ID non trouvé'}');
@@ -1789,7 +1789,7 @@ class ConversationService {
    }
 
    // --- File Upload & Group helpers ----
-   Future<String?> uploadFile(File file) async {
+  Future<String?> uploadFile(File file) async {
     print("ℹ️ Uploading file: ${file.path}");
     String? currentUserId;
     try {
