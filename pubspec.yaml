@@ -19,7 +19,7 @@ dependencies:
     git:
       url: https://github.com/RemiBp/flutter_app_badger_fork.git
       path: google_maps_cluster_manager # Assumed path in the fork
-      ref: "e3450f7" # Force latest commit
+      ref: "a69a3dd" # Dernière version avec les podspecs
   flutter_plugin_android_lifecycle: ^2.0.17
   flutter_secure_storage: ^9.0.0
   geocoding: ^2.1.1
@@ -75,7 +75,7 @@ dependencies:
     git:
       url: https://github.com/RemiBp/flutter_app_badger_fork.git
       path: contacts_service
-      ref: "7cf150a" # Mis à jour avec le dernier commit
+      ref: "a69a3dd" # Dernière version avec les podspecs
 
   # Paiement et WebView
   flutter_stripe: ^11.4.0
@@ -110,7 +110,7 @@ dependencies:
     git:
       url: https://github.com/RemiBp/flutter_app_badger_fork.git
       path: flutter_local_notifications
-      ref: "7cf150a" # Mis à jour avec le dernier commit
+      ref: "a69a3dd" # Dernière version avec les podspecs
   # Animation pour les messages envoyés et reçus
   flutter_chat_bubble: ^2.0.2
   # Pour des visuels plus attrayants
@@ -121,7 +121,7 @@ dependencies:
     git:
       url: https://github.com/RemiBp/flutter_app_badger_fork.git
       path: flutter_app_badger
-      ref: "7cf150a" # Mis à jour avec le dernier commit
+      ref: "a69a3dd" # Dernière version avec les podspecs
   badges: ^3.1.2  # Pour les badges dans l'interface utilisateur
   # Pour les actions sur les notifications
   rxdart: ^0.27.7
@@ -184,51 +184,51 @@ dependency_overrides:
     git:
       url: https://github.com/RemiBp/flutter_app_badger_fork.git
       path: firebase_core_custom
-      ref: "7cf150a"  # Mis à jour avec le dernier commit
+      ref: "a69a3dd"  # Dernière version avec les podspecs
   cloud_firestore:
     git:
       url: https://github.com/RemiBp/flutter_app_badger_fork.git
       path: cloud_firestore_custom
-      ref: "7cf150a"  # Mis à jour avec le dernier commit
+      ref: "a69a3dd"  # Dernière version avec les podspecs
   firebase_messaging:
     git:
       url: https://github.com/RemiBp/flutter_app_badger_fork.git
       path: firebase_messaging_custom
-      ref: "7cf150a"  # Nouveau plugin personnalisé
+      ref: "a69a3dd"  # Dernière version avec les podspecs
   firebase_analytics:
     git:
       url: https://github.com/RemiBp/flutter_app_badger_fork.git
       path: firebase_analytics_custom
-      ref: "7cf150a"  # Nouveau plugin personnalisé
+      ref: "a69a3dd"  # Dernière version avec les podspecs
   firebase_auth:
     git:
       url: https://github.com/RemiBp/flutter_app_badger_fork.git
       path: firebase_auth_custom
-      ref: "7cf150a"  # Nouveau plugin personnalisé
+      ref: "a69a3dd"  # Dernière version avec les podspecs
   flutter_webrtc:
     git:
       url: https://github.com/RemiBp/flutter_app_badger_fork.git
       path: flutter_webrtc_custom
-      ref: "7cf150a"  # Nouveau plugin personnalisé
+      ref: "a69a3dd"  # Dernière version avec les podspecs
   flutter_local_notifications:
     git:
       url: https://github.com/RemiBp/flutter_app_badger_fork.git
       path: flutter_local_notifications
-      ref: "7cf150a" # Mis à jour avec le dernier commit
+      ref: "a69a3dd" # Dernière version avec les podspecs
   flutter_app_badger:
     git:
       url: https://github.com/RemiBp/flutter_app_badger_fork.git
       path: flutter_app_badger
-      ref: "7cf150a" # Mis à jour avec le dernier commit
+      ref: "a69a3dd" # Dernière version avec les podspecs
   contacts_service:
     git:
       url: https://github.com/RemiBp/flutter_app_badger_fork.git
       path: contacts_service
-      ref: "7cf150a" # Mis à jour avec le dernier commit
+      ref: "a69a3dd" # Dernière version avec les podspecs
   emoji_picker_flutter:
     git:
       url: https://github.com/RemiBp/flutter_app_badger_fork.git
       path: emoji_picker_flutter_custom/emoji_picker_flutter-master
-      ref: "72ddd21" # Version avec nom correct dans pubspec.yaml
+      ref: "a69a3dd" # Dernière version avec les podspecs
   webrtc_interface: "1.1.1"  # Spécification explicite de la version pour éviter les conflits
  

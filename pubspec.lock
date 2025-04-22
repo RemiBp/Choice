@@ -141,8 +141,8 @@ packages:
     dependency: "direct main"
     description:
       path: cloud_firestore_custom
-      ref: "7cf150a"
-      resolved-ref: "7cf150aa5c3a54d26c73a5a861c4df2d3b6783f3"
+      ref: a69a3dd
+      resolved-ref: a69a3dd6a50129e32a59a03515b7b5916a14f2a9
       url: "https://github.com/RemiBp/flutter_app_badger_fork.git"
     source: git
     version: "4.13.1"
@@ -158,8 +158,8 @@ packages:
     dependency: "direct main"
     description:
       path: contacts_service
-      ref: "7cf150a"
-      resolved-ref: "7cf150aa5c3a54d26c73a5a861c4df2d3b6783f3"
+      ref: a69a3dd
+      resolved-ref: a69a3dd6a50129e32a59a03515b7b5916a14f2a9
       url: "https://github.com/RemiBp/flutter_app_badger_fork.git"
     source: git
     version: "1.0.0+1"
@@ -247,8 +247,8 @@ packages:
     dependency: "direct main"
     description:
       path: "emoji_picker_flutter_custom/emoji_picker_flutter-master"
-      ref: "72ddd21"
-      resolved-ref: "72ddd21a0e124dc714425b276ad99ee5782c672d"
+      ref: a69a3dd
+      resolved-ref: a69a3dd6a50129e32a59a03515b7b5916a14f2a9
       url: "https://github.com/RemiBp/flutter_app_badger_fork.git"
     source: git
     version: "4.3.0"
@@ -328,8 +328,8 @@ packages:
     dependency: "direct main"
     description:
       path: firebase_analytics_custom
-      ref: "7cf150a"
-      resolved-ref: "7cf150aa5c3a54d26c73a5a861c4df2d3b6783f3"
+      ref: a69a3dd
+      resolved-ref: a69a3dd6a50129e32a59a03515b7b5916a14f2a9
       url: "https://github.com/RemiBp/flutter_app_badger_fork.git"
     source: git
     version: "10.7.2"
@@ -337,8 +337,8 @@ packages:
     dependency: "direct main"
     description:
       path: firebase_auth_custom
-      ref: "7cf150a"
-      resolved-ref: "7cf150aa5c3a54d26c73a5a861c4df2d3b6783f3"
+      ref: a69a3dd
+      resolved-ref: a69a3dd6a50129e32a59a03515b7b5916a14f2a9
       url: "https://github.com/RemiBp/flutter_app_badger_fork.git"
     source: git
     version: "4.12.0"
@@ -346,8 +346,8 @@ packages:
     dependency: "direct main"
     description:
       path: firebase_core_custom
-      ref: "7cf150a"
-      resolved-ref: "7cf150aa5c3a54d26c73a5a861c4df2d3b6783f3"
+      ref: a69a3dd
+      resolved-ref: a69a3dd6a50129e32a59a03515b7b5916a14f2a9
       url: "https://github.com/RemiBp/flutter_app_badger_fork.git"
     source: git
     version: "2.13.0"
@@ -363,8 +363,8 @@ packages:
     dependency: "direct main"
     description:
       path: firebase_messaging_custom
-      ref: "7cf150a"
-      resolved-ref: "7cf150aa5c3a54d26c73a5a861c4df2d3b6783f3"
+      ref: a69a3dd
+      resolved-ref: a69a3dd6a50129e32a59a03515b7b5916a14f2a9
       url: "https://github.com/RemiBp/flutter_app_badger_fork.git"
     source: git
     version: "0.0.1"
@@ -401,8 +401,8 @@ packages:
     dependency: "direct main"
     description:
       path: flutter_app_badger
-      ref: "7cf150a"
-      resolved-ref: "7cf150aa5c3a54d26c73a5a861c4df2d3b6783f3"
+      ref: a69a3dd
+      resolved-ref: a69a3dd6a50129e32a59a03515b7b5916a14f2a9
       url: "https://github.com/RemiBp/flutter_app_badger_fork.git"
     source: git
     version: "1.5.0+1"
@@ -482,8 +482,8 @@ packages:
     dependency: "direct main"
     description:
       path: flutter_local_notifications
-      ref: "7cf150a"
-      resolved-ref: "7cf150aa5c3a54d26c73a5a861c4df2d3b6783f3"
+      ref: a69a3dd
+      resolved-ref: a69a3dd6a50129e32a59a03515b7b5916a14f2a9
       url: "https://github.com/RemiBp/flutter_app_badger_fork.git"
     source: git
     version: "14.1.4+2"
@@ -658,8 +658,8 @@ packages:
     dependency: "direct main"
     description:
       path: flutter_webrtc_custom
-      ref: "7cf150a"
-      resolved-ref: "7cf150aa5c3a54d26c73a5a861c4df2d3b6783f3"
+      ref: a69a3dd
+      resolved-ref: a69a3dd6a50129e32a59a03515b7b5916a14f2a9
       url: "https://github.com/RemiBp/flutter_app_badger_fork.git"
     source: git
     version: "0.0.1"
@@ -787,8 +787,8 @@ packages:
     dependency: "direct main"
     description:
       path: google_maps_cluster_manager
-      ref: e3450f7
-      resolved-ref: e3450f705b833366114e66364b452c273ec141e3
+      ref: a69a3dd
+      resolved-ref: a69a3dd6a50129e32a59a03515b7b5916a14f2a9
       url: "https://github.com/RemiBp/flutter_app_badger_fork.git"
     source: git
     version: "3.1.0"

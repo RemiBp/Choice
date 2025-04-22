@@ -1,0 +1,69 @@
+# Uncomment this line to define a global platform for your project
+platform :ios, '13.0'
+
+# CocoaPods analytics sends network stats synchronously affecting flutter build latency.
+ENV['COCOAPODS_DISABLE_STATS'] = 'true'
+
+project 'Runner', {
+  'Debug' => :debug,
+  'Profile' => :release,
+  'Release' => :release,
+}
+
+def flutter_root
+  generated_xcode_build_settings_path = File.expand_path(File.join('..', 'Flutter', 'Generated.xcconfig'), __FILE__)
+  unless File.exist?(generated_xcode_build_settings_path)
+    raise "#{generated_xcode_build_settings_path} must exist. If you're running pod install manually, make sure flutter pub get is executed first"
+  end
+
+  File.foreach(generated_xcode_build_settings_path) do |line|
+    matches = line.match(/FLUTTER_ROOT\=(.*)/)
+    return matches[1].strip if matches
+  end
+  raise "FLUTTER_ROOT not found in #{generated_xcode_build_settings_path}. Try deleting Generated.xcconfig, then run flutter pub get"
+end
+
+require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
+
+flutter_ios_podfile_setup
+
+# Add custom plugin paths - these should match where your plugin source code is located
+plugin_pods_path = '../../plugin'
+
+# Ensure plugin dev_dependencies are available
+flutter_additional_ios_build_settings(target)
+
+# Add custom plugin search paths
+pre_install do |installer|
+  # Add custom plugin folders
+  installer.pod_targets.each do |pod|
+    if ['cloud_firestore', 'firebase_core', 'firebase_messaging', 'firebase_analytics', 'firebase_auth'].include?(pod.name)
+      def pod.resource_bundles; {}; end
+    end
+  end
+end
+
+target 'Runner' do
+  use_frameworks!
+  use_modular_headers!
+
+  flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+end
+
+post_install do |installer|
+  installer.pods_project.targets.each do |target|
+    flutter_additional_ios_build_settings(target)
+    
+    # Workaround for iOS build issues
+    target.build_configurations.each do |config|
+      # Set minimum iOS version correctly
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
+      
+      # Other build settings that may help with compatibility
+      config.build_settings['ENABLE_BITCODE'] = 'NO'
+      
+      # Exclude arm64 architecture for simulator builds to fix M1 Mac issues
+      config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'arm64'
+    end
+  end
+end 

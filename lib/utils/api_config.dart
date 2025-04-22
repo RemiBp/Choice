@@ -61,11 +61,10 @@ class ApiConfig {
     };
     
     try {
-      // Get token from AuthService
-      final authService = AuthService();
-      final token = await authService.getTokenInstance();
+      // Get token directly from AuthService static method
+      final token = await AuthService.getToken();
       
-      if (token != null && token.isNotEmpty) {
+      if (token.isNotEmpty) {
         headers['Authorization'] = 'Bearer $token';
       }
     } catch (e) {

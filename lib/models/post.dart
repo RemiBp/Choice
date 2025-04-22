@@ -399,7 +399,11 @@ class Post {
       type: json['type']?.toString(),
       author: json['author'], // Keep raw author if needed
       
-      relevanceScore: (json['relevanceScore'] as num?)?.toDouble(), // Parse relevance score
+      relevanceScore: json['relevanceScore'] != null 
+                     ? (json['relevanceScore'] is int) 
+                         ? (json['relevanceScore'] as int).toDouble() 
+                         : (json['relevanceScore'] as num).toDouble()
+                     : null, // Handle both int and double types
 
       producerId: json['producer_id']?.toString(),
         url: json['url']?.toString(),
