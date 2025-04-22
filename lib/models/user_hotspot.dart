@@ -37,6 +37,9 @@ class UserHotspot {
   /// Values are percentages (0.0 to 1.0)
   final Map<String, double> dayDistribution;
   
+  /// Recommendations for the hotspot
+  final List<Map<String, dynamic>> recommendations;
+  
   /// Creates a new hotspot
   UserHotspot({
     required this.id,
@@ -49,6 +52,7 @@ class UserHotspot {
     this.address,
     required this.timeDistribution,
     required this.dayDistribution,
+    this.recommendations = const [],
   });
   
   /// Creates a LatLng object for Google Maps
@@ -56,65 +60,42 @@ class UserHotspot {
   
   /// Creates a UserHotspot from JSON data
   factory UserHotspot.fromJson(Map<String, dynamic> json) {
-    // Parse time distribution
-    Map<String, double> timeDistribution = {};
-    if (json['timeDistribution'] != null) {
-      final timeDist = json['timeDistribution'] as Map<String, dynamic>;
-      timeDist.forEach((key, value) {
-        timeDistribution[key] = (value is num) ? value.toDouble() : 0.0;
-      });
-    } else if (json['time_distribution'] != null) {
-      final timeDist = json['time_distribution'] as Map<String, dynamic>;
-      timeDist.forEach((key, value) {
-        timeDistribution[key] = (value is num) ? value.toDouble() : 0.0;
-      });
-    } else {
-      // Default time distribution if not provided
-      timeDistribution = {
-        'morning': 0.33,
-        'afternoon': 0.33,
-        'evening': 0.34,
-        'night': 0.0,
-      };
+    // Helper to safely parse doubles
+    double _parseDouble(dynamic value, [double defaultValue = 0.0]) {
+      if (value is double) return value;
+      if (value is int) return value.toDouble();
+      if (value is String) return double.tryParse(value) ?? defaultValue;
+      return defaultValue;
     }
-    
-    // Parse day distribution
-    Map<String, double> dayDistribution = {};
-    if (json['dayDistribution'] != null) {
-      final dayDist = json['dayDistribution'] as Map<String, dynamic>;
-      dayDist.forEach((key, value) {
-        dayDistribution[key] = (value is num) ? value.toDouble() : 0.0;
-      });
-    } else if (json['day_distribution'] != null) {
-      final dayDist = json['day_distribution'] as Map<String, dynamic>;
-      dayDist.forEach((key, value) {
-        dayDistribution[key] = (value is num) ? value.toDouble() : 0.0;
-      });
-    } else {
-      // Default day distribution if not provided
-      dayDistribution = {
-        'monday': 0.14,
-        'tuesday': 0.14,
-        'wednesday': 0.14,
-        'thursday': 0.14,
-        'friday': 0.14,
-        'saturday': 0.15,
-        'sunday': 0.15,
-      };
+
+    // Helper to safely parse distribution maps
+    Map<String, double> _parseDistribution(dynamic map) {
+      if (map is Map) {
+        return map.map((key, value) => MapEntry(key.toString(), _parseDouble(value)));
+      }
+      return {};
     }
-    
+
+    // Helper to safely parse recommendations list
+    List<Map<String, dynamic>> _parseRecommendations(dynamic list) {
+      if (list is List) {
+        return List<Map<String, dynamic>>.from(list.whereType<Map<String, dynamic>>());
+      }
+      return [];
+    }
+
     return UserHotspot(
-      id: json['id'] ?? '',
-      latitude: (json['latitude'] is num) ? json['latitude'].toDouble() : 0.0,
-      longitude: (json['longitude'] is num) ? json['longitude'].toDouble() : 0.0,
-      zoneName: json['zoneName'] ?? json['zone_name'] ?? 'Zone sans nom',
-      intensity: (json['intensity'] is num) ? json['intensity'].toDouble() : 0.0,
-      visitorCount: (json['visitorCount'] is num) ? json['visitorCount'] : 
-                   (json['visitor_count'] is num) ? json['visitor_count'] : 0,
+      id: json['id'] as String? ?? 'unknown_id',
+      latitude: _parseDouble(json['latitude']),
+      longitude: _parseDouble(json['longitude']),
+      zoneName: json['zoneName'] as String? ?? 'Zone Inconnue',
+      intensity: _parseDouble(json['intensity'], 0.5), // Default intensity if missing
+      visitorCount: json['visitorCount'] as int? ?? 0,
       weight: (json['weight'] is num) ? json['weight'].toDouble() : null,
       address: json['address'],
-      timeDistribution: timeDistribution,
-      dayDistribution: dayDistribution,
+      timeDistribution: _parseDistribution(json['timeDistribution']),
+      dayDistribution: _parseDistribution(json['dayDistribution']),
+      recommendations: _parseRecommendations(json['recommendations']), // <-- Parse recommendations
     );
   }
   
@@ -131,6 +112,7 @@ class UserHotspot {
       'address': address,
       'timeDistribution': timeDistribution,
       'dayDistribution': dayDistribution,
+      'recommendations': recommendations,
     };
   }
 }

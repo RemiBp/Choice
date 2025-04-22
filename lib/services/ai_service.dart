@@ -324,26 +324,24 @@ class AIService {
     String producerId, {
     Duration timeout = const Duration(seconds: 25),
   }) async {
+    _log('Récupération des insights pour le producteur: $producerId');
     try {
-      // Détecter le type de producteur
-      final type = await detectProducerType(producerId);
-      
-      // Déterminer l'endpoint d'insights approprié
-      final endpoint = _getInsightsEndpointForType(type);
-      
-      final url = Uri.parse('${getBaseUrl()}$endpoint');
-      
-      final response = await http.post(
+      // Utiliser l'endpoint GET générique pour les insights producteur
+      final endpoint = '/api/ai/insights/producer/$producerId'; 
+      final url = await _formatUrl(endpoint); // Utiliser _formatUrl pour construire l'URL
+       _log('Appel GET pour les insights: $url');
+
+      // Changer la méthode de POST à GET
+      final response = await http.get(
         url,
         headers: {'Content-Type': 'application/json'},
-        body: json.encode({
-          'producerId': producerId,
-          'producerType': type,
-        }),
+        // Plus besoin de body pour un GET
       ).timeout(timeout);
-      
+
+      _log('Statut de réponse pour insights: ${response.statusCode}');
+
       if (response.statusCode == 200) {
-        final data = json.decode(response.body);
+        final data = jsonDecode(response.body);
         List<ProfileData> extractedProfiles = [];
         
         if (data['profiles'] != null && data['profiles'] is List) {
@@ -556,7 +554,10 @@ class AIService {
   
   /// Retourne l'endpoint d'API AI approprié en fonction du type
   String _getEndpointForType(String type) {
-    switch (type) {
+    // Utiliser TOUJOURS l'endpoint générique
+    // Le type est passé dans le corps de la requête par producerQuery
+    return '/api/ai/producer-query'; 
+    /* switch (type) {
       case 'leisureProducer':
         return '/api/ai/leisure-query';
       case 'wellnessProducer':
@@ -565,8 +566,8 @@ class AIService {
         return '/api/ai/beauty-query';
       case 'restaurant':
       default:
-        return '/api/ai/user/producer-query';
-    }
+        return '/api/ai/producer-query'; // Route générique correcte
+    }*/
   }
   
   /// Retourne l'endpoint d'insights en fonction du type

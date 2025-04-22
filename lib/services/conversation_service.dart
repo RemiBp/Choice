@@ -659,36 +659,19 @@ class ConversationService {
     }
   }
 
-  // Obtenir les conversations d'un producteur
+  // Récupérer les conversations d'un producteur
   Future<List<Map<String, dynamic>>> getProducerConversations(
     String producerId,
     String producerType,
   ) async {
     try {
-      final baseUrl = getBaseUrl();
-      
-      // Essayer d'abord l'endpoint spécifique aux conversations de producteurs
-      final response = await http.get(
-        Uri.parse('$baseUrl/api/producers/$producerId/conversations?producerType=$producerType'),
-      );
-
-      if (response.statusCode == 200) {
-        final List<dynamic> data = json.decode(response.body);
-        return data.cast<Map<String, dynamic>>();
-      }
-
-      // Si cela échoue, essayer l'endpoint de fallback
-      final fallbackResponse = await http.get(
-        Uri.parse('$baseUrl/api/users/$producerId/producer-conversations?type=$producerType'),
-      );
-
-      if (fallbackResponse.statusCode == 200) {
-        final List<dynamic> data = json.decode(fallbackResponse.body);
-        return data.cast<Map<String, dynamic>>();
-      }
-
-      throw Exception('Impossible de récupérer les conversations');
+      // Utiliser la même méthode que getConversations pour récupérer les conversations
+      // en passant l'ID du producteur comme userId.
+      // Le backend devrait être capable de gérer les IDs de producteurs.
+      print('🔍 Récupération conversations pour producteur (via getConversations): producerId=$producerId');
+      return await getConversations(producerId);
     } catch (e) {
+      print('❌ Exception récupération conversations producteur: $e');
       throw Exception('Erreur lors de la récupération des conversations: $e');
     }
   }
@@ -1640,48 +1623,42 @@ class ConversationService {
       final token = prefs.getString('token') ?? '';
       final baseUrl = getBaseUrl();
       
-      print('🔍 Création de conversation avec producteur: userId=$userId, producerId=$producerId, type=$producerType');
+      // Utiliser des noms de paramètres clairs pour l'API
+      // 'initiatorId' est celui qui lance la conversation (peut être user ou producer)
+      // 'targetId' est celui qui est contacté (peut être user ou producer)
+      // Le backend devrait pouvoir déterminer les types à partir des IDs ou via des paramètres supplémentaires
+      print('🔍 Tentative de création/récupération conversation: initiatorId=$userId, targetId=$producerId, initiatorType=$producerType');
       
       final response = await http.post(
-        Uri.parse('$baseUrl/api/conversations/create-producer-conversation'),
+        // Utiliser l'endpoint standard create-or-get-conversation
+        Uri.parse('$baseUrl/api/conversations/create-or-get-conversation'), 
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
         },
         body: json.encode({
-          'userId': userId, 
-          'producerId': producerId,
-          'producerType': producerType,
+          'initiatorId': userId, 
+          'targetId': producerId,
+          'initiatorType': producerType, // Fournir le type de l'initiateur si nécessaire au backend
+          // Le backend devrait déterminer le type de targetId ou on pourrait l'ajouter ici si connu
         }),
       );
-
-      print('📤 Réponse création conversation: ${response.statusCode}, body: ${response.body}');
       
+      print('📤 Réponse create-or-get: ${response.statusCode}, body: ${response.body}');
+
       if (response.statusCode == 200 || response.statusCode == 201) {
         final result = json.decode(response.body);
-        print('✅ Conversation créée ou récupérée avec succès: $result');
+        print('✅ Conversation créée/récupérée: ${result['conversation']?['_id'] ?? result['conversationId'] ?? 'ID non trouvé'}');
         
-        // Vérifier si la requête a été traitée dans le sens inverse (producteur → utilisateur)
-        final bool isReversed = result['isReversed'] == true;
-        
-        // Adapter la réponse pour assurer la cohérence
-        return {
-          'conversationId': result['conversationId'] ?? result['_id'] ?? result['conversation_id'],
-          'conversation_id': result['conversationId'] ?? result['_id'] ?? result['conversation_id'],
-          '_id': result['conversationId'] ?? result['_id'] ?? result['conversation_id'],
-          'participants': result['conversation'] != null ? result['conversation']['participants'] ?? [] : [],
-          'isProducerConversation': true,
-          'producerId': isReversed ? userId : producerId,
-          'producerType': producerType,
-          'isReversed': isReversed,
-        };
+        // Retourner la conversation trouvée ou créée
+        return result['conversation'] ?? result ?? {};
       } else {
-        print('❌ Erreur création conversation producteur: ${response.statusCode}, body: ${response.body}');
-        throw Exception('Échec de la création de la conversation: ${response.statusCode}');
+        print('❌ Erreur create-or-get: ${response.statusCode}, body: ${response.body}');
+        throw Exception('Échec create-or-get conversation: ${response.body}');
       }
     } catch (e) {
-      print('❌ Exception création conversation producteur: $e');
-      throw Exception('Erreur lors de la création de la conversation: $e');
+      print('❌ Exception create-or-get: $e');
+      throw Exception('Erreur lors de create-or-get: $e');
     }
   }
 

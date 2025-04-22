@@ -147,7 +147,7 @@ packages:
     source: git
     version: "4.13.1"
   collection:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: collection
       sha256: a1ace0a119f20aabc852d165077c036cd864315bd99b7eaa10a60100341941bf
@@ -450,10 +450,10 @@ packages:
     dependency: "direct main"
     description:
       name: flutter_launcher_icons
-      sha256: "526faf84284b86a4cb36d20a5e45147747b7563d921373d4ee0559c54fcdbcea"
+      sha256: bfa04787c85d80ecb3f8777bde5fc10c3de809240c48fa061a2c2bf15ea5211c
       url: "https://pub.dev"
     source: hosted
-    version: "0.13.1"
+    version: "0.14.3"
   flutter_link_previewer:
     dependency: transitive
     description:
@@ -496,7 +496,7 @@ packages:
     source: hosted
     version: "7.2.0"
   flutter_localizations:
-    dependency: transitive
+    dependency: "direct dev"
     description: flutter
     source: sdk
     version: "0.0.0"
@@ -1152,6 +1152,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.0.0"
+  mobile_scanner:
+    dependency: "direct main"
+    description:
+      name: mobile_scanner
+      sha256: d234581c090526676fd8fab4ada92f35c6746e3fb4f05a399665d75a399fb760
+      url: "https://pub.dev"
+    source: hosted
+    version: "5.2.3"
   nested:
     dependency: transitive
     description:
@@ -1360,6 +1368,22 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "6.1.4"
+  qr:
+    dependency: transitive
+    description:
+      name: qr
+      sha256: "5a1d2586170e172b8a8c8470bbbffd5eb0cd38a66c0d77155ea138d3af3a4445"
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.0.2"
+  qr_flutter:
+    dependency: "direct main"
+    description:
+      name: qr_flutter
+      sha256: "5095f0fc6e3f71d08adef8feccc8cea4f12eec18a2e31c2e8d82cb6019f4b097"
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.1.0"
   riverpod:
     dependency: transitive
     description:

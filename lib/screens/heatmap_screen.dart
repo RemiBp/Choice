@@ -19,6 +19,8 @@ import '../services/auth_service.dart'; // <<< ADDED AuthService import
 import 'package:timeago/timeago.dart' as timeago;
 import 'package:collection/collection.dart'; // Added for DeepCollectionEquality
 import '../models/user_model.dart'; // <<< ADDED User model import
+import 'package:mobile_scanner/mobile_scanner.dart'; // <-- Import scanner
+import './offer_scanner_screen.dart'; // <-- Import the new screen (to be created)
 
 
 void initializeTimeago() {
@@ -58,13 +60,44 @@ class Place with cluster_manager.ClusterItem {
 
 // NearbySearchEvent - Keep if nearby searches feature will be implemented later
 class NearbySearchEvent {
-  final String id = UniqueKey().toString();
+  final String searchId; // ID of the UserActivity event
   final String userId;
   final String query;
-  final LatLng location;
   final DateTime timestamp;
+  final String userName;
+  final String? userProfilePicture;
+  // Add location if you need to display it or use it
+  // final LatLng location;
 
-  NearbySearchEvent({required this.userId, required this.query, required this.location, required this.timestamp});
+  NearbySearchEvent({
+    required this.searchId,
+    required this.userId,
+    required this.query,
+    required this.timestamp,
+    required this.userName,
+    this.userProfilePicture,
+    // required this.location,
+  });
+
+  factory NearbySearchEvent.fromJson(Map<String, dynamic> json) {
+    // Basic location parsing (optional, adjust if needed)
+    // LatLng loc = const LatLng(0,0);
+    // if (json['location']?['coordinates'] is List && json['location']['coordinates'].length == 2) {
+    //   try {
+    //      loc = LatLng(json['location']['coordinates'][1].toDouble(), json['location']['coordinates'][0].toDouble());
+    //   } catch (_){}
+    // }
+
+    return NearbySearchEvent(
+      searchId: json['searchId'] as String? ?? 'unknown_search_${Random().nextInt(1000)}',
+      userId: json['userId'] as String? ?? 'unknown_user',
+      query: json['query'] as String? ?? '',
+      timestamp: DateTime.tryParse(json['timestamp'] as String? ?? '') ?? DateTime.now(),
+      userName: json['userName'] as String? ?? 'Utilisateur Inconnu',
+      userProfilePicture: json['userProfilePicture'] as String?,
+      // location: loc,
+    );
+  }
 }
 
 // Public User Profile Model
@@ -170,18 +203,32 @@ class ActiveUser {
 }
 
 class HeatmapScreen extends StatefulWidget {
-  final String userId; // This should be the producer's ID
-  final String? producerName;
-
-  const HeatmapScreen({Key? key, required this.userId, this.producerName}) : super(key: key);
+  final String userId;
+  
+  const HeatmapScreen({super.key, required this.userId});
 
   @override
   _HeatmapScreenState createState() => _HeatmapScreenState();
 }
 
-class _HeatmapScreenState extends State<HeatmapScreen> {
+class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateMixin {
+  // Authentication service
+  final AuthService _authService = AuthService();
+
+  // Controllers
   GoogleMapController? _mapController;
-  bool _isLoading = true; // Loading initial hotspots/location/insights
+  final TextEditingController _searchController = TextEditingController();
+  final TextEditingController _customDiscountController = TextEditingController(text: '15');
+  final TextEditingController _customDurationController = TextEditingController(text: '1');
+  
+  // Offer controllers
+  final TextEditingController _offerTitleController = TextEditingController();
+  final TextEditingController _offerBodyController = TextEditingController();
+  final TextEditingController _offerDiscountController = TextEditingController(text: '10');
+  final TextEditingController _offerValidityController = TextEditingController(text: '30');
+  
+  // State variables for data
+  bool _isLoading = true;
   bool _showLegend = false;
   String _selectedTimeFilter = 'Tous';
   String _selectedDayFilter = 'Tous';
@@ -199,17 +246,17 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
   List<Place> _places = []; // Combined list of Zones and ActiveUsers for ClusterManager
   
   // Nearby Search - Keep structures for future implementation
-  final List<NearbySearchEvent> _nearbySearchEvents = [];
-  final Duration _searchEventTimeout = const Duration(minutes: 5);
+  List<NearbySearchEvent> _nearbySearches = [];
+  Timer? _nearbySearchPollTimer;
+  final Duration _nearbySearchPollInterval = const Duration(minutes: 1); // Poll every minute?
+  bool _isFetchingSearches = false;
   
   // Active Users State
   List<ActiveUser> _activeUsers = []; // List of active users from polling
   Timer? _activeUserPollTimer;
   final Duration _activeUserPollInterval = const Duration(seconds: 30); // Poll interval (reduced?)
   bool _isFetchingActiveUsers = false; // Loading state for active users polling
-
-  // <<< ADDED AuthService instance >>>
-  final AuthService _authService = AuthService();
+  bool _isValidatingOffer = false; // <-- Add state for validation loading
   
   final CameraPosition _initialCameraPosition = const CameraPosition(
     target: LatLng(48.8566, 2.3522), // Default to Paris center
@@ -225,15 +272,16 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
   // Push Notification Dialog Controllers
   final _customPushTitleController = TextEditingController();
   final _customPushBodyController = TextEditingController();
-  final _customDiscountController = TextEditingController(text: '30'); // Default discount
-  final _customDurationController = TextEditingController(text: '1'); // Default duration in hours
-
+  
   // User Profile State
   PublicUserProfile? _fetchedUserProfile; // Profile fetched when clicking user marker
   bool _isFetchingProfile = false; // Loading state for user profile fetch
 
    // Cache for generated marker bitmaps
   final Map<String, BitmapDescriptor> _markerBitmapCache = {};
+
+  // State for offer sending dialog
+  bool _isSendingOffer = false;
 
   
   @override
@@ -243,6 +291,7 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
     _clusterManager = _initClusterManager();
     _loadData(); // Loads hotspots, producer location AND insights
     _startActiveUserPolling(); // Start polling for active users
+    _startNearbySearchPolling(); // <-- Start polling for searches
     // _initSocket(); // SocketIO not implemented yet
     // Timer.periodic(_searchEventTimeout, (_) => _cleanupSearchEvents()); // Cleanup for future nearby searches
   }
@@ -250,12 +299,17 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
   @override
   void dispose() {
     _activeUserPollTimer?.cancel();
+    _nearbySearchPollTimer?.cancel(); // <-- Cancel search timer
     _customPushTitleController.dispose();
     _customPushBodyController.dispose();
     _customDiscountController.dispose();
     _customDurationController.dispose();
     _mapController?.dispose();
     _markerBitmapCache.clear();
+    _offerTitleController.dispose();
+    _offerBodyController.dispose();
+    _offerDiscountController.dispose();
+    _offerValidityController.dispose();
     super.dispose();
   }
   
@@ -493,8 +547,8 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
      print(" Showing details for Zone: ${selectedHotspot.zoneName}");
     showModalBottomSheet(
       context: context,
-      isScrollControlled: true, // Allows sheet to take more height
-      backgroundColor: Colors.transparent, // Make background transparent for rounded corners
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (context) => DraggableScrollableSheet(
         initialChildSize: 0.6, // Start at 60% height
         minChildSize: 0.3,   // Min height 30%
@@ -565,9 +619,59 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
                       ),
                       const SizedBox(height: 24),
                       
-                       // Action Recommendations Section
-                      _buildActionRecommendations(selectedHotspot),
-                      const SizedBox(height: 24),
+                       // --- Action Recommendations Section (Using Backend Data) ---
+                      if (selectedHotspot.recommendations.isNotEmpty)
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Recommandations Basées Données', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 12),
+                            ...selectedHotspot.recommendations.map((rec) {
+                              // Determine color/icon based on type or use defaults
+                              // You might need helper functions similar to _getColorForInsight/_getIconForInsight
+                              // if the backend provides a 'type' field for recommendations.
+                              // For now, using generic styling.
+                              final String title = rec['title'] as String? ?? 'Recommandation';
+                              final String description = rec['description'] as String? ?? '-';
+                              final Color color = Colors.teal; // Example default color
+                              final IconData icon = Icons.lightbulb_outline; // Example default icon
+
+                              return Container(
+                                margin: const EdgeInsets.only(bottom: 12),
+                                padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                                  color: color.withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: color.withOpacity(0.3)),
+                                ),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Icon(icon, color: color, size: 28),
+                                    const SizedBox(width: 16),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                                          const SizedBox(height: 6),
+                                          Text(description, style: const TextStyle(height: 1.4, fontSize: 13)),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }).toList(),
+                          ],
+                        )
+                      else // Show message if no recommendations from backend
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 16.0),
+                          child: Center(child: Text("Aucune recommandation spécifique fournie par le serveur.", style: TextStyle(color: Colors.grey))),
+                        ),
+                      // --- End Action Recommendations Section ---
+                       const SizedBox(height: 24),
 
                        // Action Button: Target this specific zone
                        Center( // Center the button
@@ -745,115 +849,11 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
     );
   }
 
-  Widget _buildActionRecommendations(models.UserHotspot hotspot) {
-    List<Map<String, dynamic>> recommendations = [];
-    final timeDistribution = hotspot.timeDistribution;
-    final dayDistribution = hotspot.dayDistribution;
-    final intensity = hotspot.intensity;
-    
-    final bestTime = _getBestTimeSlot(timeDistribution);
-    if (bestTime.isNotEmpty) {
-      recommendations.add({
-        'title': 'Optimisez vos Horaires',
-        'description': 'La zone est populaire en $bestTime. Adaptez vos promotions ou personnel pendant ces pics.',
-        'icon': Icons.access_time_filled,
-        'color': Colors.orange,
-      });
-    }
+  Widget _buildStatCard({ required IconData icon, required String title, required String value, required String subtitle, required Color color }) { return Container( padding: const EdgeInsets.all(16), decoration: BoxDecoration( color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(12), border: Border.all(color: color.withOpacity(0.2)) ), child: Row( children: [ Container( padding: const EdgeInsets.all(12), decoration: BoxDecoration( color: color.withOpacity(0.2), shape: BoxShape.circle ), child: Icon(icon, color: color, size: 28) ), const SizedBox(width: 16), Expanded( child: Column( crossAxisAlignment: CrossAxisAlignment.start, children: [ Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Colors.black87)), const SizedBox(height: 4), Text(value, style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: color)), const SizedBox(height: 4), Text(subtitle, style: TextStyle(fontSize: 12, color: Colors.grey[700])) ] ) ) ] ) ); }
 
-    final bestDay = _getBestDay(dayDistribution);
-    if (bestDay.isNotEmpty) {
-      recommendations.add({
-        'title': 'Jour de Forte Affluence',
-        'description': 'Le $bestDay semble être clé. Envisagez des offres spéciales ou événements ce jour-là.',
-        'icon': Icons.calendar_month,
-        'color': Colors.green,
-      });
-    }
-    
-    if (intensity > 0.7) {
-      recommendations.add({
-        'title': 'Zone à Fort Potentiel',
-        'description': 'Cette zone montre une forte activité globale. C\'est un bon endroit pour des actions marketing ciblées.',
-        'icon': Icons.trending_up,
-        'color': Colors.purple,
-      });
-    } else if (intensity < 0.2) {
-       recommendations.add({
-        'title': 'Zone Calme',
-        'description': 'L\'activité semble faible ici. Concentrez peut-être vos efforts sur d\'autres zones plus dynamiques.',
-        'icon': Icons.trending_down,
-        'color': Colors.blueGrey,
-      });
-    }
+  Widget _buildStatRow(IconData icon, String text, Color color) { return Padding( padding: const EdgeInsets.only(top: 4.0), child: Row( children: [ Icon(icon, size: 14, color: color), const SizedBox(width: 6), Expanded( child: Text( text, style: const TextStyle(fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis) ) ] ) ); }
 
-    if (recommendations.isEmpty) {
-      return const Padding( // Show a message if no specific recommendations
-         padding: EdgeInsets.symmetric(vertical: 16.0),
-         child: Center(child: Text("Pas de recommandations spécifiques basées sur les données.", style: TextStyle(color: Colors.grey))),
-       );
-    }
-    
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text('Recommandations Basées Données', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 12),
-        ...recommendations.map((rec) {
-          return Container(
-            margin: const EdgeInsets.only(bottom: 12),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: (rec['color'] as Color).withOpacity(0.08),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: (rec['color'] as Color).withOpacity(0.3)),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(rec['icon'] as IconData, color: rec['color'] as Color, size: 28),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(rec['title'] as String, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                      const SizedBox(height: 6),
-                      Text(rec['description'] as String, style: const TextStyle(height: 1.4, fontSize: 13)),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          );
-        }).toList(),
-      ],
-    );
-  }
-  
   // --- Helper Functions ---
-  String _getBestTimeSlot(Map<String, double> timeDistribution) {
-    double maxValue = 0; String bestTime = '';
-    const Map<String, String> timeMap = {'morning':'matinée', 'afternoon':'après-midi', 'evening':'soirée'};
-    timeDistribution.forEach((key, value) {
-      if (value > maxValue && value > 0.1) { // Require at least 10% activity
-        maxValue = value; bestTime = key;
-      }
-    });
-    return timeMap[bestTime] ?? ''; // Return French name or empty
-  }
-  
-  String _getBestDay(Map<String, double> dayDistribution) {
-    double maxValue = 0; String bestDay = '';
-    const Map<String, String> dayMap = {'monday':'Lundi', 'tuesday':'Mardi', 'wednesday':'Mercredi', 'thursday':'Jeudi', 'friday':'Vendredi', 'saturday':'Samedi', 'sunday':'Dimanche'};
-    dayDistribution.forEach((key, value) {
-       if (value > maxValue && value > 0.05) { // Require at least 5% activity
-        maxValue = value; bestDay = key;
-      }
-    });
-    return dayMap[bestDay] ?? ''; // Return French name or empty
-  }
-  
   void _generateZoneStats() {
     _zoneStats = {};
     for (var hotspot in _filteredHotspots) {
@@ -865,6 +865,44 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
       };
     }
     // print("Generated stats for ${_zoneStats.length} filtered zones.");
+  }
+
+  // Add missing _getBestTimeSlot method
+  String _getBestTimeSlot(Map<String, dynamic>? timeDistribution) {
+    if (timeDistribution == null || timeDistribution.isEmpty) {
+      return '-';
+    }
+    
+    String bestSlot = '';
+    double maxValue = 0;
+    
+    timeDistribution.forEach((slot, value) {
+      if (value > maxValue) {
+        maxValue = value.toDouble();
+        bestSlot = slot;
+      }
+    });
+    
+    return bestSlot;
+  }
+  
+  // Add missing _getBestDay method
+  String _getBestDay(Map<String, dynamic>? dayDistribution) {
+    if (dayDistribution == null || dayDistribution.isEmpty) {
+      return '-';
+    }
+    
+    String bestDay = '';
+    double maxValue = 0;
+    
+    dayDistribution.forEach((day, value) {
+      if (value > maxValue) {
+        maxValue = value.toDouble();
+        bestDay = day;
+      }
+    });
+    
+    return bestDay;
   }
 
   Color _getColorForInsight(String? type) {
@@ -1179,13 +1217,19 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.producerName != null ? '${widget.producerName}' : 'Heatmap & Audience', style: const TextStyle(fontSize: 18)),
+        title: const Text('Heatmap & Audience', style: TextStyle(fontSize: 18)),
         elevation: 2, // Add subtle shadow
         actions: [
+          // Scan Offer Button
+          IconButton(
+            icon: const Icon(Icons.qr_code_scanner_outlined),
+            onPressed: _navigateToOfferScanner,
+            tooltip: 'Valider une Offre (QR Code)',
+          ),
           // Refresh Button
-          IconButton( icon: const Icon(Icons.refresh), onPressed: _isLoading || _isFetchingActiveUsers ? null : _loadData, tooltip: 'Rafraîchir Données' ),
+          IconButton( icon: const Icon(Icons.refresh), onPressed: _isLoading || _isFetchingActiveUsers || _isValidatingOffer ? null : _loadData, tooltip: 'Rafraîchir Données' ),
            // Send Generic Push Button
-           IconButton( icon: const Icon(Icons.campaign_outlined), onPressed: _isLoading || _isFetchingActiveUsers ? null : () => _showSendPushDialog(), tooltip: 'Envoyer Offre aux Alentours' ),
+           IconButton( icon: const Icon(Icons.campaign_outlined), onPressed: _isLoading || _isFetchingActiveUsers || _isValidatingOffer ? null : () => _showSendPushDialog(), tooltip: 'Envoyer Offre aux Alentours' ),
           // Toggle Legend Button
           IconButton( icon: Icon(_showLegend ? Icons.visibility_off_outlined : Icons.visibility_outlined), onPressed: () => setState(() => _showLegend = !_showLegend), tooltip: 'Afficher/Masquer Légende' ),
         ],
@@ -1292,6 +1336,105 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
                              _isLoadingInsights || _zoneInsights.isEmpty) ? Center(child: _isLoadingInsights ? const CircularProgressIndicator(strokeWidth: 2) : const Text("Aucun insight disponible.", style: TextStyle(color: Colors.grey))
                              ) : ListView.builder( scrollDirection: Axis.horizontal, itemCount: _zoneInsights.length, itemBuilder: (context, index) { final insight = _zoneInsights[index]; final color = insight['color'] as Color? ?? _getColorForInsight(null); final icon = insight['icon'] as IconData? ?? _getIconForInsight(null); return Container( width: 290, margin: const EdgeInsets.only(right: 12, bottom: 4), padding: const EdgeInsets.all(12), decoration: BoxDecoration( borderRadius: BorderRadius.circular(12), border: Border.all(color: color.withOpacity(0.6)), color: color.withOpacity(0.03) ), child: Column( crossAxisAlignment: CrossAxisAlignment.start, children: [ Row( children: [ Icon(icon, size: 18, color: color), const SizedBox(width: 8), Expanded( child: Text( insight['title'] as String, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: color), maxLines: 1, overflow: TextOverflow.ellipsis ) ) ] ), const Divider(height: 16), Expanded( child: ListView.builder( physics: const NeverScrollableScrollPhysics(), itemCount: (insight['insights'] as List).length, itemBuilder: (context, insightIndex) { final insightText = insight['insights'][insightIndex] as String; return Padding( padding: const EdgeInsets.only(bottom: 6), child: Row( crossAxisAlignment: CrossAxisAlignment.start, children: [ Text('• ', style: TextStyle(fontSize: 12, color: Colors.grey[700])), Expanded( child: Text( insightText, style: const TextStyle(fontSize: 12, height: 1.3), maxLines: 3, overflow: TextOverflow.ellipsis ) ) ] ) ); } ) ) ] ) ); } ) ),
                           const SizedBox(height: 10),
+
+                          // +++ Nearby Searches Section +++
+                          Row( children: const [
+                             Icon(Icons.person_search_outlined, size: 20, color: Colors.blueAccent),
+                             SizedBox(width: 8),
+                             Text('Recherches Utilisateurs Proches', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16))
+                          ] ),
+                          const SizedBox(height: 12),
+                          SizedBox( height: 150, // Adjust height as needed
+                            child: (
+                             _isFetchingSearches && _nearbySearches.isEmpty) // Show loading only when fetching initially
+                              ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
+                              : _nearbySearches.isEmpty
+                                ? const Center(child: Text("Aucune recherche récente à proximité.", style: TextStyle(color: Colors.grey)))
+                          : ListView.builder(
+                              scrollDirection: Axis.horizontal,
+                                  itemCount: _nearbySearches.length,
+                              itemBuilder: (context, index) {
+                                    final search = _nearbySearches[index];
+                                    return Container(
+                                      width: 260, // Adjust width as needed
+                                      margin: const EdgeInsets.only(right: 12, bottom: 4),
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(color: Colors.grey[200]!),
+                                      boxShadow: [
+                                          BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 5, offset: const Offset(0, 2))
+                                        ]
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                              CircleAvatar(
+                                                radius: 18,
+                                                backgroundImage: (search.userProfilePicture != null && search.userProfilePicture!.isNotEmpty)
+                                                  ? CachedNetworkImageProvider(search.userProfilePicture!) as ImageProvider
+                                                  : const AssetImage('assets/images/default_avatar.png'),
+                                                backgroundColor: Colors.grey[200],
+                                              ),
+                                              const SizedBox(width: 8),
+                                              Expanded(
+                                                child: Column(
+                                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                                      search.userName,
+                                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                                      maxLines: 1, overflow: TextOverflow.ellipsis
+                                                    ),
+                                            Text(
+                                                      timeago.format(search.timestamp, locale: 'fr'),
+                                                      style: const TextStyle(fontSize: 11, color: Colors.grey),
+                                            ),
+                                          ],
+                                                )
+                                        ),
+                                      ],
+                                    ),
+                                          const Divider(height: 16),
+                                          Text(
+                                            'Recherche:',
+                                            style: TextStyle(fontSize: 11, color: Colors.grey[700]),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            '"${search.query}"' ?? '-',
+                                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, fontStyle: FontStyle.italic),
+                                            maxLines: 2, overflow: TextOverflow.ellipsis
+                                          ),
+                                          const Spacer(),
+                    SizedBox(
+                                            width: double.infinity,
+                                            child: OutlinedButton.icon(
+                                              icon: const Icon(Icons.local_offer_outlined, size: 16),
+                                              label: const Text('Envoyer Offre', style: TextStyle(fontSize: 12)),
+                                              style: OutlinedButton.styleFrom(
+                                                foregroundColor: Colors.orange[800],
+                                                side: BorderSide(color: Colors.orange[200]!),
+                                                padding: const EdgeInsets.symmetric(vertical: 4),
+                                              ),
+                                              onPressed: () {
+                                                // Show the offer dialog
+                                                _showSendOfferDialog(search);
+                                              },
+                                            ),
+                                          )
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                          // +++ End Nearby Searches Section +++
+
+                          const SizedBox(height: 10), // Add padding at the end
                        ]
                     ) ),
                 ] )
@@ -1316,11 +1459,6 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
 
  // --- Helper Widgets ---
  Widget _buildLegendItem({required Color color, required String label}) { return Padding( padding: const EdgeInsets.only(bottom: 4.0), child: Row( children: [ Container( width: 14, height: 14, decoration: BoxDecoration(color: color.withOpacity(0.7), shape: BoxShape.circle, border: Border.all(color: color, width:1.5))), const SizedBox(width: 8), Text(label, style: const TextStyle(fontSize: 12)) ] ) ); }
-
- Widget _buildStatCard({ required IconData icon, required String title, required String value, required String subtitle, required Color color }) { return Container( padding: const EdgeInsets.all(16), decoration: BoxDecoration( color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(12), border: Border.all(color: color.withOpacity(0.2)) ), child: Row( children: [ Container( padding: const EdgeInsets.all(12), decoration: BoxDecoration( color: color.withOpacity(0.2), shape: BoxShape.circle ), child: Icon(icon, color: color, size: 28) ), const SizedBox(width: 16), Expanded( child: Column( crossAxisAlignment: CrossAxisAlignment.start, children: [ Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Colors.black87)), const SizedBox(height: 4), Text(value, style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: color)), const SizedBox(height: 4), Text(subtitle, style: TextStyle(fontSize: 12, color: Colors.grey[700])) ] ) ) ] ) ); }
-
- Widget _buildStatRow(IconData icon, String text, Color color) { return Padding( padding: const EdgeInsets.only(top: 4.0), child: Row( children: [ Icon(icon, size: 14, color: color), const SizedBox(width: 6), Expanded( child: Text( text, style: const TextStyle(fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis) ) ] ) ); }
- // --- End Helper Widgets ---
 
  // +++ ADDED _showSendPushDialog method +++
   void _showSendPushDialog({String? zoneId}) {
@@ -1425,7 +1563,7 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
          ScaffoldMessenger.of(context).showSnackBar(
            const SnackBar(content: Text('Offre envoyée à la zone avec succès !'), backgroundColor: Colors.green),
          );
-       } else {
+    } else {
          print('Failed to send zone offer: ${response.statusCode} - ${response.body}');
          throw Exception('Échec envoi offre zone: ${response.statusCode}');
        }
@@ -1601,6 +1739,297 @@ class _HeatmapScreenState extends State<HeatmapScreen> {
       );
     }
    // +++ END _showUserProfileSheet method +++
+
+   // +++ ADDED Nearby Searches Polling +++
+   void _startNearbySearchPolling() {
+     print("ℹ️ Starting nearby search polling...");
+     _fetchNearbySearches(); // Fetch immediately
+     _nearbySearchPollTimer?.cancel();
+     _nearbySearchPollTimer = Timer.periodic(_nearbySearchPollInterval, (_) {
+        if (!mounted) { _nearbySearchPollTimer?.cancel(); return; }
+        if (!_isFetchingSearches) { _fetchNearbySearches(); }
+     });
+   }
+
+   Future<void> _fetchNearbySearches() async {
+     if (!mounted || _isFetchingSearches) return;
+     print("📡 Fetching nearby searches...");
+     setState(() { _isFetchingSearches = true; });
+
+     try {
+        final url = Uri.parse('${constants.getBaseUrl()}/api/heatmap/nearby-searches/${widget.userId}');
+        // Optional: add query params for minutes/radius if needed, e.g.:
+        // .replace(queryParameters: {'minutes': '15', 'radius': '1000'});
+        final headers = await ApiConfig.getAuthHeaders();
+        final response = await http.get(url, headers: headers);
+
+        if (!mounted) return;
+
+        if (response.statusCode == 200) {
+          final List<dynamic> data = json.decode(response.body);
+          List<NearbySearchEvent> fetchedSearches = data
+             .map((item) => NearbySearchEvent.fromJson(item))
+             .toList();
+          print("🔎 Parsed ${fetchedSearches.length} nearby searches.");
+
+          // Update state only if data changed (optional optimization)
+          if (!const DeepCollectionEquality().equals(_nearbySearches, fetchedSearches)) {
+             setState(() { _nearbySearches = fetchedSearches; });
+          }
+           } else {
+          print('❌ Error fetching nearby searches: ${response.statusCode} ${response.body}');
+          // Optionally show snackbar on error, but maybe less frequent than active users?
+        }
+     } catch(e) {
+        print('❌ Exception fetching nearby searches: $e');
+     } finally {
+       if (mounted) { setState(() { _isFetchingSearches = false; }); }
+     }
+   }
+   // +++ END Nearby Searches Polling +++
+
+   // +++ ADDED Offer Sending Dialog and Logic +++
+
+  void _showSendOfferDialog(NearbySearchEvent search) {
+    // Pre-fill based on search query if possible
+    _offerTitleController.text = 'Offre Spéciale pour votre recherche !';
+    _offerBodyController.text = 'Profitez de -${_offerDiscountController.text}% sur \"${search.query}\" pendant ${_offerValidityController.text} minutes !';
+
+    final formKey = GlobalKey<FormState>();
+    // Use a StatefulWidget for the dialog content to manage its own loading state
+    showDialog(
+      context: context,
+      barrierDismissible: !_isSendingOffer, // Prevent dismissal while sending
+      builder: (context) {
+        return StatefulBuilder( // Allows updating dialog content (e.g., loading indicator)
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Text('Envoyer Offre à ${search.userName}'),
+              content: Form(
+                key: formKey,
+                child: SingleChildScrollView( // Make content scrollable
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Basé sur la recherche : "${search.query}"' , style: const TextStyle(fontSize: 13, fontStyle: FontStyle.italic, color: Colors.grey)),
+                      const SizedBox(height: 15),
+                      TextFormField(
+                        controller: _offerTitleController,
+                        decoration: const InputDecoration(labelText: 'Titre de l\'offre', border: OutlineInputBorder()),
+                        validator: (value) => value == null || value.isEmpty ? 'Titre requis' : null,
+                      ),
+                      const SizedBox(height: 10),
+                      TextFormField(
+                        controller: _offerBodyController,
+                        decoration: const InputDecoration(labelText: 'Détails de l\'offre', border: OutlineInputBorder()),
+                        maxLines: 3,
+                        validator: (value) => value == null || value.isEmpty ? 'Détails requis' : null,
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: _offerDiscountController,
+                              decoration: const InputDecoration(labelText: 'Remise (%)', border: OutlineInputBorder()),
+                              keyboardType: TextInputType.number,
+                              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                              validator: (value) {
+                                if (value == null || value.isEmpty) return 'Requis';
+                                final percent = int.tryParse(value);
+                                if (percent == null || percent <= 0 || percent > 100) return 'Invalide (1-100)';
+                                return null;
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: TextFormField(
+                              controller: _offerValidityController,
+                              decoration: const InputDecoration(labelText: 'Validité (min)', border: OutlineInputBorder()),
+                              keyboardType: TextInputType.number,
+                              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                              validator: (value) {
+                                if (value == null || value.isEmpty) return 'Requis';
+                                final mins = int.tryParse(value);
+                                if (mins == null || mins <= 0) return 'Invalide (>0)';
+                                return null;
+                              },
+                            ),
+                          ),
+                        ],
+                      )
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: _isSendingOffer ? null : () => Navigator.of(context).pop(),
+                  child: const Text('Annuler'),
+                ),
+                ElevatedButton.icon(
+                  icon: _isSendingOffer
+                      ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Icon(Icons.send_outlined, size: 18),
+                  label: Text(_isSendingOffer ? 'Envoi...' : 'Envoyer'),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.orange[800]),
+                  onPressed: _isSendingOffer ? null : () {
+                    if (formKey.currentState!.validate()) {
+                      // Use setDialogState to update the dialog's loading state
+                      setDialogState(() => _isSendingOffer = true);
+                      _sendTargetedOffer(
+                        targetUserId: search.userId,
+                        title: _offerTitleController.text,
+                        body: _offerBodyController.text,
+                        discountPercentage: int.parse(_offerDiscountController.text),
+                        validityDurationMinutes: int.parse(_offerValidityController.text),
+                        originalSearchQuery: search.query,
+                        triggeringSearchId: search.searchId,
+                      ).then((success) {
+                          // Update state regardless of success/failure
+                          setDialogState(() => _isSendingOffer = false);
+                          if (success) {
+                            Navigator.of(context).pop(); // Close dialog on success
+                          }
+                          // Error snackbar is shown within _sendTargetedOffer
+                      });
+                    }
+                  },
+                ),
+              ],
+            );
+          }
+        );
+      },
+    );
+  }
+
+  Future<bool> _sendTargetedOffer({
+    required String targetUserId,
+    required String title,
+    required String body,
+    required int discountPercentage,
+    required int validityDurationMinutes,
+    String? originalSearchQuery,
+    String? triggeringSearchId,
+  }) async {
+    print(' SEnding targeted offer to $targetUserId...');
+    final url = Uri.parse('${constants.getBaseUrl()}/api/offers/send');
+    bool success = false;
+
+    try {
+      final headers = await ApiConfig.getAuthHeaders();
+      final requestBody = json.encode({
+        'targetUserId': targetUserId,
+        'title': title,
+        'body': body,
+        'discountPercentage': discountPercentage,
+        'validityDurationMinutes': validityDurationMinutes,
+        'originalSearchQuery': originalSearchQuery,
+        'triggeringSearchId': triggeringSearchId,
+      });
+
+      final response = await http.post(url, headers: {...headers, 'Content-Type': 'application/json'}, body: requestBody);
+
+      if (!mounted) return false;
+
+      if (response.statusCode == 201) {
+        print(' Offer sent successfully');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Offre envoyée avec succès !'), backgroundColor: Colors.green),
+        );
+        success = true;
+      } else {
+        print(' Offer send failed: ${response.statusCode} - ${response.body}');
+        final errorData = json.decode(response.body);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Échec envoi offre: ${errorData['message'] ?? 'Erreur inconnue'}'), backgroundColor: Colors.red),
+        );
+      }
+    } catch (e) {
+      print(' Exception sending offer: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur réseau lors de l\'envoi de l\'offre: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      // Loading state is handled by the dialog's StatefulBuilder
+    }
+    return success;
+  }
+
+  // +++ END Offer Sending Dialog and Logic +++
+
+  // +++ ADDED Navigation and Validation Logic +++
+
+  Future<void> _navigateToOfferScanner() async {
+    // Navigate to the scanner screen and wait for a result (the scanned code)
+    final String? scannedCode = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(builder: (context) => const OfferScannerScreen()),
+    );
+
+    if (scannedCode != null && scannedCode.isNotEmpty && mounted) {
+      print(' Scanned Offer Code: $scannedCode');
+      _validateScannedOffer(scannedCode);
+    }
+  }
+
+  Future<void> _validateScannedOffer(String offerCode) async {
+    if (!mounted || _isValidatingOffer) return;
+    print(' Validating offer code: $offerCode...');
+    setState(() { _isValidatingOffer = true; });
+
+    final url = Uri.parse('${constants.getBaseUrl()}/api/offers/validate');
+
+    try {
+      final headers = await ApiConfig.getAuthHeaders();
+      final requestBody = json.encode({
+        'offerCode': offerCode,
+      });
+
+      final response = await http.post(url, headers: {...headers, 'Content-Type': 'application/json'}, body: requestBody);
+
+      if (!mounted) return;
+
+      final responseData = json.decode(response.body);
+
+      if (response.statusCode == 200) {
+        print(' Offer validated successfully: ${responseData['offer']?['_id']}');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Offre \"${responseData['offer']?['title'] ?? offerCode}\" validée avec succès!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        // Optional: Update local state or refetch data if needed
+      } else {
+        print(' Offer validation failed: ${response.statusCode} - ${response.body}');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Échec validation: ${responseData['message'] ?? 'Erreur inconnue'}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      print(' Exception validating offer: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur réseau validation: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() { _isValidatingOffer = false; });
+      }
+    }
+  }
+
+  // +++ END Navigation and Validation Logic +++
 
 } // End of _HeatmapScreenState
 

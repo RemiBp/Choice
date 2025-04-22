@@ -54,6 +54,7 @@ import 'profile_screen.dart';
 import 'wellness_producer_profile_screen.dart';
 import 'share_options_bottom_sheet.dart';
 import '../utils.dart' show getImageProvider;
+import 'my_offers_screen.dart';
 
 class FeedScreen extends StatefulWidget {
   final String userId;
@@ -356,6 +357,17 @@ class _FeedScreenState extends State<FeedScreen> with SingleTickerProviderStateM
                     onPressed: () {
                       // Implement notifications view
                     },
+                  ),
+                  // Add the new "My Offers" button here
+                  IconButton(
+                    icon: const Icon(Icons.confirmation_number_outlined, color: Colors.deepPurple),
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => MyOffersScreen()),
+                      );
+                    },
+                    tooltip: 'Mes offres',
                   ),
                 ],
                 bottom: TabBar(

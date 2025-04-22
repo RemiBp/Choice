@@ -790,6 +790,7 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
             _choiceCount = _getSafeCount(_producerData!, 'choiceUsers');
             // Prioritize count field, then array length, then default to 0
             _eventsCount = _getSafeCount(_producerData!, 'nombre_evenements', listKey: 'evenements');
+            print("📊 Stats Updated: Events Count = $_eventsCount (from producer data)");
           } else {
              // Set counts to 0 if _producerData is null
              _followersCount = 0;
@@ -908,7 +909,7 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
       // If only the list exists, add the count field
       data['nombre_evenements'] = (data['evenements'] as List).length;
     } else if (!data.containsKey('evenements') && data.containsKey('nombre_evenements')) {
-      // If only the count exists, initialize an empty list (less common)
+      // If only the count exists, initialize an empty list (less common, but safe)
       data['evenements'] = [];
     }
     
@@ -919,10 +920,14 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
   }
 
   Future<List<dynamic>> _fetchProducerEvents(String userId) async {
-    // First, check if events are already in _producerData
+    // First, check if events are already in the main _producerData
+    // This uses the data normalized in _fetchProducerData
     if (_producerData != null && _producerData!['evenements'] is List && (_producerData!['evenements'] as List).isNotEmpty) {
-        print('ℹ️ Using events already fetched within producer data.');
-        return List<dynamic>.from(_producerData!['evenements']);
+        print('ℹ️ Using events already present within producer data.');
+        // Ensure the list contains Maps, filter out non-Map elements if necessary
+        return List<Map<String, dynamic>>.from(
+            (_producerData!['evenements'] as List).whereType<Map<String, dynamic>>()
+        );
     }
 
     print('🔍 Producer data did not contain events, attempting separate fetch for events for producer ID: $userId');
@@ -1302,16 +1307,14 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
   }
 
   // Helper method for menu items
-  Widget _buildMenuOption(IconData icon, String text) {
-    return Row(
-      children: [
-        Icon(icon, size: 22, color: Colors.deepPurple),
-        const SizedBox(width: 12),
-        Text(
-          text,
-          style: const TextStyle(fontSize: 16),
-        ),
-      ],
+  Widget _buildMenuOption({required IconData icon, required String text, required VoidCallback onTap, Color? color}) {
+    return ListTile(
+      leading: Icon(icon, size: 22, color: color ?? Colors.deepPurple),
+      title: Text(
+        text,
+        style: TextStyle(fontSize: 16, color: color),
+      ),
+      onTap: onTap,
     );
   }
 
@@ -2918,6 +2921,8 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
         final parsedNum = int.tryParse(numValue);
         if (parsedNum != null) return parsedNum;
       }
+      // If numberKey exists but is invalid, fall through to other checks
+       print("⚠️ Invalid value for numberKey '$numberKey': $numValue");
     }
     // 2. Check the primary key structure (Map with 'count')
     if (data.containsKey(primaryKey) && data[primaryKey] is Map && data[primaryKey]['count'] is int) {
@@ -2927,7 +2932,7 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
     if (data.containsKey(primaryKey) && data[primaryKey] is List) {
       return (data[primaryKey] as List).length;
     }
-    // 4. Check the listKey structure (List)
+    // 4. Check the listKey structure (List) - Useful fallback like 'evenements' list
     if (listKey != null && data.containsKey(listKey) && data[listKey] is List) {
       return (data[listKey] as List).length;
     }
@@ -3109,6 +3114,7 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
   // Method to show the main menu (adapted from MyProfileScreen)
   void _showMainMenu(BuildContext context) {
     if (!mounted) return;
+    // Use provider_pkg.Provider for AuthService
     final authService = provider_pkg.Provider.of<AuthService>(context, listen: false);
     showModalBottomSheet(
       context: context,
@@ -3130,14 +3136,20 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
               // Add other relevant menu options here if needed
               // e.g., _buildMenuOption(icon: Icons.settings, text: 'Paramètres', onTap: () { ... }),
               const Divider(height: 1),
-              _buildMenuOption(icon: Icons.logout, text: 'Déconnexion', color: Colors.red, onTap: () async {
-                 Navigator.pop(modalContext); // Close modal
-                 await authService.logout();
-                 if (mounted) {
-                   // Navigate to login or home screen after logout
-                   Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+              // Ensure all required named arguments are passed correctly
+              _buildMenuOption(
+                icon: Icons.logout, 
+                text: 'Déconnexion', 
+                color: Colors.red, 
+                onTap: () async {
+                   Navigator.pop(modalContext); // Close modal
+                   await authService.logout();
+                   if (mounted) {
+                     // Navigate to login or home screen after logout
+                     Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+                   }
                  }
-               }),
+              ),
               const SizedBox(height: 10),
             ],
           ),
@@ -3149,18 +3161,16 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
   // Helper to get producer image URL robustly
   String? getProducerImageUrl(Map<String, dynamic>? producerData) {
     if (producerData == null) return null;
-    // Check common keys in order of preference
     final potentialKeys = ['photo', 'photo_url', 'image', 'logoUrl', 'imageUrl'];
     for (final key in potentialKeys) {
       final value = producerData[key];
       if (value is String && value.isNotEmpty) {
-        // Basic validation: check if it looks like a URL or base64
         if (value.startsWith('http') || value.startsWith('data:image')) {
           return value;
         }
       }
     }
-    return null; // Return null if no valid URL found
+    return null;
   }
 }
 
