@@ -30,9 +30,6 @@ flutter_ios_podfile_setup
 # Add custom plugin paths - these should match where your plugin source code is located
 plugin_pods_path = '../../plugin'
 
-# Ensure plugin dev_dependencies are available
-flutter_additional_ios_build_settings(target)
-
 # Add custom plugin search paths
 pre_install do |installer|
   # Add custom plugin folders

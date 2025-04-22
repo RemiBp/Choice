@@ -924,9 +924,27 @@ EOL
 
   ios-workflow:
     name: iOS Workflow
-    # ... existing code ...
+    instance_type: mac_mini_m1
+    max_build_duration: 180
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: latest
+      ios_signing:
+        distribution_type: ad-hoc
+        bundle_identifier: fr.choiceapp.app
     scripts:
-      # ... existing code ...
+      - name: Clone des plugins personnalisés
+        script: |
+          echo "Clonage des plugins personnalisés..."
+          if [ ! -d "plugin" ]; then
+            mkdir -p plugin
+            git clone --depth 1 --branch main https://github.com/RemiBp/flutter_app_badger_fork.git plugin
+            echo "✅ Plugins personnalisés clonés avec succès"
+          else
+            echo "✅ Répertoire plugin existe déjà"
+          fi
+
       - name: Setup iOS Plugin Dependencies
         script: |
           echo "Setting up iOS plugin dependencies..."
@@ -939,14 +957,20 @@ EOL
             # cloud_firestore
             cat > cloud_firestore_custom/cloud_firestore.podspec << EOL
 require 'yaml'
-pubspec = YAML.load_file(File.join('..', 'pubspec.yaml'))
+podspec_path = File.join(__dir__, 'pubspec.yaml')
+if File.exist?(podspec_path)
+  pubspec = YAML.load_file(podspec_path)
+else
+  pubspec = { 'version' => '0.0.1' }
+end
+
 Pod::Spec.new do |s|
   s.name             = 'cloud_firestore'
   s.version          = '0.0.1'
   s.summary          = 'Flutter Cloud Firestore'
   s.description      = 'Flutter plugin for Cloud Firestore, a cloud-hosted, noSQL database with live synchronization and offline support on Android and iOS.'
   s.homepage         = 'https://github.com/firebase/flutterfire/tree/master/packages/cloud_firestore'
-  s.license          = { :file => '../LICENSE' }
+  s.license          = { :type => 'BSD', :file => '../LICENSE' }
   s.author           = { 'Flutter Team' => 'flutter-dev@googlegroups.com' }
   s.source           = { :path => '.' }
   s.source_files = 'ios/**/*.{h,m}'
@@ -963,14 +987,20 @@ EOL
             # firebase_core
             cat > firebase_core_custom/firebase_core.podspec << EOL
 require 'yaml'
-pubspec = YAML.load_file(File.join('..', 'pubspec.yaml'))
+podspec_path = File.join(__dir__, 'pubspec.yaml')
+if File.exist?(podspec_path)
+  pubspec = YAML.load_file(podspec_path)
+else
+  pubspec = { 'version' => '0.0.1' }
+end
+
 Pod::Spec.new do |s|
   s.name             = 'firebase_core'
   s.version          = '0.0.1'
   s.summary          = 'Flutter Firebase Core'
   s.description      = 'Flutter plugin for Firebase Core, enabling connecting to multiple Firebase apps.'
   s.homepage         = 'https://github.com/firebase/flutterfire/tree/master/packages/firebase_core'
-  s.license          = { :file => '../LICENSE' }
+  s.license          = { :type => 'BSD', :file => '../LICENSE' }
   s.author           = { 'Flutter Team' => 'flutter-dev@googlegroups.com' }
   s.source           = { :path => '.' }
   s.source_files = 'ios/**/*.{h,m}'
@@ -986,14 +1016,20 @@ EOL
             # firebase_messaging
             cat > firebase_messaging_custom/firebase_messaging.podspec << EOL
 require 'yaml'
-pubspec = YAML.load_file(File.join('..', 'pubspec.yaml'))
+podspec_path = File.join(__dir__, 'pubspec.yaml')
+if File.exist?(podspec_path)
+  pubspec = YAML.load_file(podspec_path)
+else
+  pubspec = { 'version' => '0.0.1' }
+end
+
 Pod::Spec.new do |s|
   s.name             = 'firebase_messaging'
   s.version          = '0.0.1'
   s.summary          = 'Flutter Firebase Cloud Messaging'
   s.description      = 'Flutter plugin for Firebase Cloud Messaging, a cross-platform messaging solution that lets you reliably deliver messages on Android and iOS.'
   s.homepage         = 'https://github.com/firebase/flutterfire/tree/master/packages/firebase_messaging'
-  s.license          = { :file => '../LICENSE' }
+  s.license          = { :type => 'BSD', :file => '../LICENSE' }
   s.author           = { 'Flutter Team' => 'flutter-dev@googlegroups.com' }
   s.source           = { :path => '.' }
   s.source_files = 'ios/**/*.{h,m}'
@@ -1010,14 +1046,20 @@ EOL
             # firebase_analytics
             cat > firebase_analytics_custom/firebase_analytics.podspec << EOL
 require 'yaml'
-pubspec = YAML.load_file(File.join('..', 'pubspec.yaml'))
+podspec_path = File.join(__dir__, 'pubspec.yaml')
+if File.exist?(podspec_path)
+  pubspec = YAML.load_file(podspec_path)
+else
+  pubspec = { 'version' => '0.0.1' }
+end
+
 Pod::Spec.new do |s|
   s.name             = 'firebase_analytics'
   s.version          = '0.0.1'
   s.summary          = 'Flutter Firebase Analytics'
   s.description      = 'Flutter plugin for Google Analytics for Firebase, an app measurement solution that provides insight on app usage and user engagement on Android and iOS.'
   s.homepage         = 'https://github.com/firebase/flutterfire/tree/master/packages/firebase_analytics'
-  s.license          = { :file => '../LICENSE' }
+  s.license          = { :type => 'BSD', :file => '../LICENSE' }
   s.author           = { 'Flutter Team' => 'flutter-dev@googlegroups.com' }
   s.source           = { :path => '.' }
   s.source_files = 'ios/**/*.{h,m}'
@@ -1034,14 +1076,20 @@ EOL
             # firebase_auth
             cat > firebase_auth_custom/firebase_auth.podspec << EOL
 require 'yaml'
-pubspec = YAML.load_file(File.join('..', 'pubspec.yaml'))
+podspec_path = File.join(__dir__, 'pubspec.yaml')
+if File.exist?(podspec_path)
+  pubspec = YAML.load_file(podspec_path)
+else
+  pubspec = { 'version' => '0.0.1' }
+end
+
 Pod::Spec.new do |s|
   s.name             = 'firebase_auth'
   s.version          = '0.0.1'
   s.summary          = 'Flutter Firebase Auth'
   s.description      = 'Flutter plugin for Firebase Auth, enabling authentication using passwords, phone numbers and identity providers like Google, Facebook and Twitter.'
   s.homepage         = 'https://github.com/firebase/flutterfire/tree/master/packages/firebase_auth'
-  s.license          = { :file => '../LICENSE' }
+  s.license          = { :type => 'BSD', :file => '../LICENSE' }
   s.author           = { 'Flutter Team' => 'flutter-dev@googlegroups.com' }
   s.source           = { :path => '.' }
   s.source_files = 'ios/**/*.{h,m}'
@@ -1062,8 +1110,11 @@ EOL
         script: |
           echo "Setting up iOS Podfile..."
           cd ios
-          if [ ! -f "Podfile" ]; then
-            cat > Podfile << EOL
+          if [ -f "Podfile" ]; then
+            rm Podfile
+          fi
+          
+          cat > Podfile << EOL
 # Uncomment this line to define a global platform for your project
 platform :ios, '13.0'
 
@@ -1093,11 +1144,21 @@ require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelpe
 
 flutter_ios_podfile_setup
 
+# Add custom plugin paths - these should match where your plugin source code is located
+plugin_pods_path = '../../plugin'
+
 target 'Runner' do
   use_frameworks!
   use_modular_headers!
 
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+
+  # Link to local Firebase if needed
+  pod 'Firebase/CoreOnly', '~> 10.12.0'
+  pod 'Firebase/Firestore', '~> 10.12.0'
+  pod 'Firebase/Messaging', '~> 10.12.0'
+  pod 'Firebase/Analytics', '~> 10.12.0'
+  pod 'Firebase/Auth', '~> 10.12.0'
 end
 
 post_install do |installer|
@@ -1118,13 +1179,87 @@ post_install do |installer|
   end
 end
 EOL
-          fi
           cd ..
+          
+      - name: Mettre à jour le pubspec.yaml pour utiliser les commits a69a3dd
+        script: |
+          echo "Mise à jour du pubspec.yaml pour utiliser les commits a69a3dd..."
+          # Supprimer toutes les références à 7cf150a et les remplacer par a69a3dd
+          sed -i '' 's/ref: "7cf150a"/ref: "a69a3dd"/g' pubspec.yaml
+          sed -i '' 's/ref: "72ddd21"/ref: "a69a3dd"/g' pubspec.yaml
+          sed -i '' 's/ref: "e3450f7"/ref: "a69a3dd"/g' pubspec.yaml
+          echo "✅ pubspec.yaml mis à jour"
           
       - name: Clean and Install Pods
         script: |
+          # Nettoyage Flutter
+          flutter clean
+          flutter pub get
+          
+          # Installation des pods
           cd ios
           rm -rf Pods
           rm -f Podfile.lock
           pod install --verbose
           cd ..
+          
+      - name: Vérifier les structures de pods
+        script: |
+          echo "Vérification des structures de pods..."
+          cd ios
+          if [ -d "Pods" ]; then
+            echo "✅ Répertoire Pods existe"
+            ls -la Pods/
+            
+            # Vérifier les pods Firebase
+            echo "🔍 Vérification des pods Firebase..."
+            if [ -d "Pods/Firebase" ]; then
+              echo "✅ Firebase trouvé"
+              ls -la Pods/Firebase/
+            else
+              echo "❌ Firebase non trouvé"
+            fi
+            
+            # Vérifier cloud_firestore
+            echo "🔍 Vérification de cloud_firestore..."
+            if [ -d "Pods/cloud_firestore" ]; then
+              echo "✅ cloud_firestore trouvé"
+              ls -la Pods/cloud_firestore/
+            else
+              echo "❌ cloud_firestore non trouvé"
+            fi
+          else
+            echo "❌ Répertoire Pods non trouvé"
+          fi
+          cd ..
+
+      - name: Build iOS IPA
+        script: |
+          # Build iOS
+          flutter build ios --release --no-codesign
+          
+          # Pour le débogage, vérifier si les frameworks Firebase sont inclus
+          echo "Vérification des frameworks Firebase dans le build..."
+          find build/ios -name "*Firebase*" | sort
+
+      - name: Create IPA File
+        script: |
+          # Créer IPA pour les tests
+          cd build/ios/iphoneos
+          mkdir -p Payload
+          cp -r Runner.app Payload/
+          zip -r app.ipa Payload
+          echo "✅ IPA créé"
+          ls -la app.ipa
+
+    artifacts:
+      - build/ios/iphoneos/app.ipa
+      - ios/Pods/Manifest.lock
+      - ios/Podfile
+      - ios/Podfile.lock
+      - flutter_drive.log
+      
+    publishing:
+      email:
+        recipients:
+          - "remi.barbier@hec.edu"

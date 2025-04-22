@@ -32,7 +32,6 @@ import 'screens/restaurant_producer_feed_screen.dart'; // Feed pour producteurs 
 import 'screens/leisure_producer_feed_screen.dart'; // Feed pour producteurs loisir
 import 'screens/wellness_producer_feed_screen.dart'; // Feed pour producteurs bien-être
 import 'screens/heatmap_screen.dart'; // Ancienne page de heatmap (pour historique)
-import 'screens/producer_heatmap_screen.dart'; // Nouvelle page de heatmap optimisée pour producteurs
 import 'screens/growth_and_reach_screen.dart'; // Nouvelle page de croissance
 import 'screens/register_restaurant_producer.dart'; // Inscription producteur restaurant
 import 'screens/register_leisure_producer.dart'; // Inscription producteur loisir
@@ -1219,7 +1218,7 @@ class _MainNavigationState extends State<MainNavigation> with WidgetsBindingObse
     } else if (widget.accountType == 'RestaurantProducer') {
       _pages = [
         RestaurantProducerFeedScreen(userId: widget.userId), // Feed spécifique restaurant
-        ProducerHeatmapScreen(producerId: widget.userId), // Carte heatmap des utilisateurs (NOUVEAU)
+        HeatmapScreen(userId: widget.userId), // Utilise HeatmapScreen au lieu de ProducerHeatmapScreen
         ProducerDashboardIaPage(userId: widget.userId), // Copilot IA
         GrowthAndReachScreen(producerId: widget.userId), // Croissance & Rayonnement
         MyProducerProfileScreen(userId: widget.userId), // Mon profil producer (restauration)
@@ -1227,7 +1226,7 @@ class _MainNavigationState extends State<MainNavigation> with WidgetsBindingObse
     } else if (widget.accountType == 'LeisureProducer') {
       _pages = [
         LeisureProducerFeedScreen(userId: widget.userId), // Feed spécifique loisir
-        ProducerHeatmapScreen(producerId: widget.userId), // Carte heatmap des utilisateurs (NOUVEAU)
+        HeatmapScreen(userId: widget.userId), // Utilise HeatmapScreen au lieu de ProducerHeatmapScreen
         ProducerDashboardIaPage(userId: widget.userId), // Copilot IA
         GrowthAndReachScreen(producerId: widget.userId), // Croissance & Rayonnement
         MyProducerLeisureProfileScreen(userId: widget.userId), // Mon profil producer (loisir)
@@ -1238,7 +1237,7 @@ class _MainNavigationState extends State<MainNavigation> with WidgetsBindingObse
           userId: widget.userId,
           producerId: widget.userId, // Utiliser userId comme producerId par défaut
         ),
-        ProducerHeatmapScreen(producerId: widget.userId), // Carte heatmap des utilisateurs (NOUVEAU)
+        HeatmapScreen(userId: widget.userId), // Utilise HeatmapScreen au lieu de ProducerHeatmapScreen
         ProducerDashboardIaPage(userId: widget.userId), // Copilot IA
         GrowthAndReachScreen(producerId: widget.userId), // Croissance & Rayonnement
         MyWellnessProducerProfileScreen(producerId: widget.userId), // Mon profil producer (bien-être)
