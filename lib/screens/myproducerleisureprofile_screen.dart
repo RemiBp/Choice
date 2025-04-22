@@ -10,6 +10,9 @@ import 'dart:io';
 import 'package:intl/intl.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:cached_network_image/cached_network_image.dart'; // Import CachedNetworkImage
+// Add necessary imports for AuthService and Provider
+import 'package:provider/provider.dart' as provider_pkg;
+import '../services/auth_service.dart';
 
 import 'eventLeisure_screen.dart';
 import 'utils.dart';
@@ -780,12 +783,13 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
         // ---> Update state variables for stats bar
         setState(() {
           // Check if _producerData is not null before accessing it
-          if (_producerData != null) { 
+          if (_producerData != null) {
             _followersCount = _getSafeCount(_producerData!, 'followers', numberKey: 'abonnés');
             _followingCount = _getSafeCount(_producerData!, 'following'); // Assuming 'following' key exists
             _interestedCount = _getSafeCount(_producerData!, 'interestedUsers');
             _choiceCount = _getSafeCount(_producerData!, 'choiceUsers');
-            _eventsCount = _getSafeCount(_producerData!, 'evenements', listKey: 'nombre_evenements');
+            // Prioritize count field, then array length, then default to 0
+            _eventsCount = _getSafeCount(_producerData!, 'nombre_evenements', listKey: 'evenements');
           } else {
              // Set counts to 0 if _producerData is null
              _followersCount = 0;
@@ -809,6 +813,7 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
           'type': 'Loisir',
           'adresse': 'Adresse non disponible',
           'evenements': [],
+          'nombre_evenements': 0, // Ensure default count is 0
           'posts': [],
           'followers': {'count': 0, 'users': []},
           'following': {'count': 0, 'users': []},
@@ -854,7 +859,14 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
     if (!data.containsKey('photo') && data.containsKey('image')) {
       data['photo'] = data['image'];
     }
-    
+    if (!data.containsKey('photo') && data.containsKey('photo_url')) {
+      data['photo'] = data['photo_url'];
+    }
+    // Ensure a default photo if none found
+    if (!data.containsKey('photo') || data['photo'] == null || data['photo'].toString().isEmpty) {
+        data['photo'] = 'https://via.placeholder.com/150?text=Lieu'; // Default placeholder
+    }
+
     if (!data.containsKey('lieu') && data.containsKey('name')) {
       data['lieu'] = data['name'];
     }
@@ -888,8 +900,15 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
       }
     }
     
-    // Make sure evenements is initialized
-    if (!data.containsKey('evenements')) {
+    // Make sure evenements is initialized (as list or ensure count field)
+    if (!data.containsKey('evenements') && !data.containsKey('nombre_evenements')) {
+      data['evenements'] = [];
+      data['nombre_evenements'] = 0;
+    } else if (data.containsKey('evenements') && data['evenements'] is List && !data.containsKey('nombre_evenements')) {
+      // If only the list exists, add the count field
+      data['nombre_evenements'] = (data['evenements'] as List).length;
+    } else if (!data.containsKey('evenements') && data.containsKey('nombre_evenements')) {
+      // If only the count exists, initialize an empty list (less common)
       data['evenements'] = [];
     }
     
@@ -900,10 +919,16 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
   }
 
   Future<List<dynamic>> _fetchProducerEvents(String userId) async {
+    // First, check if events are already in _producerData
+    if (_producerData != null && _producerData!['evenements'] is List && (_producerData!['evenements'] as List).isNotEmpty) {
+        print('ℹ️ Using events already fetched within producer data.');
+        return List<dynamic>.from(_producerData!['evenements']);
+    }
+
+    print('🔍 Producer data did not contain events, attempting separate fetch for events for producer ID: $userId');
+
     try {
-      print('🔍 Fetching events for producer ID: $userId');
-      
-      // Try multiple approaches to get events
+      // Try multiple approaches to get events (keep existing logic as fallback)
       List<dynamic> allEvents = [];
       bool anySuccess = false;
       final baseUrl = await constants.getBaseUrl();
@@ -1630,13 +1655,21 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
                   elevation: 0,
                   floating: true,
                   pinned: true,
-                  expandedHeight: 380, // Increased height to accommodate stats bar
+                  expandedHeight: 440, // Adjusted height to accommodate stats bar comfortably
                   flexibleSpace: FlexibleSpaceBar(
                     background: _buildHeaderWithPhoto(producer),
                     // Remove title to prevent overlap
-                    titlePadding: EdgeInsets.zero, 
-                    title: null, 
+                    titlePadding: EdgeInsets.zero,
+                    title: null,
                   ),
+                  // Add actions for the menu button
+                  actions: [
+                    IconButton(
+                      icon: const Icon(Icons.menu, color: Colors.white),
+                      tooltip: 'Menu',
+                      onPressed: () => _showMainMenu(context), // Call the menu function
+                    ),
+                  ],
                   bottom: TabBar(
                     controller: _tabController,
                     tabs: _tabs.map((tab) => Tab(text: tab)).toList(),
@@ -2861,33 +2894,44 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
     if (count == null && data['note_google'] is String) {
       final noteGoogle = data['note_google'] as String;
       // Extract the number within parentheses
-      final match = RegExp(r'\\(([^\\)]+)\\)').firstMatch(noteGoogle);
+      final match = RegExp(r'\\(([^\\)]+)\\)').firstMatch(noteGoogle); // Escaped parentheses
       if (match != null && match.group(1) != null) {
         // Remove non-digit characters (like dots or spaces used as thousands separators)
-        final cleanedCountStr = match.group(1)!.replaceAll(RegExp(r'\\D'), '');
+        final cleanedCountStr = match.group(1)!.replaceAll(RegExp(r'\\D'), ''); // Escaped \D
         count = int.tryParse(cleanedCountStr);
       }
     }
 
-    return '(${count ?? 0} avis)';
+    // Format with compact notation for large numbers
+    return '(${NumberFormat.compact().format(count ?? 0)} avis)';
   }
 
   // Helper function to safely calculate counts from various data structures
   int _getSafeCount(Map<String, dynamic> data, String primaryKey, {String? listKey, String? numberKey}) {
-    if (data[primaryKey] != null) {
-      if (data[primaryKey] is Map && data[primaryKey]['count'] is int) {
-        return data[primaryKey]['count'];
-      }
-      if (data[primaryKey] is List) {
-        return (data[primaryKey] as List).length;
+    // 1. Prioritize the explicit numberKey if provided and valid
+    if (numberKey != null && data.containsKey(numberKey)) {
+      final numValue = data[numberKey];
+      if (numValue is num) {
+        return numValue.toInt();
+      } else if (numValue is String) {
+        // Try parsing if it's a string representation of a number
+        final parsedNum = int.tryParse(numValue);
+        if (parsedNum != null) return parsedNum;
       }
     }
-    if (listKey != null && data[listKey] is List) {
+    // 2. Check the primary key structure (Map with 'count')
+    if (data.containsKey(primaryKey) && data[primaryKey] is Map && data[primaryKey]['count'] is int) {
+      return data[primaryKey]['count'];
+    }
+    // 3. Check the primary key structure (List)
+    if (data.containsKey(primaryKey) && data[primaryKey] is List) {
+      return (data[primaryKey] as List).length;
+    }
+    // 4. Check the listKey structure (List)
+    if (listKey != null && data.containsKey(listKey) && data[listKey] is List) {
       return (data[listKey] as List).length;
     }
-    if (numberKey != null && data[numberKey] is num) {
-      return (data[numberKey] as num).toInt();
-    }
+    // 5. Default to 0 if no valid count found
     return 0;
   }
 
@@ -2919,9 +2963,9 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
           physics: NeverScrollableScrollPhysics(), // Disable scroll while loading
           child: Column(
             children: [
-              // Shimmer Header
+              // Shimmer Header (Adjust height to match new expandedHeight)
               Container(
-                height: 380, // Match expanded AppBar height
+                height: 440, // Match adjusted expanded AppBar height
                 color: Colors.white,
               ),
               // Shimmer Tab Content Placeholder
@@ -2947,10 +2991,11 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
 
   // NEW: Simplified Event Card for the Profile Screen
   Widget _buildEventCardForProfile(Map<String, dynamic> event) {
-    final imageUrl = _getEventImageUrl(event);
+    // Use the helper function to get image URL robustly
+    final imageUrl = getProducerImageUrl(event);
     final imageProvider = getImageProvider(imageUrl);
     final title = event['intitulé'] ?? event['titre'] ?? event['name'] ?? 'Événement sans titre';
-    final dateStr = event['date_debut'] ?? event['prochaines_dates'] ?? '';
+    final dateStr = event['date_debut'] ?? event['prochaines_dates'] ?? event['date']?.toString() ?? '';
     final formattedDate = dateStr.isNotEmpty ? formatDisplayDate(dateStr) : 'Date inconnue';
     final isPublished = event['published'] ?? true; // Assume published if null
     final eventId = event['_id']?.toString();
@@ -3059,6 +3104,63 @@ class _MyProducerLeisureProfileScreenState extends State<MyProducerLeisureProfil
          _producerFuture = _fetchProducerData(widget.userId);
        });
      });
+  }
+
+  // Method to show the main menu (adapted from MyProfileScreen)
+  void _showMainMenu(BuildContext context) {
+    if (!mounted) return;
+    final authService = provider_pkg.Provider.of<AuthService>(context, listen: false);
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (modalContext) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.only(
+              topLeft: Radius.circular(20),
+              topRight: Radius.circular(20),
+            ),
+          ),
+          padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewPadding.bottom),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(width: 40, height: 4, margin: const EdgeInsets.symmetric(vertical: 12), decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2))),
+              // Add other relevant menu options here if needed
+              // e.g., _buildMenuOption(icon: Icons.settings, text: 'Paramètres', onTap: () { ... }),
+              const Divider(height: 1),
+              _buildMenuOption(icon: Icons.logout, text: 'Déconnexion', color: Colors.red, onTap: () async {
+                 Navigator.pop(modalContext); // Close modal
+                 await authService.logout();
+                 if (mounted) {
+                   // Navigate to login or home screen after logout
+                   Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+                 }
+               }),
+              const SizedBox(height: 10),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // Helper to get producer image URL robustly
+  String? getProducerImageUrl(Map<String, dynamic>? producerData) {
+    if (producerData == null) return null;
+    // Check common keys in order of preference
+    final potentialKeys = ['photo', 'photo_url', 'image', 'logoUrl', 'imageUrl'];
+    for (final key in potentialKeys) {
+      final value = producerData[key];
+      if (value is String && value.isNotEmpty) {
+        // Basic validation: check if it looks like a URL or base64
+        if (value.startsWith('http') || value.startsWith('data:image')) {
+          return value;
+        }
+      }
+    }
+    return null; // Return null if no valid URL found
   }
 }
 

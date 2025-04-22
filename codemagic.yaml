@@ -347,139 +347,125 @@ workflows:
         script: |
           cd ios
           rm -rf Pods Podfile.lock
-          pod deintegrate
-          pod install --repo-update --verbose
-
-      - name: Ensure add_2_calendar is in GeneratedPluginRegistrant
-        script: |
-          GENERATED_FILE="ios/Runner/GeneratedPluginRegistrant.m"
-          if ! grep -q "add_2_calendar" "$GENERATED_FILE"; then
-            echo "⚠️  Problème détecté : add_2_calendar n'est pas inclus dans GeneratedPluginRegistrant.m"
-            flutter pub get
-            flutter clean
+          pod deintegrate || echo "Pod deintegrate skipped or failed, continuing..."
+          
+          # Vérifier les chemins des plugins
+          echo "🔍 Vérification des dossiers de plugins importants..."
+          SYMLINK_DIR=".symlinks/plugins"
+          for PLUGIN in "firebase_core" "cloud_firestore" "firebase_core_custom" "cloud_firestore_custom" "add_2_calendar"; do
+            echo "  - Checking $PLUGIN..."
+            if [ -d "$SYMLINK_DIR/$PLUGIN" ]; then
+              echo "    ✅ $PLUGIN directory exists"
+              find "$SYMLINK_DIR/$PLUGIN" -name "*.podspec" | xargs ls -la || echo "    ⚠️ No podspec files found"
+            else
+              echo "    ❌ $PLUGIN directory missing"
+            fi
+          done
+          
+          # Forcer l'installation des pods
+          echo "🚀 Tentative d'installation des pods..."
+          COCOAPODS_DISABLE_STATS=true pod install --repo-update --verbose
+          
+          # Si l'installation échoue, essayer avec --allow-root et autres options
+          if [ $? -ne 0 ]; then
+            echo "⚠️ Première tentative d'installation des pods échouée, essai avec options alternatives..."
+            COCOAPODS_DISABLE_STATS=true pod install --repo-update --verbose --allow-root
+            
+            # Si ça échoue encore, essayer avec --no-clean
+            if [ $? -ne 0 ]; then
+              echo "⚠️ Seconde tentative échouée, essai avec --no-clean..."
+              COCOAPODS_DISABLE_STATS=true pod install --repo-update --verbose --no-clean
+            fi
+          fi
+          
+          # Vérifier si l'installation a réussi
+          if [ -d "Pods" ] && [ -f "Podfile.lock" ]; then
+             echo "✅ Installation des pods réussie."
+          else
+             echo "❌ Échec de l'installation des pods après plusieurs tentatives."
+             # Afficher le contenu du répertoire pour le débogage
+             ls -la
+             
+             # Tenter une approche alternative avec bundle
+             echo "🔄 Tentative avec bundler..."
+             sudo gem install bundler
+             bundle init
+             echo "gem 'cocoapods', '1.12.1'" >> Gemfile
+             bundle install
+             bundle exec pod install --repo-update
+             
+             # Vérifier à nouveau
+             if [ -d "Pods" ] && [ -f "Podfile.lock" ]; then
+                echo "✅ Installation des pods réussie avec bundler."
+             else
+                exit 1
+             fi
+          fi
+          
+          # Afficher le Pods/Manifest.lock pour déboguer
+          if [ -f "Pods/Manifest.lock" ]; then
+            echo "📋 Contenu de Pods/Manifest.lock:"
+            head -n 50 Pods/Manifest.lock # Afficher les 50 premières lignes
+          else
+            echo "⚠️ Pods/Manifest.lock non trouvé"
           fi
 
-      - name: Upgrade Flutter dependencies
+      - name: Verify Apple Pay Merchant ID in Entitlements
         script: |
-          flutter pub upgrade --major-versions
-          flutter pub get
+          cd ios
+          if [ ! -f "Runner/Runner.entitlements" ]; then
+            cat > Runner/Runner.entitlements << EOL
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>com.apple.developer.in-app-payments</key>
+    <array>
+        <string>merchant.fr.choiceapp.app</string>
+    </array>
+</dict>
+</plist>
+EOL
+            echo "✅ Fichier d'entitlements Apple Pay créé"
+          else
+            echo "✅ Fichier d'entitlements existant"
+          fi
+          if ! grep -q "merchant.fr.choiceapp.app" Runner/Info.plist; then
+            plutil -insert 'com.apple.developer.in-app-payments' -xml '<array><string>merchant.fr.choiceapp.app</string></array>' Runner/Info.plist || true
+            echo "✅ Merchant ID ajouté à Info.plist"
+          fi
 
       - name: Apply iOS 14.0 Deployment Fix in Xcode Info.plist
         script: |
           cd ios
           plutil -replace MinimumOSVersion -string "14.0" Runner/Info.plist
           plutil -replace LSRequiresIPhoneOS -bool YES Runner/Info.plist
-      
-      - name: Désactiver la détection automatique des profils de provisionnement
+
+      - name: Install certificate in keychain
         script: |
-          # Désactiver la détection et l'utilisation de profils de provisionnement
-          export SKIP_PROFILE_DETECTION=1
-          
-          # Créer un fichier d'options d'export personnalisé qui désactive la signature de code
-          cat > ios/ExportOptions.plist << EOL
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>method</key>
-              <string>development</string>
-              <key>signingStyle</key>
-              <string>automatic</string>
-              <key>compileBitcode</key>
-              <false/>
-              <key>uploadBitcode</key>
-              <false/>
-          </dict>
-          </plist>
-          EOL
-          
-          echo "✅ Configuration de désactivation de la signature de code créée"
+          echo $CM_CERTIFICATE | base64 --decode > ios_distribution.p12
+          security create-keychain -p "" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "" build.keychain
+          security import ios_distribution.p12 -k build.keychain -P "$CM_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
+          echo "✅ Certificat installé dans le keychain"
 
-      - name: Configurer le projet Xcode pour désactiver la signature
+      - name: Debug keychain and provisioning
         script: |
-          cd ios
-          
-          # S'assurer que les fichiers de configuration Xcode existent
-          mkdir -p Flutter
-          
-          # Créer Release.xcconfig s'il n'existe pas
-          if [ ! -f "Flutter/Release.xcconfig" ]; then
-            echo "#include \"Generated.xcconfig\"" > Flutter/Release.xcconfig
-            echo "#include \"Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig\"" >> Flutter/Release.xcconfig
-            echo "✅ Fichier Release.xcconfig créé"
-          fi
-          
-          # Créer Debug.xcconfig s'il n'existe pas
-          if [ ! -f "Flutter/Debug.xcconfig" ]; then
-            echo "#include \"Generated.xcconfig\"" > Flutter/Debug.xcconfig
-            echo "#include \"Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig\"" >> Flutter/Debug.xcconfig
-            echo "✅ Fichier Debug.xcconfig créé"
-          fi
+          echo "== Profils de provisionnement =="
+          ls -l ~/Library/MobileDevice/Provisioning\ Profiles/
+          echo "== Certificats dans le keychain =="
+          security find-identity -v -p codesigning
+          echo "== Team ID utilisé =="
+          echo $CM_APP_STORE_CONNECT_TEAM_ID
 
-          # Créer le dossier cible pour les fichiers des pods
-          mkdir -p "Pods/Target Support Files/Pods-Runner"
-          
-          # Créer les fichiers .xcfilelist s'ils n'existent pas
-          touch "Pods/Target Support Files/Pods-Runner/Pods-Runner-frameworks-Release-input-files.xcfilelist"
-          touch "Pods/Target Support Files/Pods-Runner/Pods-Runner-frameworks-Release-output-files.xcfilelist"
-          touch "Pods/Target Support Files/Pods-Runner/Pods-Runner-resources-Release-input-files.xcfilelist"
-          touch "Pods/Target Support Files/Pods-Runner/Pods-Runner-resources-Release-output-files.xcfilelist"
-          
-          # Créer les fichiers de configuration de pods s'ils n'existent pas
-          if [ ! -f "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig" ]; then
-            echo "// Fichier généré par Codemagic" > "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"
-            echo "PODS_CONFIGURATION_BUILD_DIR = \${PODS_BUILD_DIR}/\$(CONFIGURATION)\$(EFFECTIVE_PLATFORM_NAME)" >> "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"
-            echo "PODS_PODFILE_DIR_PATH = \${SRCROOT}/." >> "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"
-            echo "PODS_ROOT = \${SRCROOT}/Pods" >> "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"
-            echo "✅ Fichier Pods-Runner.release.xcconfig créé"
-          fi
-          
-          if [ ! -f "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig" ]; then
-            echo "// Fichier généré par Codemagic" > "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"
-            echo "PODS_CONFIGURATION_BUILD_DIR = \${PODS_BUILD_DIR}/\$(CONFIGURATION)\$(EFFECTIVE_PLATFORM_NAME)" >> "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"
-            echo "PODS_PODFILE_DIR_PATH = \${SRCROOT}/." >> "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"
-            echo "PODS_ROOT = \${SRCROOT}/Pods" >> "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"
-            echo "✅ Fichier Pods-Runner.debug.xcconfig créé"
-          fi
-
-      - name: Build iOS IPA (No Code Signing)
+      - name: Build iOS IPA with Proper Signing
         script: |
-          # Définir des variables d'environnement pour désactiver la signature de code
-          export SKIP_PROFILE_DETECTION=1
-          export DISABLE_CODE_SIGNING=1
-          export FLUTTER_XCODE_CODE_SIGN_STYLE="Manual"
-          export FLUTTER_XCODE_DEVELOPMENT_TEAM=""
-          
-          # S'assurer que le build n'utilise pas d'export options ou de provisioning profiles
-          cd $CM_BUILD_DIR
-          flutter clean
-          flutter pub get
-          
-          # Forcer l'utilisation de --no-codesign et ignorer toute option d'export
-          flutter build ipa --no-codesign --verbose
-
-          # Si la méthode ci-dessus échoue, essayer avec une autre approche
-          if [ $? -ne 0 ]; then
-            echo "⚠️ Tentative alternative de build sans signature..."
-            cd ios
-            rm -rf build
-            mkdir -p build/ios/ipa
-            cd ..
-            flutter build ios --release --no-codesign
-            # Créer un IPA minimal manuellement
-            cd ios/build/ios/iphoneos
-            mkdir Payload
-            cp -r Runner.app Payload/
-            zip -r ../../../build/ios/ipa/app-release.ipa Payload
-            rm -rf Payload
-            cd $CM_BUILD_DIR
-          fi
-          
-          echo "✅ Build iOS sans signature terminé"
-          
-          # Vérifier si l'IPA a été généré
+          flutter build ipa --release
+          echo "✅ Build iOS avec signature terminé"
           if [ -f "build/ios/ipa/app-release.ipa" ]; then
-            echo "🎉 IPA généré avec succès"
+            echo "🎉 IPA signé généré avec succès"
           else
             echo "🔍 Recherche d'autres IPAs générés..."
             find build -name "*.ipa"
@@ -612,8 +598,78 @@ platform :ios, \'14.0\'' Podfile
             
             # Supprimer l'ancien hook pre_install s'il existe
             awk '/^# Hook pour résoudre/,/^end$/ {next} {print}' Podfile > Podfile.tmp && mv Podfile.tmp Podfile
+            
+            # Ajouter un hook pre_install pour gérer les podspecs manquants
+            if ! grep -q "pre_install" Podfile; then
+              cat >> Podfile << 'EOL'
 
-            echo "✅ Podfile configuré avec iOS 14.0"
+# Hook pour résoudre les problèmes de podspecs manquants et garantir la compatibilité
+pre_install do |installer|
+  # S'assurer que la plateforme iOS est bien définie à 14.0 pour tous les pods
+  installer.pods_project.targets.each do |target|
+    target.build_configurations.each do |config|
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
+    end
+  end
+  
+  # Gestion des podspecs manquants
+  installer.pod_targets.each do |pod|
+    # Vérifier si c'est un plugin Firebase ou autre connu pour poser problème
+    if pod.name.start_with?('firebase_', 'cloud_firestore', 'add_2_calendar', 'webview_flutter')
+      puts "Vérification du podspec pour: #{pod.name}"
+      
+      # Vérifier si le podspec est accessible
+      unless File.exist?(File.join(pod.root, "#{pod.name}.podspec"))
+        # Si le podspec n'existe pas, vérifier s'il existe dans ios/
+        ios_podspec = File.join(pod.root, 'ios', "#{pod.name}.podspec")
+        if !File.exist?(ios_podspec) && Dir.exist?(File.join(pod.root, 'ios'))
+          # Créer un podspec générique si nécessaire
+          File.open(ios_podspec, 'w') do |file|
+            file.puts <<~PODSPEC
+              Pod::Spec.new do |s|
+                s.name             = '#{pod.name}'
+                s.version          = '0.0.1'
+                s.summary          = 'Flutter plugin for #{pod.name}'
+                s.description      = 'Flutter plugin for #{pod.name}'
+                s.homepage         = 'https://flutter.dev'
+                s.license          = { :type => 'BSD', :file => '../LICENSE' }
+                s.author           = { 'Flutter Team' => 'flutter-dev@googlegroups.com' }
+                s.source           = { :path => '.' }
+                s.source_files     = 'Classes/**/*'
+                s.dependency 'Flutter'
+                s.platform = :ios, '14.0'
+                s.ios.deployment_target = '14.0'
+                s.static_framework = true
+                s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES' }
+              end
+            PODSPEC
+          end
+          puts "✅ Podspec créé pour #{pod.name} dans #{ios_podspec}"
+        end
+      end
+    end
+  end
+end
+
+EOL
+            fi
+
+            # Ajouter aussi la définition explicite du projet Flutter
+            if ! grep -q "flutter_root" Podfile; then
+              cat >> Podfile << 'EOL'
+
+# This is necessary to ensure proper integration with Flutter
+flutter_root = File.dirname(File.realpath(`which flutter`.chomp))
+flutter_ios_framework_path = File.join(flutter_root, 'bin', 'cache', 'artifacts', 'engine', 'ios')
+flutter_framework_path = File.join(flutter_ios_framework_path, 'Flutter.xcframework')
+if File.exist?(flutter_framework_path)
+  pod 'Flutter', :path => flutter_framework_path
+end
+
+EOL
+            fi
+
+            echo "✅ Podfile configuré avec iOS 14.0 et hooks de compatibilité"
             cat Podfile
           else
             echo "🚨 Podfile non trouvé ! Assure-toi que ton projet Flutter iOS est bien configuré."
@@ -656,7 +712,7 @@ Pod::Spec.new do |s|
   s.source           = { :path => '.' } # Le source est le répertoire ios du plugin
   s.source_files     = 'Classes/**/*'
   s.public_header_files = 'Classes/**/*.h'
-  s.ios.deployment_target = '11.0'
+  s.ios.deployment_target = '14.0'
   s.static_framework = true
   s.dependency 'Flutter'
   s.dependency 'firebase_core' # Dépendance de base
@@ -667,13 +723,65 @@ EOL
                 echo "✅ Podspec pour $PLUGIN_NAME existe déjà."
             fi
           }
+
+          # Fonction pour créer un lien symbolique entre le nom standard et le nom personnalisé
+          create_symlink() {
+            STANDARD_NAME=$1
+            CUSTOM_NAME=$2
+            
+            STANDARD_PATH="$SYMLINK_DIR/$STANDARD_NAME"
+            CUSTOM_PATH="$SYMLINK_DIR/$CUSTOM_NAME"
+            
+            mkdir -p "$STANDARD_PATH/ios"
+            mkdir -p "$CUSTOM_PATH/ios"
+            
+            # Créer le podspec pour le nom standard
+            create_podspec "$STANDARD_NAME" "$3"
+            
+            # Créer le podspec pour le nom personnalisé
+            create_podspec "$CUSTOM_NAME" "$3"
+            
+            echo "🔄 Liaison entre $STANDARD_NAME et $CUSTOM_NAME créée"
+          }
           
-          # Créer les podspecs pour chaque plugin Firebase personnalisé
-          create_podspec "firebase_core_custom" "Firebase/CoreOnly"
-          create_podspec "cloud_firestore_custom" "Firebase/Firestore"
-          create_podspec "firebase_messaging_custom" "Firebase/Messaging"
-          create_podspec "firebase_analytics_custom" "Firebase/Analytics"
-          create_podspec "firebase_auth_custom" "Firebase/Auth"
+          # Créer les symlinks et podspecs pour les paires standard/personnalisé
+          create_symlink "firebase_core" "firebase_core_custom" "Firebase/CoreOnly"
+          create_symlink "cloud_firestore" "cloud_firestore_custom" "Firebase/Firestore"
+          create_symlink "firebase_messaging" "firebase_messaging_custom" "Firebase/Messaging"
+          create_symlink "firebase_analytics" "firebase_analytics_custom" "Firebase/Analytics"
+          create_symlink "firebase_auth" "firebase_auth_custom" "Firebase/Auth"
+          
+          # Créer aussi des podspecs pour d'autres plugins qui peuvent poser problème
+          echo "🔧 Création de podspecs additionnels pour les plugins problématiques..."
+          for PLUGIN in "add_2_calendar" "webview_flutter" "emoji_picker_flutter"; do
+            PLUGIN_PATH="$SYMLINK_DIR/$PLUGIN/ios"
+            PODSPEC_FILE="$PLUGIN_PATH/$PLUGIN.podspec"
+            
+            mkdir -p "$PLUGIN_PATH"
+            
+            if [ ! -f "$PODSPEC_FILE" ]; then
+              echo "📝 Création du podspec générique pour $PLUGIN à $PODSPEC_FILE"
+              cat > "$PODSPEC_FILE" <<- EOL
+Pod::Spec.new do |s|
+  s.name             = '$PLUGIN'
+  s.version          = '0.0.1'
+  s.summary          = 'Flutter plugin for $PLUGIN'
+  s.description      = 'Flutter plugin for $PLUGIN'
+  s.homepage         = 'https://flutter.dev'
+  s.license          = { :type => 'BSD', :file => '../../../LICENSE' }
+  s.author           = { 'Flutter Team' => 'flutter-dev@googlegroups.com' }
+  s.source           = { :path => '.' }
+  s.source_files     = 'Classes/**/*'
+  s.public_header_files = 'Classes/**/*.h'
+  s.dependency 'Flutter'
+  s.platform = :ios, '14.0'
+  s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES', 'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386' }
+end
+EOL
+            else
+              echo "✅ Podspec pour $PLUGIN existe déjà."
+            fi
+          done
           
           echo "✅ Vérification/Création des podspecs manuels terminée"
           ls -la $SYMLINK_DIR/*/ios/*.podspec || echo "Aucun podspec personnalisé trouvé/créé"
@@ -684,14 +792,33 @@ EOL
           rm -rf Pods Podfile.lock
           pod deintegrate || echo "Pod deintegrate skipped or failed, continuing..."
           
+          # Vérifier les chemins des plugins
+          echo "🔍 Vérification des dossiers de plugins importants..."
+          SYMLINK_DIR=".symlinks/plugins"
+          for PLUGIN in "firebase_core" "cloud_firestore" "firebase_core_custom" "cloud_firestore_custom" "add_2_calendar"; do
+            echo "  - Checking $PLUGIN..."
+            if [ -d "$SYMLINK_DIR/$PLUGIN" ]; then
+              echo "    ✅ $PLUGIN directory exists"
+              find "$SYMLINK_DIR/$PLUGIN" -name "*.podspec" | xargs ls -la || echo "    ⚠️ No podspec files found"
+            else
+              echo "    ❌ $PLUGIN directory missing"
+            fi
+          done
+          
           # Forcer l'installation des pods
           echo "🚀 Tentative d'installation des pods..."
-          pod install --repo-update --verbose
+          COCOAPODS_DISABLE_STATS=true pod install --repo-update --verbose
           
-          # Si l'installation échoue, essayer avec --allow-root
+          # Si l'installation échoue, essayer avec --allow-root et autres options
           if [ $? -ne 0 ]; then
-            echo "⚠️ Première tentative d'installation des pods échouée, nouvel essai avec --allow-root"
-            pod install --repo-update --verbose --allow-root
+            echo "⚠️ Première tentative d'installation des pods échouée, essai avec options alternatives..."
+            COCOAPODS_DISABLE_STATS=true pod install --repo-update --verbose --allow-root
+            
+            # Si ça échoue encore, essayer avec --no-clean
+            if [ $? -ne 0 ]; then
+              echo "⚠️ Seconde tentative échouée, essai avec --no-clean..."
+              COCOAPODS_DISABLE_STATS=true pod install --repo-update --verbose --no-clean
+            fi
           fi
           
           # Vérifier si l'installation a réussi
@@ -701,7 +828,21 @@ EOL
              echo "❌ Échec de l'installation des pods après plusieurs tentatives."
              # Afficher le contenu du répertoire pour le débogage
              ls -la
-             exit 1
+             
+             # Tenter une approche alternative avec bundle
+             echo "🔄 Tentative avec bundler..."
+             sudo gem install bundler
+             bundle init
+             echo "gem 'cocoapods', '1.12.1'" >> Gemfile
+             bundle install
+             bundle exec pod install --repo-update
+             
+             # Vérifier à nouveau
+             if [ -d "Pods" ] && [ -f "Podfile.lock" ]; then
+                echo "✅ Installation des pods réussie avec bundler."
+             else
+                exit 1
+             fi
           fi
           
           # Afficher le Pods/Manifest.lock pour déboguer
