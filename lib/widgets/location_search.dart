@@ -3,9 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../utils/constants.dart' as constants;
 import '../utils/utils.dart' show getImageProvider;
+import '../utils/api_config.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 class LocationSearch extends StatefulWidget {
-  final String type; // 'restaurant' or 'event' or 'wellness'
+  final String type; // 'restaurant' or 'event' or 'beautyPlace'
   final Function(Map<String, dynamic>) onLocationSelected;
 
   const LocationSearch({
@@ -53,11 +55,18 @@ class _LocationSearchState extends State<LocationSearch> {
           ? 'restaurant' 
           : widget.type == 'event' 
               ? 'event' 
-              : 'wellnessProducer';
+              : 'beautyPlace';
+      
+      final String baseUrl = await constants.getBaseUrl(); 
+      final String apiUrl = '$baseUrl$endpoint?query=$query&type=$typeParam';
+      
+      print('>>> LocationSearch: Attempting to call API: $apiUrl');
       
       final response = await http.get(
-        Uri.parse('${getBaseUrl()}$endpoint?query=$query&type=$typeParam'),
+        Uri.parse(apiUrl),
       );
+
+      print('>>> LocationSearch: API Response Status: ${response.statusCode}');
 
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
@@ -66,13 +75,15 @@ class _LocationSearchState extends State<LocationSearch> {
           _isLoading = false;
         });
       } else {
+        print('>>> LocationSearch: API Error Response Body: ${response.body}');
         setState(() {
           _isLoading = false;
           _hasError = true;
-          _errorMessage = 'Erreur lors de la recherche. Veuillez réessayer.';
+          _errorMessage = 'Erreur lors de la recherche. Code: ${response.statusCode}';
         });
       }
     } catch (e) {
+      print('>>> LocationSearch: Exception caught in _search: $e');
       setState(() {
         _isLoading = false;
         _hasError = true;
@@ -181,38 +192,32 @@ class _LocationSearchState extends State<LocationSearch> {
                             if (imageUrl != null && imageUrl.isNotEmpty)
                               ClipRRect(
                                 borderRadius: BorderRadius.circular(8),
-                                child: getImageProvider(imageUrl) != null
-                                  ? Image(
-                                      image: getImageProvider(imageUrl)!,
-                                      width: 80,
-                                      height: 80,
-                                      fit: BoxFit.cover,
-                                      errorBuilder: (context, error, stackTrace) {
-                                        print("❌ Error loading location image: $error");
-                                        return Container(
-                                          width: 80,
-                                          height: 80,
-                                          color: Colors.grey.shade300,
-                                          child: Icon(
-                                            _getIconData(),
-                                            color: Colors.grey.shade600,
-                                          ),
-                                        );
-                                      },
-                                    )
-                                  : Container(
-                                      width: 80,
-                                      height: 80,
-                                      decoration: BoxDecoration(
-                                        color: Colors.grey.shade300,
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      child: Icon(
-                                        _getIconData(),
-                                        color: Colors.grey.shade600,
-                                        size: 40,
-                                      ),
+                                child: CachedNetworkImage(
+                                  imageUrl: imageUrl,
+                                  width: 80,
+                                  height: 80,
+                                  fit: BoxFit.cover,
+                                  placeholder: (context, url) => Container(
+                                    width: 80,
+                                    height: 80,
+                                    color: Colors.grey.shade300,
+                                    child: Icon(
+                                      _getIconData(),
+                                      color: Colors.grey.shade600,
+                                      size: 40,
                                     ),
+                                  ),
+                                  errorWidget: (context, url, error) => Container(
+                                    width: 80,
+                                    height: 80,
+                                    color: Colors.grey.shade300,
+                                    child: Icon(
+                                      _getIconData(),
+                                      color: Colors.grey.shade600,
+                                      size: 40,
+                                    ),
+                                  ),
+                                ),
                               )
                             else
                               Container(
@@ -297,7 +302,7 @@ class _LocationSearchState extends State<LocationSearch> {
         return Icons.restaurant;
       case 'event':
         return Icons.event;
-      case 'wellness':
+      case 'beautyPlace':
         return Icons.spa;
       default:
         return Icons.location_on;
@@ -311,7 +316,7 @@ class _LocationSearchState extends State<LocationSearch> {
         return 'Rechercher un restaurant...';
       case 'event':
         return 'Rechercher un événement...';
-      case 'wellness':
+      case 'beautyPlace':
         return 'Rechercher un établissement de bien-être...';
       default:
         return 'Rechercher...';

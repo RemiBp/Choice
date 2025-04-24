@@ -15,7 +15,6 @@ import '../models/post.dart';
 import '../widgets/profile_post_card.dart';
 import 'post_detail_screen.dart';
 import 'messaging_screen.dart';
-import '../utils/utils.dart';
 import '../services/app_data_sender_service.dart'; // Import the sender service
 import '../utils/location_utils.dart'; // Import location utils
 import 'package:google_maps_flutter/google_maps_flutter.dart'; // For LatLng
@@ -27,6 +26,7 @@ import 'package:provider/provider.dart';
 import '../services/auth_service.dart';
 import 'package:shimmer/shimmer.dart'; // Import Shimmer
 import '../utils.dart' show getImageProvider;
+import 'user_list_screen.dart'; // ADD THIS IMPORT
 
 class TimeoutException implements Exception {
   final String message;
@@ -157,66 +157,68 @@ class _ProducerScreenState extends State<ProducerScreen> with SingleTickerProvid
       }
 
       // Initialiser les données de suivi et relations
-      setState(() {
-        // Helper to safely extract user IDs and count
-        Map<String, dynamic> extractRelationData(Map<String, dynamic> data, String key) {
-          List<String> ids = [];
-          int count = 0;
-          dynamic relationData = data['relations']?[key]; // Check within 'relations' first
-          if (relationData == null) {
-             relationData = data[key]; // Fallback to root level
-          }
-
-          if (relationData is List) {
-            ids = relationData.whereType<String>().toList();
-            count = ids.length;
-          } else if (relationData is Map) {
-            if (relationData['users'] is List) {
-              ids = (relationData['users'] as List).whereType<String>().toList();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() {
+          // Helper to safely extract user IDs and count
+          Map<String, dynamic> extractRelationData(Map<String, dynamic> data, String key) {
+            List<String> ids = [];
+            int count = 0;
+            dynamic relationData = data['relations']?[key]; // Check within 'relations' first
+            if (relationData == null) {
+               relationData = data[key]; // Fallback to root level
             }
-            count = (relationData['count'] is int) ? relationData['count'] : ids.length;
-          } else if (relationData is int) { // Sometimes only count might be available
-            count = relationData;
-          } else if (key == 'followers' && data['abonnés'] is int) { // Specific fallback for 'followers' using 'abonnés'
-            count = data['abonnés'];
-            // Attempt to get IDs if `followers` field exists as list
-             if (data['followers'] is List) {
-               ids = (data['followers'] as List).whereType<String>().toList();
-               // Ensure count matches ID list length if IDs are present
-               if (ids.isNotEmpty && count != ids.length) {
-                 print("⚠️ Follower count ($count) mismatch with follower ID list length (${ids.length}). Using ID list length.");
-                 count = ids.length;
-               }
-             }
-          } else if (key == 'followers' && data['followers'] is List) { // If 'abonnés' not present but 'followers' list is
-              ids = (data['followers'] as List).whereType<String>().toList();
+
+            if (relationData is List) {
+              ids = relationData.whereType<String>().toList();
               count = ids.length;
+            } else if (relationData is Map) {
+              if (relationData['users'] is List) {
+                ids = (relationData['users'] as List).whereType<String>().toList();
+              }
+              count = (relationData['count'] is int) ? relationData['count'] : ids.length;
+            } else if (relationData is int) { // Sometimes only count might be available
+              count = relationData;
+            } else if (key == 'followers' && data['abonnés'] is int) { // Specific fallback for 'followers' using 'abonnés'
+              count = data['abonnés'];
+              // Attempt to get IDs if `followers` field exists as list
+               if (data['followers'] is List) {
+                 ids = (data['followers'] as List).whereType<String>().toList();
+                 // Ensure count matches ID list length if IDs are present
+                 if (ids.isNotEmpty && count != ids.length) {
+                   print("⚠️ Follower count ($count) mismatch with follower ID list length (${ids.length}). Using ID list length.");
+                   count = ids.length;
+                 }
+               }
+            } else if (key == 'followers' && data['followers'] is List) { // If 'abonnés' not present but 'followers' list is
+                ids = (data['followers'] as List).whereType<String>().toList();
+                count = ids.length;
+            }
+
+            return {'count': count, 'ids': ids};
           }
 
-          return {'count': count, 'ids': ids};
-        }
+          final followerInfo = extractRelationData(producer, 'followers');
+          final followingInfo = extractRelationData(producer, 'following');
+          final interestedInfo = extractRelationData(producer, 'interestedUsers');
+          final choiceInfo = extractRelationData(producer, 'choiceUsers');
 
-        final followerInfo = extractRelationData(producer, 'followers');
-        final followingInfo = extractRelationData(producer, 'following');
-        final interestedInfo = extractRelationData(producer, 'interestedUsers');
-        final choiceInfo = extractRelationData(producer, 'choiceUsers');
+          _followersCount = followerInfo['count'];
+          _followerIds = followerInfo['ids'];
+          _followingCount = followingInfo['count'];
+          _followingIds = followingInfo['ids'];
+          _interestedCount = interestedInfo['count'];
+          _interestedUserIds = interestedInfo['ids'];
+          _choicesCount = choiceInfo['count'];
+          _choiceUserIds = choiceInfo['ids'];
 
-        _followersCount = followerInfo['count'];
-        _followerIds = followerInfo['ids'];
-        _followingCount = followingInfo['count'];
-        _followingIds = followingInfo['ids'];
-        _interestedCount = interestedInfo['count'];
-        _interestedUserIds = interestedInfo['ids'];
-        _choicesCount = choiceInfo['count'];
-        _choiceUserIds = choiceInfo['ids'];
-
-
-        // Check following status if user is logged in
-        if (widget.userId != null && widget.userId!.isNotEmpty) {
-           // Check against the extracted follower IDs
-           _isFollowing = _followerIds.contains(widget.userId);
-        }
-        print('📊 Counts - Followers: $_followersCount, Following: $_followingCount, Interested: $_interestedCount, Choices: $_choicesCount');
+          // Check following status if user is logged in
+          if (widget.userId != null && widget.userId!.isNotEmpty) {
+             // Check against the extracted follower IDs
+             _isFollowing = _followerIds.contains(widget.userId);
+          }
+          print('📊 Counts - Followers: $_followersCount, Following: $_followingCount, Interested: $_interestedCount, Choices: $_choicesCount');
+        });
       });
       
       // Charger les posts
@@ -1143,7 +1145,7 @@ class _ProducerScreenState extends State<ProducerScreen> with SingleTickerProvid
           if (snapshot.connectionState == ConnectionState.waiting) {
             // return const Center(child: CircularProgressIndicator());
             return _buildLoadingShimmer(); // Use Shimmer effect
-          } else if (snapshot.hasError) {
+          } else if (snapshot.hasError || !snapshot.hasData || snapshot.data!.isEmpty || snapshot.data!['error'] == true) {
             // return Center(
             //   child: Column(
             //     mainAxisAlignment: MainAxisAlignment.center,
@@ -1163,42 +1165,19 @@ class _ProducerScreenState extends State<ProducerScreen> with SingleTickerProvid
             //     ],
             //   ),
             // );
-            return _buildErrorWidget(snapshot.error.toString(), _refreshProducerDetails); // Use custom error widget
-          } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-            // return const Center(
-            //   child: Text('Aucune donnée disponible'),
-            // );
-            return _buildErrorWidget('Aucune donnée disponible pour ce producteur.', _refreshProducerDetails); // Use custom error widget
+            return _buildErrorWidget(
+              snapshot.error?.toString() ?? snapshot.data!['error_message'] ?? 'Erreur inconnue ou producteur non trouvé.',
+              _refreshProducerDetails
+            );
           } else {
             final producer = snapshot.data!;
 
-            if (producer['error'] == true) {
-              // return Center(
-              //   child: Column(
-              //     mainAxisAlignment: MainAxisAlignment.center,
-              //     children: [
-              //       const Icon(Icons.error_outline, size: 48, color: Colors.red),
-              //       const SizedBox(height: 16),
-              //       const Text(
-              //         'Erreur de chargement',
-              //         style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              //       ),
-              //       const SizedBox(height: 8),
-              //       Text(producer['error_message'] ?? 'Erreur inconnue'),
-              //       const SizedBox(height: 24),
-              //       ElevatedButton(
-              //         onPressed: () {
-              //           setState(() {
-              //             _producerFuture = _fetchProducerDetails(widget.producerId);
-              //           });
-              //         },
-              //         child: const Text('Réessayer'),
-              //       ),
-              //     ],
-              //   ),
-              // );
-              return _buildErrorWidget(producer['error_message'] ?? 'Erreur de chargement inconnue.', _refreshProducerDetails); // Use custom error widget
-            }
+            // Call _updateRelationState here to ensure counts are updated AFTER successful fetch
+            // NOTE: Consider if _updateRelationState should be called within _fetchProducerDetails success path instead.
+            // If _fetchProducerDetails returns the final data including relations, calling it here might be redundant
+            // or cause issues if snapshot.data is updated incrementally.
+            // Let's assume _fetchProducerDetails handles setting state internally or returns complete data.
+            // _updateRelationState(producer); // REMOVE THIS LINE
 
             return _buildProducerProfile(producer);
           }
@@ -1213,10 +1192,25 @@ class _ProducerScreenState extends State<ProducerScreen> with SingleTickerProvid
         return [
           _buildAppBar(producer),
           _buildHeader(producer),
-          _buildTabBar(),
+          // +++ ADD PRODUCER STATS SECTION +++
+          SliverToBoxAdapter(
+             child: _ProducerStats(
+               followersCount: _followersCount,
+               followingCount: _followingCount, // Assuming producers can follow others? If not, remove.
+               interestedCount: _interestedCount,
+               choicesCount: _choicesCount,
+               followerIds: _followerIds,
+               followingIds: _followingIds, // Pass IDs if following exists for producers
+               interestedUserIds: _interestedUserIds,
+               choiceUserIds: _choiceUserIds,
+               onNavigateToUserList: _navigateToUserList,
+             ),
+           ),
+          // +++ END PRODUCER STATS SECTION +++
+          _buildTabBar(), // Keep the TabBar
         ];
       },
-      body: TabBarView(
+      body: TabBarView( // Keep the TabBarView
         controller: _tabController,
         children: [
           _buildInfoTab(producer),
@@ -1337,7 +1331,9 @@ class _ProducerScreenState extends State<ProducerScreen> with SingleTickerProvid
                              const Icon(Icons.star, color: Colors.amber, size: 18),
                              const SizedBox(width: 4),
                              Text(
-                               '${producer['rating']?.toStringAsFixed(1) ?? 'N/A'}',
+                               producer['rating'] is num 
+                                   ? (producer['rating'] as num).toStringAsFixed(1)
+                                   : producer['rating'].toString(),
                                style: TextStyle(color: Colors.grey[700], fontSize: 14, fontWeight: FontWeight.bold),
                              ),
                              const SizedBox(width: 12),
@@ -2942,7 +2938,9 @@ class _ProducerScreenState extends State<ProducerScreen> with SingleTickerProvid
     final String description = item['description'] ?? '';
     final dynamic price = item['price'] ?? item['prix'];
     final String formattedPrice = (price != null && price.toString().isNotEmpty)
-        ? '${price.toStringAsFixed(2)} €' // Ensure two decimal places for price
+        ? price is num 
+            ? '${(price as num).toStringAsFixed(2)} €' // Format numbers only
+            : '$price €' // For string prices, just append the € symbol
         : ''; // Empty if no price
 
      // Extract nutritional info safely
@@ -3354,6 +3352,126 @@ class _ProducerScreenState extends State<ProducerScreen> with SingleTickerProvid
     );
   }
   // --- End Error Widget ---
+
+  // +++ ADD NAVIGATION FUNCTION +++
+  // Navigate to the user list screen
+  void _navigateToUserList(String listType, List<String> userIds) {
+    if (!mounted) return;
+    print("Navigating to user list: type=$listType, count=${userIds.length}");
+    if (userIds.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("La liste '$listType' est vide.")),
+      );
+      return;
+    }
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => UserListScreen(
+          parentId: widget.producerId, // Pass producer ID
+          listType: listType,
+          initialUserIds: userIds, // Pass the IDs directly
+          // Optional: Pass a function to fetch user info if needed within UserListScreen
+          // fetchUserInfoFunction: _fetchMinimalUserInfo, // Needs _fetchMinimalUserInfo implementation here or passed
+        ),
+      ),
+    );
+  }
+  // +++ END NAVIGATION FUNCTION +++
+
+  // +++ ADD _ProducerStats WIDGET (Similar to _ProfileStats) +++
+  //==============================================================================
+  // WIDGET: _ProducerStats
+  //==============================================================================
+  Widget _ProducerStats({
+    required int followersCount,
+    required int followingCount,
+    required int interestedCount,
+    required int choicesCount,
+    required List<String> followerIds,
+    required List<String> followingIds,
+    required List<String> interestedUserIds,
+    required List<String> choiceUserIds,
+    required Function(String, List<String>) onNavigateToUserList,
+  }) {
+    return Container(
+      color: Colors.white, // Match profile style
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          _buildStatButton(
+            context,
+            icon: Icons.people_outline,
+            label: 'Abonnés', // Followers
+            count: followersCount,
+            onTap: () => onNavigateToUserList('Abonnés', followerIds) // Use 'Abonnés' or 'followers'
+          ),
+          _verticalDivider(),
+          // Only include Following if producers can follow others
+          // _buildStatButton(
+          //   context,
+          //   icon: Icons.person_add_alt_1_outlined, // Or appropriate icon
+          //   label: 'Abonnements', // Following
+          //   count: followingCount,
+          //   onTap: () => onNavigateToUserList('Abonnements', followingIds) // Use 'Abonnements' or 'following'
+          // ),
+          // _verticalDivider(),
+          _buildStatButton(
+            context,
+            icon: Icons.emoji_objects_outlined, // Interested
+            label: 'Intéressés',
+            count: interestedCount,
+            onTap: () => onNavigateToUserList('Intéressés', interestedUserIds) // Use 'Intéressés' or 'interested'
+          ),
+          _verticalDivider(),
+          _buildStatButton(
+            context,
+            icon: Icons.check_circle_outline, // Choices
+            label: 'Choices',
+            count: choicesCount,
+            onTap: () => onNavigateToUserList('Choices', choiceUserIds) // Use 'Choices' or 'choices'
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Copied from myprofile_screen.dart - needed by _ProducerStats
+  Widget _buildStatButton(BuildContext context, {required IconData icon, required String label, required int count, VoidCallback? onTap}) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        constraints: const BoxConstraints(minWidth: 70),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: Colors.teal, size: 24),
+            const SizedBox(height: 4),
+            Text(
+              count.toString(),
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Copied from myprofile_screen.dart - needed by _ProducerStats
+  Widget _verticalDivider() {
+    return Container(height: 30, width: 1, color: Colors.grey[200]);
+  }
+  // +++ END _ProducerStats WIDGET +++
 }
 
 class _SliverAppBarDelegate extends SliverPersistentHeaderDelegate {

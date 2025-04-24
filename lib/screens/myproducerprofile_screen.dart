@@ -79,9 +79,14 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
   bool _isMarkingInterested = false; // Loading flag for Interested
   bool _isMarkingChoice = false;     // Loading flag for Choice
 
+  // Add apiService instance
+  late ApiService apiService;
+  
   @override
   void initState() {
     super.initState();
+    // Initialize apiService
+    apiService = Provider.of<ApiService>(context, listen: false);
     print('🔍 Initialisation du test des API');
     _testApi(); // Appel à la méthode de test
     _producerFuture = _fetchProducerDetails(widget.producerId);
@@ -118,6 +123,12 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
       }
     } catch (e) {
       print('❌ Erreur lors du chargement du niveau d\'abonnement: $e');
+      // En cas d'erreur, définir un niveau par défaut
+      if (mounted) {
+        setState(() {
+          _currentSubscription = 'gratuit';
+        });
+      }
     }
   }
   
@@ -134,10 +145,17 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
       Map<String, bool> accessResults = {};
       
       for (final feature in _premiumFeaturesAccess.keys) {
-        final hasAccess = await _premiumFeatureService.canAccessFeature(
-          widget.producerId, 
-          feature
-        );
+        bool hasAccess = false;
+        try {
+          hasAccess = await _premiumFeatureService.canAccessFeature(
+            widget.producerId, 
+            feature
+          );
+        } catch (featureError) {
+          print('❌ Erreur lors de la vérification de l\'accès à $feature: $featureError');
+          // En cas d'erreur sur une fonctionnalité spécifique, supposer que l'accès est refusé
+          hasAccess = false;
+        }
         accessResults[feature] = hasAccess;
       }
       
@@ -151,6 +169,12 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
       print('❌ Erreur lors de la vérification des accès premium: $e');
       if (mounted) {
         setState(() {
+          // En cas d'erreur globale, définir tous les accès à false
+          _premiumFeaturesAccess = Map.fromIterable(
+            _premiumFeaturesAccess.keys,
+            key: (k) => k,
+            value: (_) => false
+          );
           _checkingPremiumAccess = false;
         });
       }
@@ -611,11 +635,16 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
             final postResponse = await http.get(postUrl);
             if (postResponse.statusCode == 200) {
               posts.add(json.decode(postResponse.body));
+            } else if (postResponse.statusCode == 404) {
+              // Ignorer silencieusement les posts qui n'existent plus
+              print('ℹ️ Post $postId non trouvé (ignoré)');
+              continue;
             } else {
               print('❌ Erreur HTTP pour le post $postId : ${postResponse.statusCode}');
             }
           } catch (e) {
             print('❌ Erreur réseau pour le post $postId : $e');
+            // Continuer avec les autres posts en cas d'erreur
           }
         }
         return posts;
@@ -1115,30 +1144,34 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
                         // Wrap in Padding for spacing
                         Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                          child: Column(
-                             crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                               // Add titles or better separation if needed inside the widgets
-                               Text("Menu Complet", style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
-                               const SizedBox(height: 8),
-                               GlobalMenusList( // Assumes this widget handles its layout well
-                              producer: producer,
-                              hasActivePromotion: _hasActivePromotion,
-                              promotionDiscount: _promotionDiscount,
+                          child: SingleChildScrollView( // Added this wrapper
+                            // REMOVED shrinkWrap: true,
+                            // REMOVED physics: const NeverScrollableScrollPhysics(),
+                            child: Column(
+                               crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                                 // Add titles or better separation if needed inside the widgets
+                                 Text("Menu Complet", style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+                                 const SizedBox(height: 8),
+                                 GlobalMenusList( // Assumes this widget handles its layout well
+                                producer: producer,
+                                hasActivePromotion: _hasActivePromotion,
+                                promotionDiscount: _promotionDiscount,
+                              ),
+                                 const SizedBox(height: 24),
+                                 Text("Plats Individuels", style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+                                 const SizedBox(height: 8),
+                                 FilteredItemsList( // Assumes this widget handles its layout well
+                                producer: producer,
+                                  selectedCarbon: _selectedCarbon,
+                                  selectedNutriScore: _selectedNutriScore,
+                                  selectedMaxCalories: _selectedMaxCalories,
+                                hasActivePromotion: _hasActivePromotion,
+                                promotionDiscount: _promotionDiscount,
+                              ),
+                            ],
                             ),
-                               const SizedBox(height: 24),
-                               Text("Plats Individuels", style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
-                               const SizedBox(height: 8),
-                               FilteredItemsList( // Assumes this widget handles its layout well
-                              producer: producer,
-                                selectedCarbon: _selectedCarbon,
-                                selectedNutriScore: _selectedNutriScore,
-                                selectedMaxCalories: _selectedMaxCalories,
-                              hasActivePromotion: _hasActivePromotion,
-                              promotionDiscount: _promotionDiscount,
-                            ),
-                          ],
-                          ),
+                          ), // End SingleChildScrollView
                         ),
                         // Onglet Posts
                         _buildPostsSection(), // Ensure this uses shrinkWrap/NeverScrollableScrollPhysics
@@ -3182,6 +3215,7 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
             try {
               // Pass the Post object
             return PostCard(
+              apiService: apiService, // Pass the required ApiService instance
                  post: currentPost, // Pass the Post object
                  onLike: (p) => _handleLike(p), // Callback expects Post
                  // Pass the ID from the Post object in the callback

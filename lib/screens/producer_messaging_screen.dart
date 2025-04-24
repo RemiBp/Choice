@@ -24,6 +24,7 @@ import '../widgets/loading_indicator.dart';
 import '../../utils.dart' show getImageProvider;
 // import '../widgets/custom_app_bar.dart'; // Commented out missing widget
 // import '../widgets/user_avatar.dart'; // Commented out missing widget
+import 'mywellness_producer_profile_screen.dart';
 
 class ProducerMessagingScreen extends StatefulWidget {
   final String producerId;
@@ -1577,7 +1578,7 @@ class _ProducerMessagingScreenState extends State<ProducerMessagingScreen> with 
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => ProducerScreen(
+          builder: (context) => MyWellnessProducerProfileScreen(
             producerId: contactId,
           ),
         ),

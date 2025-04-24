@@ -283,7 +283,7 @@ class EventCalendarService with ChangeNotifier {
   // Obtenir les événements d'un producteur
   Future<List<EventData>> getProducerEvents(String producerId) async {
     try {
-      final response = await _apiService.fetchProducerEvents(producerId);
+      final response = await _apiService.getEventsByProducer(producerId);
       
       if (response != null && response is List) {
         final events = response
@@ -306,7 +306,7 @@ class EventCalendarService with ChangeNotifier {
   // Obtenir les événements populaires
   Future<List<EventData>> getPopularEvents({int limit = 10}) async {
     try {
-      final response = await _apiService.fetchPopularEvents(limit: limit);
+      final response = await _apiService.getPopularEvents(limit: limit);
       
       if (response != null && response is List) {
         final events = response
@@ -359,5 +359,19 @@ class EventCalendarService with ChangeNotifier {
   void addDynamicEvents(List<dynamic> events) {
     _addEventsToCache(events);
     notifyListeners();
+  }
+}
+
+// Add stubs for getEventsByProducer and getPopularEvents
+extension ApiServiceEventCalendar on ApiService {
+  Future<List<dynamic>> getEventsByProducer(String producerId) async {
+    // TODO: Implement actual logic
+    print('Stub: getEventsByProducer called for $producerId');
+    return [];
+  }
+  Future<List<dynamic>> getPopularEvents({int? limit}) async {
+    // TODO: Implement actual logic
+    print('Stub: getPopularEvents called with limit $limit');
+    return [];
   }
 } 

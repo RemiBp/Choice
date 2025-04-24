@@ -126,20 +126,20 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
       await _loadSubscriptionLevel();
       await _checkPremiumFeatureAccess();
 
-      final overviewFuture = _analyticsService.getOverview(widget.producerId, period: _selectedPeriod);
-      final trendsFuture = _analyticsService.getTrends(widget.producerId, metrics: _trendMetrics, period: _selectedPeriod);
+      final overviewFuture = _analyticsService.getOverview(widget.producerId, producerType: _producerType, period: _selectedPeriod);
+      final trendsFuture = _analyticsService.getTrends(widget.producerId, producerType: _producerType, metrics: _trendMetrics, period: _selectedPeriod);
       final recommendationsFuture = _analyticsService.getRecommendations(widget.producerId);
 
       Future<DemographicsData?> demographicsFuture = (_premiumFeaturesAccess['audience_demographics'] ?? false)
-          ? _analyticsService.getDemographics(widget.producerId, period: _selectedPeriod)
+          ? _analyticsService.getDemographics(widget.producerId, producerType: _producerType, period: _selectedPeriod)
           : Future.value(null);
 
       Future<GrowthPredictions?> predictionsFuture = (_premiumFeaturesAccess['growth_predictions'] ?? false)
-          ? _analyticsService.getPredictions(widget.producerId)
+          ? _analyticsService.getPredictions(widget.producerId, producerType: _producerType)
           : Future.value(null);
 
       Future<CompetitorAnalysis?> competitorAnalysisFuture = (_premiumFeaturesAccess['advanced_analytics'] ?? false)
-          ? _analyticsService.getCompetitorAnalysis(widget.producerId, period: _selectedPeriod)
+          ? _analyticsService.getCompetitorAnalysis(widget.producerId, producerType: _producerType, period: _selectedPeriod)
           : Future.value(null);
 
       Future<void> campaignsFuture = (_premiumFeaturesAccess['simple_campaigns'] ?? false)
@@ -178,6 +178,8 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
         setState(() {
            if (e.toString().contains("Authentication token is missing") || e.toString().contains("No token available") || e.toString().contains("Invalid token") || e.toString().contains("Unauthorized")) {
              _error = "Session invalide ou expirée. Veuillez vous reconnecter.";
+           } else if (e.toString().contains('400') && e.toString().contains('Missing required query parameter: producerType')) {
+             _error = 'Erreur: Type de producteur manquant pour la requête.';
            } else {
               _error = 'Impossible de charger les données analytiques. Veuillez réessayer.\n$e';
            }

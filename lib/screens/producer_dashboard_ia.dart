@@ -5,12 +5,10 @@ import 'package:flutter_chat_types/flutter_chat_types.dart' as types;
 import 'package:syncfusion_flutter_charts/charts.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import '../utils.dart' show getImageProvider;
 import '../services/ai_service.dart'; // Import du nouveau service AI
-import '../services/api_service.dart'; // Add this import
 import 'package:cached_network_image/cached_network_image.dart'; // Pour charger les images avec cache
-import 'producer_screen.dart'; // Pour les détails des restaurants
-import 'producerLeisure_screen.dart'; // Pour les producteurs de loisirs
+// import 'producer_screen.dart'; // Not directly used for navigation anymore
+// import 'producerLeisure_screen.dart'; // Not directly used for navigation anymore
 import 'package:scroll_to_index/scroll_to_index.dart'; // Pour le contrôleur de défilement
 import 'package:flutter_animate/flutter_animate.dart';
 import '../models/sales_data.dart';
@@ -18,6 +16,16 @@ import '../models/kpi_data.dart';
 import '../models/recommendation_data.dart';
 import '../models/ai_query_response.dart';
 import '../utils/constants.dart' as constants;
+import 'package:uuid/uuid.dart';
+// import 'package:go_router/go_router.dart';
+import '../../models/profile_data.dart' as model_profile_data;
+import 'package:provider/provider.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:fl_chart/fl_chart.dart';
+import '../../widgets/loading_indicator.dart';
+import '../../widgets/error_message.dart';
+import '../services/api_service.dart';
+import '../utils.dart' show getImageProvider;
 
 class ProducerDashboardIaPage extends StatefulWidget {
   final String producerId;
@@ -37,7 +45,7 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
   final TextEditingController _searchController = TextEditingController();
   bool _isTyping = false;
   bool _chatFullScreen = false; // ✅ Variable pour activer/désactiver le mode plein écran
-  List<ProfileData> _extractedProfiles = []; // Pour stocker les profils extraits par l'IA
+  List<model_profile_data.ProfileData> _extractedProfiles = []; // Pour stocker les profils extraits par l'IA
   final AutoScrollController _chatScrollController = AutoScrollController(); // Contrôleur de défilement pour le chat
   
   // Animation controller pour les transitions
@@ -54,7 +62,7 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
   KpiData? _visibilityKpi;
   KpiData? _performanceKpi;
   List<SalesData> _trendData = [];
-  List<ProfileData> _competitors = [];
+  List<model_profile_data.ProfileData> _competitors = [];
   List<RecommendationData> _recommendations = [];
   String _chartPeriod = 'Semaine'; // Default chart period
 
@@ -252,14 +260,17 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
           id: DateTime.now().millisecondsSinceEpoch.toString(),
           metadata: {
             'text': insights.response,
-            'hasProfiles': insights.profiles.isNotEmpty,
-            'isInsight': true,
+            'profiles': insights.profiles,
+            'analysisResults': insights.analysisResults,
+            'type': 'insight',
           },
         );
         
         if (insights.profiles.isNotEmpty) {
           setState(() {
-            _extractedProfiles = insights.profiles;
+            _extractedProfiles = insights.profiles.map((aiProfile) => 
+              _convertToProfileData(aiProfile)
+            ).toList();
           });
         }
 
@@ -273,7 +284,7 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
           id: DateTime.now().millisecondsSinceEpoch.toString(),
           metadata: {
             'text': "Je ne peux pas générer d'insights pour ce producteur pour le moment. Il est possible que les données soient insuffisantes ou que le producteur n'existe pas dans la base de données.",
-            'isError': true,
+            'type': 'error',
           },
         );
 
@@ -299,7 +310,7 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         metadata: {
           'text': "Désolé, je ne peux pas récupérer les insights pour le moment. Veuillez vérifier votre connexion ou réessayer plus tard.",
-          'isError': true,
+          'type': 'error',
         },
       );
 
@@ -351,7 +362,7 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
       final aiService = AIService();
       
       // Passer explicitement le type de producteur pour s'assurer que le bon endpoint est utilisé
-      AIQueryResponse aiResponse = await aiService.producerQuery(
+      final AIQueryResponse aiResponse = await aiService.producerQuery(
         widget.producerId, 
         message,
         producerType: _producerType, // Assurons-nous de passer le type de producteur
@@ -365,7 +376,9 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
       // Traitement de la réponse réussie
       if (aiResponse.profiles.isNotEmpty) {
         setState(() {
-          _extractedProfiles = aiResponse.profiles;
+          _extractedProfiles = aiResponse.profiles.map((aiProfile) => 
+            _convertToProfileData(aiProfile)
+          ).toList();
         });
       }
       
@@ -375,8 +388,9 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         metadata: {
           'text': aiResponse.response,
-          'hasProfiles': aiResponse.profiles.isNotEmpty,
-          'timestamp': DateTime.now().toIso8601String(),
+          'profiles': aiResponse.profiles,
+          'analysisResults': aiResponse.analysisResults,
+          'type': 'ai_response',
         },
       );
 
@@ -398,29 +412,13 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         metadata: {
           'text': "Désolé, je rencontre des difficultés à me connecter au serveur. Veuillez réessayer dans quelques instants ou reformuler votre question.",
-          'isError': true,
+          'type': 'error',
         },
       );
 
         setState(() {
         _messages.insert(0, errorMessage);
       });
-    }
-  }
-
-  final AIService _aiService = AIService(); // Instance du service AI
-  
-  Future<String> fetchBotResponse(String producerId, String userMessage) async {
-    try {
-      // Utilisation du nouveau service AI avec accès direct aux données MongoDB
-      final result = await _aiService.producerQuery(producerId, userMessage);
-      
-      // Retourner la réponse complète générée par l'IA
-      return result.response;
-    } catch (e) {
-      print("❌ Erreur lors de l'appel au service AI: $e");
-      // Message d'erreur clair sans fallback vers des routes obsolètes
-      return "Désolé, je ne peux pas traiter votre demande pour le moment. Veuillez réessayer plus tard.";
     }
   }
 
@@ -433,6 +431,7 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
         metadata: {
           'isLoading': true,
           'text': 'Analyse de la visibilité...',
+          'type': 'loading',
         },
       );
 
@@ -441,7 +440,8 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
       });
       
       // Utilisation de l'endpoint d'insights pour obtenir des statistiques détaillées
-      final insights = await _aiService.getProducerInsights(widget.producerId);
+      final aiService = AIService();
+      final insights = await aiService.getProducerInsights(widget.producerId);
       
       // Supprimer le message de chargement
       setState(() {
@@ -454,14 +454,17 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
           id: DateTime.now().millisecondsSinceEpoch.toString(),
           metadata: {
             'text': insights.response,
-            'hasProfiles': insights.profiles.isNotEmpty,
-            'isInsight': true,
+            'profiles': insights.profiles,
+            'analysisResults': insights.analysisResults,
+            'type': 'insight',
           },
         );
         
         if (insights.profiles.isNotEmpty) {
           setState(() {
-            _extractedProfiles = insights.profiles;
+            _extractedProfiles = insights.profiles.map((aiProfile) => 
+              _convertToProfileData(aiProfile)
+            ).toList();
           });
         }
 
@@ -475,7 +478,7 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
           id: DateTime.now().millisecondsSinceEpoch.toString(),
           metadata: {
             'text': "Je ne peux pas récupérer les statistiques de visibilité pour le moment. Il est possible que votre établissement n'ait pas encore suffisamment de données pour une analyse complète.",
-            'isError': true,
+            'type': 'error',
           },
         );
 
@@ -501,7 +504,7 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         metadata: {
           'text': "Désolé, je ne peux pas accéder aux statistiques de visibilité pour le moment. Voici quelques conseils généraux pour améliorer votre visibilité : enrichissez vos données (images, menu), encouragez les avis et interactions, et maintenez vos informations à jour.",
-          'isError': true,
+          'type': 'error',
         },
       );
 
@@ -520,6 +523,7 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
         metadata: {
           'isLoading': true,
           'text': 'Analyse des performances...',
+          'type': 'loading',
         },
       );
 
@@ -528,7 +532,7 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
       });
       
       // Demande spécifique pour analyser les performances
-      final result = await _aiService.producerQuery(
+      final result = await AIService().producerQuery(
         widget.producerId, 
         "Analyse ma performance en comparaison avec les autres établissements similaires dans mon quartier"
       );
@@ -544,14 +548,17 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
           id: DateTime.now().millisecondsSinceEpoch.toString(),
           metadata: {
             'text': result.response,
-            'hasProfiles': result.profiles.isNotEmpty,
-            'isPerformance': true,
+            'profiles': result.profiles,
+            'analysisResults': result.analysisResults,
+            'type': 'performance',
           },
         );
         
         if (result.profiles.isNotEmpty) {
           setState(() {
-            _extractedProfiles = result.profiles;
+            _extractedProfiles = result.profiles.map((aiProfile) => 
+              _convertToProfileData(aiProfile)
+            ).toList();
           });
         }
 
@@ -565,7 +572,7 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
           id: DateTime.now().millisecondsSinceEpoch.toString(),
           metadata: {
             'text': "Je ne peux pas analyser vos performances pour le moment. Il est possible qu'il n'y ait pas assez de données comparatives disponibles.",
-            'isError': true,
+            'type': 'error',
           },
         );
 
@@ -591,7 +598,7 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         metadata: {
           'text': "Désolé, je ne peux pas accéder aux données de performance pour le moment. Voici quelques conseils généraux pour améliorer votre performance : analysez vos heures d'affluence, diversifiez votre offre, et soyez attentif aux avis clients pour identifier les points d'amélioration.",
-          'isError': true,
+          'type': 'error',
         },
       );
 
@@ -610,6 +617,7 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
         metadata: {
           'isLoading': true,
           'text': 'Analyse des concurrents...',
+          'type': 'loading',
         },
       );
 
@@ -618,7 +626,7 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
       });
       
       // Demande spécifique pour analyser les concurrents
-      final result = await _aiService.producerQuery(
+      final result = await AIService().producerQuery(
         widget.producerId, 
         "Analyse mes concurrents directs et compare leurs performances avec la mienne"
       );
@@ -634,14 +642,17 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
           id: DateTime.now().millisecondsSinceEpoch.toString(),
           metadata: {
             'text': result.response,
-            'hasProfiles': result.profiles.isNotEmpty,
-            'isCompetitor': true,
+            'profiles': result.profiles,
+            'analysisResults': result.analysisResults,
+            'type': 'competitor',
           },
         );
         
         if (result.profiles.isNotEmpty) {
           setState(() {
-            _extractedProfiles = result.profiles;
+            _extractedProfiles = result.profiles.map((aiProfile) => 
+              _convertToProfileData(aiProfile)
+            ).toList();
           });
         }
 
@@ -655,7 +666,7 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
           id: DateTime.now().millisecondsSinceEpoch.toString(),
           metadata: {
             'text': "Je ne peux pas analyser vos concurrents pour le moment. Il est possible qu'il n'y ait pas assez d'établissements similaires dans votre zone pour une comparaison pertinente.",
-            'isError': true,
+            'type': 'error',
           },
         );
 
@@ -681,7 +692,7 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         metadata: {
           'text': "Désolé, je ne peux pas accéder aux données de vos concurrents pour le moment. Pour vous démarquer, concentrez-vous sur ce qui vous rend unique, étudiez les établissements similaires de votre quartier, et identifiez des opportunités de différenciation dans votre offre ou votre service client.",
-          'isError': true,
+          'type': 'error',
         },
       );
 
@@ -1463,17 +1474,11 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
 
     // Afficher la liste des concurrents extraits
     return Column(
-      children: _extractedProfiles.map((profile) {
-        // S'assurer que les données nécessaires existent, fournir des valeurs par défaut si nécessaire
+      children: _extractedProfiles.map<Widget>((model_profile_data.ProfileData profile) {
         return Padding(
-          padding: const EdgeInsets.only(bottom: 12.0), // Ajouter un espacement entre les éléments
+          padding: const EdgeInsets.only(bottom: 12.0),
           child: _buildCompetitorItem(
-            name: profile.name ?? 'Nom inconnu',
-            rating: profile.rating ?? 0.0,
-            address: profile.address ?? '', // Utiliser le champ address
-            priceLevel: profile.priceLevel, // priceLevel peut être null
-            category: profile.category ?? [], // Utiliser une liste vide si null
-            imageUrl: profile.image, // Passer l'URL de l'image
+            profile: profile
           ),
         );
       }).toList(),
@@ -1481,17 +1486,19 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
   }
 
   Widget _buildCompetitorItem({
-    required String name,
-    required double rating,
-    required String address,
-    dynamic priceLevel,
-    List<dynamic>? category,
-    String? imageUrl, // Ajout du paramètre imageUrl
+    required model_profile_data.ProfileData profile,
   }) {
-    // Utiliser imageUrl pour getImageProvider s'il est disponible, sinon null
-    final imageProvider = imageUrl != null && imageUrl.isNotEmpty ? getImageProvider(imageUrl) : null;
-    final catList = category ?? [];
-    
+    // Access fields safely from the profile object
+    final String name = profile.name ?? 'Nom inconnu';
+    final double rating = profile.rating ?? 0.0;
+    final String address = profile.address ?? '';
+    final dynamic priceLevel = profile.priceLevel;
+    final List<dynamic> catList = profile.category ?? [];
+    final String? imageUrl = profile.image;
+
+    // Image provider logic remains similar, now using imageUrl from profile
+    final imageProvider = imageUrl != null && imageUrl.isNotEmpty ? CachedNetworkImageProvider(imageUrl) : null; 
+
     // Structure du Widget Card pour chaque concurrent
     return Card(
       elevation: 2,
@@ -1529,7 +1536,7 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
                         child: Icon(
                           _getIconForProducerType(), // Icône par défaut basée sur le type
                           color: _getColorForType(),
-                          size: 40,
+                          size: 30, // Adjusted size
                         ),
                       ),
                     )
@@ -1537,7 +1544,7 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
                       child: Icon(
                         _getIconForProducerType(), // Icône par défaut basée sur le type
                         color: _getColorForType(),
-                        size: 40,
+                        size: 30, // Adjusted size
                       ),
                     ),
               ),
@@ -1598,10 +1605,10 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
                                 const SizedBox(width: 3),
                                 Text(
                                   rating.toStringAsFixed(1),
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.black87,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.orange.shade800,
                                   ),
                                 ),
                               ],
@@ -1622,7 +1629,7 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
                               style: TextStyle(
                                 fontSize: 12,
                                 fontWeight: FontWeight.bold,
-                                color: Colors.green[800],
+                                color: Colors.green.shade800,
                               ),
                             ),
                           ),
@@ -1728,149 +1735,34 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
 
   /// 🔹 Navigue vers un profil spécifique
   void _navigateToProfile(String type, String id) {
-    print('📊 Navigation vers le profil de type $type avec ID: $id');
-    
-    // Utiliser un indicateur visuel de chargement
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Chargement du profil...'),
-        duration: Duration(milliseconds: 800),
-      ),
-    );
-    
-    try {
-      // Utiliser la navigation appropriée selon le type
-      switch (type) {
-        case 'restaurant':
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => ProducerScreen(
-                producerId: id,
-                userId: widget.producerId,
-              ),
-            ),
-          );
-          break;
-        case 'leisureProducer':
-          _fetchAndNavigateToProducer(type, id);
-          break;
-        case 'wellnessProducer':
-          _fetchAndNavigateToProducer(type, id);
-          break;
-        case 'beautyPlace':
-          _fetchAndNavigateToProducer(type, id);
-          break;
-        default:
-          _fetchGenericProfile(type, id);
-      }
-    } catch (e) {
-      // Gérer l'erreur de manière élégante
-      ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Impossible de charger le profil: ${e.toString()}'),
-          backgroundColor: Colors.red,
-          duration: const Duration(seconds: 3),
-        ),
-      );
-    }
-  }
-  
-  // Récupère et navigue vers différents types de producteurs
-  Future<void> _fetchAndNavigateToProducer(String type, String id) async {
-    // Déterminer l'endpoint approprié
-    String endpoint;
-    switch (type) {
-      case 'leisureProducer':
-        endpoint = 'leisureProducers';
+    if (id.isEmpty) return;
+
+    String routeName;
+    switch (type.toLowerCase()) {
+      case 'restaurant':
+        routeName = '/restaurants/';
         break;
-      case 'wellnessProducer':
-        endpoint = 'wellness';
+      case 'leisureproducer':
+        routeName = '/leisures/';
         break;
-      case 'beautyPlace':
-        endpoint = 'beauty_places';
+      case 'event':
+        routeName = '/events/';
+        break;
+      case 'wellnessproducer':
+        routeName = '/wellness/'; // Assuming route exists
+        break;
+      case 'beautyplace':
+        routeName = '/beauty/'; // Assuming route exists
+        break;
+      case 'user':
+         routeName = '/users/'; // Assuming route exists
         break;
       default:
-        endpoint = 'producers';
+        print("⚠️ Unknown profile type for navigation: $type");
+        return; // Don't navigate if type is unknown
     }
-    
-    try {
-      final url = Uri.parse('${constants.getBaseUrlSync()}/api/$endpoint/$id');
-      final response = await http.get(url);
-      
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        
-        // Navigation selon le type
-        switch (type) {
-          case 'leisureProducer':
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => ProducerLeisureScreen(producerData: data),
-              ),
-            );
-            break;
-          case 'wellnessProducer':
-            Navigator.pushNamed(context, '/wellness/details', arguments: data);
-            break;
-          case 'beautyPlace':
-            Navigator.pushNamed(context, '/beauty/details', arguments: data);
-            break;
-          default:
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Type non supporté: $type')),
-            );
-        }
-      } else {
-        throw Exception('Erreur ${response.statusCode} lors de la récupération des données');
-      }
-    } catch (e) {
-      rethrow;
-    }
-  }
-  
-  // Récupère et navigue vers d'autres types de profils
-  Future<void> _fetchGenericProfile(String type, String id) async {
-    try {
-      String endpoint;
-      
-      switch (type) {
-        case 'event':
-          endpoint = 'events';
-          break;
-        case 'user':
-          endpoint = 'users';
-          break;
-        default:
-          endpoint = 'unified';
-      }
-      
-      final url = Uri.parse('${constants.getBaseUrlSync()}/api/$endpoint/$id');
-      final response = await http.get(url);
-      
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        
-        switch (type) {
-          case 'event':
-            Navigator.pushNamed(context, '/events/details', arguments: data);
-            break;
-          case 'user':
-            Navigator.pushNamed(context, '/users/profile', arguments: data);
-            break;
-          default:
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Navigation vers $type non implémentée')),
-            );
-        }
-      } else {
-        throw Exception('Erreur ${response.statusCode} lors de la récupération des données');
-      }
-    } catch (e) {
-      rethrow;
-    }
+
+    Navigator.of(context).pushNamed(routeName + id);
   }
 
   /// Obtient le titre adapté au type de producteur
@@ -1909,7 +1801,7 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
     }
   }
 
-  Widget _buildProfileCard(ProfileData profile) {
+  Widget _buildProfileCard(model_profile_data.ProfileData profile) {
     final provider = getImageProvider(profile.image!);
     if (provider != null)
       return Image(image: provider, width: 40, height: 40, fit: BoxFit.cover);
@@ -1926,12 +1818,221 @@ class _ProducerDashboardIaPageState extends State<ProducerDashboardIaPage> with 
   }
 
   Widget _buildCustomMessage(types.CustomMessage message, {required int messageWidth}) {
-    // TODO: Remplacer par le vrai rendu custom message IA
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Text(message.metadata?['text']?.toString() ?? ''),
+    final metadata = message.metadata ?? {};
+    final String type = metadata['type'] as String? ?? 'unknown';
+    final String text = metadata['text'] as String? ?? '';
+    final List<model_profile_data.ProfileData> profiles = List<model_profile_data.ProfileData>.from(metadata['profiles'] ?? []);
+    final analysis = metadata['analysisResults']; // Peut être null
+
+    // Déterminer la couleur de fond et le contenu basé sur le type
+    switch (type) {
+      case 'loading':
+        return _buildLoadingMessage(text);
+      case 'error':
+        return _buildErrorMessage(text);
+      case 'insight':
+      case 'performance':
+      case 'competitor':
+      case 'ai_response':
+        return _buildAiResponseMessage(text, profiles, analysis);
+      default:
+        // Message texte standard de l'assistant (si on en ajoute)
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+             boxShadow: [ BoxShadow( color: Colors.black.withOpacity(0.05), blurRadius: 5, offset: Offset(0, 2)) ],
+          ),
+          child: Text(text, style: TextStyle(color: Colors.grey[800]))
+        );
+    }
+  }
+
+  // --- Fonctions de rendu pour les types de messages personnalisés ---
+
+  Widget _buildLoadingMessage(String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.grey[200],
+        borderRadius: BorderRadius.circular(16),
       ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation<Color>(Colors.grey[600]!)),
+          ),
+          const SizedBox(width: 10),
+          Text(text, style: TextStyle(color: Colors.grey[700])),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildErrorMessage(String text) {
+     return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.red.shade50,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.red.shade100)
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.error_outline, color: Colors.red.shade700, size: 18),
+          const SizedBox(width: 10),
+          Expanded(child: Text(text, style: TextStyle(color: Colors.red.shade900, height: 1.4))),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAiResponseMessage(String text, List<model_profile_data.ProfileData> profiles, dynamic analysis) {
+     return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [ BoxShadow( color: Colors.black.withOpacity(0.05), blurRadius: 5, offset: Offset(0, 2)) ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Afficher le texte principal de l'IA
+          SelectableText(text, style: TextStyle(color: Colors.grey[850], fontSize: 15, height: 1.45)),
+          
+          // Afficher les profils (concurrents, etc.) si présents
+          if (profiles.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Text("Établissements pertinents:", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue.shade800)),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 140, // Hauteur fixe pour la liste horizontale
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                itemCount: profiles.length,
+                itemBuilder: (context, index) {
+                   return Padding(
+                     padding: const EdgeInsets.only(right: 10.0),
+                     // Utiliser une carte compacte pour l'intégration
+                     child: _buildCompactProfileCard(profiles[index]), 
+                   );
+                },
+              ),
+            ),
+          ],
+          
+          // TODO: Afficher les données d'analyse (analysisResults) si présentes
+          // if (analysis != null) ... [
+          //   const SizedBox(height: 16),
+          //   Text("Analyse détaillée:", style: TextStyle(fontWeight: FontWeight.bold)),
+          //   _buildAnalysisDetails(analysis), // Nouvelle fonction à créer
+          // ],
+        ],
+      ),
+    );
+  }
+
+  // Nouvelle fonction pour la carte compacte (similaire à celle de CopilotScreen)
+  Widget _buildCompactProfileCard(model_profile_data.ProfileData profile) {
+       final Color typeColor = _getColorForType(); // Utiliser la couleur du producteur actuel
+       final IconData typeIcon = _getIconForProducerType(); // Utiliser l'icône du producteur actuel
+       String imageUrl = profile.image ?? '';
+       // Simplified image URL logic
+        if (imageUrl.isNotEmpty) {
+           if (!imageUrl.startsWith('http') && !imageUrl.startsWith('data:')) {
+              imageUrl = '${constants.getBaseUrlSync()}$imageUrl'; 
+           }
+        } else {
+            imageUrl = '';
+        }
+
+       return Material(
+           borderRadius: BorderRadius.circular(12),
+           elevation: 1,
+           shadowColor: Colors.black.withOpacity(0.1),
+           child: InkWell(
+              onTap: () => _navigateToProfile(profile.type ?? _producerType, profile.id ?? ''),
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                 width: 130,
+                 decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey.withOpacity(0.15), width: 1),
+                 ),
+                 child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                         height: 70,
+                         width: double.infinity,
+                         decoration: BoxDecoration(
+                            color: typeColor.withOpacity(0.08),
+                            borderRadius: const BorderRadius.only(topLeft: Radius.circular(12), topRight: Radius.circular(12)),
+                         ),
+                         child: imageUrl.isNotEmpty 
+                             ? ClipRRect(
+                                 borderRadius: const BorderRadius.only(topLeft: Radius.circular(12), topRight: Radius.circular(12)),
+                                 child: CachedNetworkImage(
+                                    imageUrl: imageUrl,
+                                    fit: BoxFit.cover,
+                                    placeholder: (context, url) => Center(child: Icon(typeIcon, color: typeColor.withOpacity(0.4), size: 20)),
+                                    errorWidget: (context, url, error) => Center(child: Icon(typeIcon, color: typeColor.withOpacity(0.5), size: 24)),
+                                 ),
+                               )
+                             : Center(child: Icon(typeIcon, color: typeColor.withOpacity(0.6), size: 24)),
+                      ),
+                      Padding(
+                         padding: const EdgeInsets.all(8.0),
+                         child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                               Text(
+                                  profile.name ?? 'Inconnu',
+                                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12.5),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                               ),
+                               const SizedBox(height: 3),
+                               if (profile.rating != null && profile.rating! > 0)
+                                 Row(
+                                    children: [
+                                      Icon(Icons.star_rounded, color: Colors.amber.shade600, size: 14),
+                                      const SizedBox(width: 3),
+                                      Text(
+                                         profile.rating!.toStringAsFixed(1),
+                                         style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                                      ),
+                                    ],
+                                 ),
+                            ],
+                         ),
+                      ),
+                    ],
+                 ),
+              ),
+           ),
+       );
+   }
+
+  // Add this helper method to convert between ProfileData types
+  model_profile_data.ProfileData _convertToProfileData(dynamic aiProfileData) {
+    // Create model ProfileData from AI ProfileData
+    return model_profile_data.ProfileData(
+      id: aiProfileData.id ?? '',
+      name: aiProfileData.name ?? '',
+      type: aiProfileData.type ?? 'unknown',
+      image: aiProfileData.avatar ?? aiProfileData.image ?? '',
+      // Use empty list for required category field
+      category: List<String>.from(aiProfileData.interests ?? []),
+      // Add other fields as needed based on your ProfileData model
+      description: aiProfileData.bio ?? '',
     );
   }
 }

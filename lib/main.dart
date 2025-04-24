@@ -28,21 +28,18 @@ import 'screens/reset_password_screen.dart'; // Import de la page de réinitiali
 import 'screens/myprofile_screen.dart'; // Mon profil utilisateur
 import 'screens/myproducerleisureprofile_screen.dart'; // Mon profil producer (loisir)
 import 'screens/producer_dashboard_ia.dart';
-import 'screens/restaurant_producer_feed_screen.dart'; // Feed pour producteurs restauration
-import 'screens/leisure_producer_feed_screen.dart'; // Feed pour producteurs loisir
-import 'screens/wellness_producer_feed_screen.dart'; // Feed pour producteurs bien-être
+import 'screens/producer_feed_screen.dart'; // Consolidated producer feed
 import 'screens/heatmap_screen.dart'; // Ancienne page de heatmap (pour historique)
 import 'screens/growth_and_reach_screen.dart'; // Nouvelle page de croissance
 import 'screens/register_restaurant_producer.dart'; // Inscription producteur restaurant
 import 'screens/register_leisure_producer.dart'; // Inscription producteur loisir
 import 'screens/myproducerprofile_screen.dart'; // Page producer restauration
 import 'screens/register_wellness_producer.dart';
-import 'screens/wellness_profile_screen.dart';
 import 'screens/wellness_list_screen.dart';
 import 'screens/mywellness_producer_profile_screen.dart';
 import 'screens/language_selection_screen.dart'; // Import de l'écran de sélection de langue
 import 'screens/video_call_screen.dart';
-import 'utils.dart' show getImageProvider;
+import 'utils.dart' as utils; // Import utils with an alias to avoid conflicts
 
 import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -77,7 +74,10 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'services/location_tracking_service.dart'; // Import the new service
 import 'package:flutter/material.dart';
 import 'package:choice_app/services/notification_service.dart';
-import 'utils.dart' show getImageProvider;
+import 'utils.dart'; // Import utils directly
+import 'package:intl/date_symbol_data_local.dart'; // <-- Ajout de l'import pour intl
+
+import 'screens/wellness_producer_screen.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
@@ -86,6 +86,11 @@ Future<void> main() async {
   
   // Initialiser EasyLocalization
   await EasyLocalization.ensureInitialized();
+  
+  // <-- Ajout de l'initialisation pour intl (français)
+  await initializeDateFormatting('fr_FR', null);
+  // Si tu supportes d'autres langues, ajoute-les aussi :
+  // await initializeDateFormatting('en_US', null);
   
   // Test de la configuration d'URL
   try {
@@ -516,7 +521,10 @@ class _ChoiceAppState extends State<ChoiceApp> {
             uri.pathSegments[1] == 'details') {
           final producerId = uri.pathSegments[2];
           return MaterialPageRoute(
-            builder: (context) => ProducerScreen(producerId: producerId),
+            builder: (context) => ProducerScreen(
+              producerId: producerId,
+              // Ajoute les autres paramètres si besoin
+            ),
           );
         }
         
@@ -526,9 +534,7 @@ class _ChoiceAppState extends State<ChoiceApp> {
             uri.pathSegments[1] == 'details') {
           final producerId = uri.pathSegments[2];
           return MaterialPageRoute(
-            builder: (context) => ProducerScreen(
-              producerId: producerId,
-            ),
+            builder: (context) => ProducerLeisureScreen(producerId: producerId),
           );
         }
         
@@ -538,7 +544,7 @@ class _ChoiceAppState extends State<ChoiceApp> {
             uri.pathSegments[1] == 'details') {
           final placeId = uri.pathSegments[2];
           return MaterialPageRoute(
-            builder: (context) => WellnessProfileScreen(producerId: placeId),
+            builder: (context) => WellnessProducerScreen(producerId: placeId),
           );
         }
         
@@ -852,8 +858,8 @@ class _LandingPageState extends State<LandingPage> with SingleTickerProviderStat
                                     return ListTile(
                                       leading: result['image'] != null && result['image'].toString().isNotEmpty
                                         ? CircleAvatar(
-                                            backgroundImage: getImageProvider(result['image']) ?? const AssetImage('assets/images/default_image.png'),
-                                            child: getImageProvider(result['image']) == null ? Icon(Icons.place, color: Colors.grey[400]) : null,
+                                            backgroundImage: utils.getImageProvider(result['image']) ?? const AssetImage('assets/images/default_image.png'),
+                                            child: utils.getImageProvider(result['image']) == null ? Icon(Icons.place, color: Colors.grey[400]) : null,
                                           )
                                         : CircleAvatar(
                                             backgroundColor: Colors.grey[200],
@@ -1217,27 +1223,24 @@ class _MainNavigationState extends State<MainNavigation> with WidgetsBindingObse
       ];
     } else if (widget.accountType == 'RestaurantProducer') {
       _pages = [
-        RestaurantProducerFeedScreen(userId: widget.userId), // Feed spécifique restaurant
-        HeatmapScreen(userId: widget.userId), // Utilise HeatmapScreen au lieu de ProducerHeatmapScreen
+        ProducerFeedScreen(userId: widget.userId), // Use consolidated feed
+        HeatmapScreen(userId: widget.userId), // Utilise HeatmapScreen
         ProducerDashboardIaPage(userId: widget.userId), // Copilot IA
         GrowthAndReachScreen(producerId: widget.userId), // Croissance & Rayonnement
         MyProducerProfileScreen(userId: widget.userId), // Mon profil producer (restauration)
       ];
     } else if (widget.accountType == 'LeisureProducer') {
       _pages = [
-        LeisureProducerFeedScreen(userId: widget.userId), // Feed spécifique loisir
-        HeatmapScreen(userId: widget.userId), // Utilise HeatmapScreen au lieu de ProducerHeatmapScreen
+        ProducerFeedScreen(userId: widget.userId), // Use consolidated feed
+        HeatmapScreen(userId: widget.userId), // Utilise HeatmapScreen
         ProducerDashboardIaPage(userId: widget.userId), // Copilot IA
         GrowthAndReachScreen(producerId: widget.userId), // Croissance & Rayonnement
         MyProducerLeisureProfileScreen(userId: widget.userId), // Mon profil producer (loisir)
       ];
     } else if (widget.accountType == 'WellnessProducer') {
       _pages = [
-        WellnessProducerFeedScreen(
-          userId: widget.userId,
-          producerId: widget.userId, // Utiliser userId comme producerId par défaut
-        ),
-        HeatmapScreen(userId: widget.userId), // Utilise HeatmapScreen au lieu de ProducerHeatmapScreen
+        ProducerFeedScreen(userId: widget.userId), // Use consolidated feed
+        HeatmapScreen(userId: widget.userId), // Utilise HeatmapScreen
         ProducerDashboardIaPage(userId: widget.userId), // Copilot IA
         GrowthAndReachScreen(producerId: widget.userId), // Croissance & Rayonnement
         MyWellnessProducerProfileScreen(producerId: widget.userId), // Mon profil producer (bien-être)

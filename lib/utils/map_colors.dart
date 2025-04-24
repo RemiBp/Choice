@@ -37,13 +37,13 @@ class MapColors {
   static Color getPrimaryColorForType(String type) {
     switch (type) {
       case 'restaurant':
-        return restaurantPrimary;
+        return Colors.orange;
       case 'leisure':
-        return leisurePrimary;
-      case 'wellness':
-        return wellnessPrimary;
+        return Colors.purple;
+      case 'beautyPlace':
+        return Colors.pink;
       case 'friends':
-        return friendsPrimary;
+        return Colors.blue;
       default:
         return Colors.blue;
     }

@@ -97,60 +97,113 @@ class WellnessProducer {
   });
 
   factory WellnessProducer.fromJson(Map<String, dynamic> json) {
+    // Helper to safely get nested values
+    dynamic getNested(List<String> keys) {
+      dynamic current = json;
+      for (String key in keys) {
+        if (current is Map && current.containsKey(key)) {
+          current = current[key];
+        } else {
+          return null;
+        }
+      }
+      return current;
+    }
+    
     // Extraire les coordonnées GPS correctement selon les différents formats possibles
     GpsCoordinates coordinates;
-    if (json['gps_coordinates'] != null) {
-      coordinates = GpsCoordinates.fromJson(json['gps_coordinates']);
-    } else if (json['location'] != null && 
-               (json['location']['coordinates'] != null || 
-                (json['location']['lat'] != null && json['location']['lng'] != null))) {
-      coordinates = json['location']['coordinates'] != null 
-          ? GpsCoordinates.fromJson(json['location']['coordinates'])
-          : GpsCoordinates.fromJson(json['location']);
+    dynamic gpsData = getNested(['gps_coordinates']) ?? getNested(['location', 'coordinates']) ?? getNested(['location']);
+    if (gpsData != null) {
+        try {
+             coordinates = GpsCoordinates.fromJson(gpsData);
+        } catch (e) {
+            print("⚠️ Error parsing coordinates: $e, Data: $gpsData");
+            coordinates = GpsCoordinates(latitude: 48.8566, longitude: 2.3522); // Fallback
+        }
     } else {
-      coordinates = GpsCoordinates(latitude: 48.8566, longitude: 2.3522);
+      coordinates = GpsCoordinates(latitude: 48.8566, longitude: 2.3522); // Fallback
+    }
+    
+    // Safely extract rating values
+    double ratingValue = 0.0;
+    int ratingCount = 0;
+    dynamic ratingData = getNested(['rating']);
+    if (ratingData is Map) {
+      ratingValue = (ratingData['average'] as num?)?.toDouble() ?? 0.0;
+      ratingCount = (ratingData['count'] as num?)?.toInt() ?? 0;
+    } else if (ratingData is num) {
+       ratingValue = ratingData.toDouble();
+       ratingCount = (getNested(['user_ratings_total']) as num?)?.toInt() ?? 0; // Try separate field
+    } else {
+        ratingCount = (getNested(['user_ratings_total']) as num?)?.toInt() ?? 0; // Try separate field if rating is missing
     }
 
+    // Safely extract lists, converting elements if necessary
+    List<String> parseStringList(dynamic listData) {
+      if (listData is List) {
+        return List<String>.from(listData.map((e) => e.toString()));
+      }
+      return <String>[];
+    }
+    
+    List<Map<String, dynamic>> parseMapList(dynamic listData) {
+       if (listData is List) {
+           // Ensure all elements are Maps before converting
+           return List<Map<String, dynamic>>.from(listData.whereType<Map<String, dynamic>>());
+       }
+       return <Map<String, dynamic>>[];
+    }
+    
+    // Extract service names from list of service objects
+     List<String> parseServiceNames(dynamic listData) {
+        if (listData is List) {
+            return listData
+                .whereType<Map<String, dynamic>>() // Only consider maps
+                .map((service) => service['name']?.toString()) // Extract name
+                .where((name) => name != null && name.isNotEmpty) // Filter null/empty names
+                .toList()
+                .cast<String>(); // Cast to List<String>
+        }
+        return <String>[];
+     }
+
+
     return WellnessProducer(
-      id: json['place_id'] ?? json['_id'] ?? json['id'] ?? '',
-      name: json['name'] ?? '',
-      description: json['description'] ?? '',
-      address: json['address'] ?? json['full_address'] ?? '',
-      phone: json['phone'] ?? json['international_phone_number'] ?? '',
-      email: json['email'] ?? '',
-      website: json['website'] ?? '',
-      category: json['category'] ?? '',
-      sous_categorie: json['sub_category'] ?? json['sous_categorie'] ?? json['sousCategory'] ?? '',
-      services: json['services'] != null 
-          ? List<String>.from(json['services']) 
-          : <String>[],
-      photos: json['photos'] != null 
-          ? (json['photos'] is List ? List<String>.from(json['photos']) : <String>[])
-          : <String>[],
-      profilePhoto: json['profile_photo'] ?? json['profilePhoto'] ?? json['photo'] ?? '',
+      id: getNested(['_id'])?.toString() ?? getNested(['id'])?.toString() ?? getNested(['place_id'])?.toString() ?? '',
+      name: getNested(['name'])?.toString() ?? '',
+      description: getNested(['description'])?.toString() ?? '',
+      // Extract address from location object
+      address: getNested(['location', 'address'])?.toString() ?? getNested(['address'])?.toString() ?? getNested(['full_address'])?.toString() ?? '',
+      // Extract contact info from contact object
+      phone: getNested(['contact', 'phone'])?.toString() ?? getNested(['phone'])?.toString() ?? getNested(['international_phone_number'])?.toString() ?? '',
+      email: getNested(['contact', 'email'])?.toString() ?? getNested(['email'])?.toString() ?? '',
+      website: getNested(['contact', 'website'])?.toString() ?? getNested(['website'])?.toString() ?? '',
+      category: getNested(['category'])?.toString() ?? '',
+      sous_categorie: getNested(['sous_categorie'])?.toString() ?? getNested(['sub_category'])?.toString() ?? getNested(['sousCategory'])?.toString() ?? '',
+      // Extract service names
+      services: parseServiceNames(getNested(['services'])),
+      // Check both 'photos' and 'images'
+      photos: parseStringList(getNested(['photos']) ?? getNested(['images'])),
+      // Check multiple profile photo keys including 'avatar'
+      profilePhoto: getNested(['profile_photo'])?.toString() ?? getNested(['profilePhoto'])?.toString() ?? getNested(['photo'])?.toString() ?? getNested(['avatar'])?.toString() ?? '',
       gpsCoordinates: coordinates,
-      location: json['location'] is Map ? json['location'] : {},
-      openingHours: json['openingHours'] ?? json['opening_hours'] ?? {},
-      rating: (json['rating'] is num) ? json['rating'].toDouble() : 0.0,
-      userRatingsTotal: (json['user_ratings_total'] is num) ? json['user_ratings_total'] : 0,
-      notes: json['notes'] is Map ? json['notes'] : {},
-      tripadvisor_url: json['tripadvisor_url'] ?? '',
-      google_maps_url: json['maps_url'] ?? json['google_maps_url'] ?? '',
-      choices: json['choiceUsers'] != null 
-          ? List<String>.from(json['choiceUsers']) 
-          : <String>[],
-      interests: json['interestedUsers'] != null 
-          ? List<String>.from(json['interestedUsers']) 
-          : <String>[],
-      followers: json['followers'] != null 
-          ? List<String>.from(json['followers']) 
-          : <String>[],
-      posts: json['posts'] != null 
-          ? (json['posts'] is List<Map<String, dynamic>> 
-              ? json['posts'] 
-              : <Map<String, dynamic>>[])
-          : <Map<String, dynamic>>[],
-      score: json['score'] is num ? json['score'].toDouble() : 0.0,
+      // Ensure location is a Map
+      location: getNested(['location']) is Map ? Map<String, dynamic>.from(getNested(['location'])) : {},
+      // Check multiple opening hours keys
+      openingHours: getNested(['openingHours']) ?? getNested(['opening_hours']) ?? getNested(['business_hours']) ?? {},
+      rating: ratingValue,
+      userRatingsTotal: ratingCount,
+      // Ensure notes is a Map
+      notes: getNested(['notes']) is Map ? Map<String, dynamic>.from(getNested(['notes'])) : {},
+      tripadvisor_url: getNested(['tripadvisor_url'])?.toString() ?? '',
+      google_maps_url: getNested(['maps_url'])?.toString() ?? getNested(['google_maps_url'])?.toString() ?? '',
+      // Parse user ID lists
+      choices: parseStringList(getNested(['choiceUsers'])),
+      interests: parseStringList(getNested(['interestedUsers'])),
+      followers: parseStringList(getNested(['followers'])),
+      // Parse posts list
+      posts: parseMapList(getNested(['posts'])),
+      score: (getNested(['score']) as num?)?.toDouble() ?? 0.0,
     );
   }
 
@@ -192,6 +245,11 @@ class WellnessProducer {
   int get interestsCount => interests.length;
   int get postsCount => posts.length;
   
+  // --- Nouveaux compteurs --- 
+  int get choiceCountFromData => location['choice_count'] ?? 0;
+  int get interestCountFromData => location['interest_count'] ?? 0;
+  int get favoriteCountFromData => location['favorite_count'] ?? 0;
+
   // Setters pour éditer les propriétés
   set setName(String value) => name = value;
   set setDescription(String value) => description = value;

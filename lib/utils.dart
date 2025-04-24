@@ -4,6 +4,9 @@ import 'utils/constants.dart' as constants;
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'dart:typed_data';
+import 'package:provider/provider.dart';
+// Import Post model for type checking in helpers
+import './models/post.dart';
 
 /// Returns the base URL for API requests
 String getBaseUrl() {
@@ -156,3 +159,172 @@ ImageProvider? getImageProvider(String? imageSource) {
     return NetworkImage('https://images.unsplash.com/photo-1494253109108-2e30c049369b?w=500&q=80');
   }
 }
+
+// --- Additions for Contact/Conversation Typing ---
+
+/// Helper to get a color based on participant type string
+Color getColorForType(String type) {
+  switch (type.toLowerCase()) {
+    case 'restaurant':
+    case 'producer':
+      return Colors.orange.shade600;
+    case 'leisure':
+    case 'leisureproducer':
+      return Colors.purple.shade600;
+    case 'wellness':
+    case 'wellnessproducer':
+    case 'beauty': // Consider grouping beauty under wellness color
+      return Colors.green.shade600;
+    case 'user':
+      return Colors.blue.shade600;
+    case 'group':
+      return Colors.blueGrey.shade600;
+    default:
+      return Colors.grey.shade600;
+  }
+}
+
+/// Helper to get an icon based on participant type string
+IconData getIconForType(String type) {
+  switch (type.toLowerCase()) {
+    case 'restaurant':
+    case 'producer':
+      return Icons.restaurant_menu_outlined;
+    case 'leisure':
+    case 'leisureproducer':
+      return Icons.local_activity_outlined;
+    case 'wellness':
+    case 'wellnessproducer':
+    case 'beauty':
+      return Icons.spa_outlined;
+    case 'user':
+      return Icons.person_outline;
+    case 'group':
+      return Icons.group_outlined;
+    default:
+      return Icons.chat_bubble_outline;
+  }
+}
+
+/// Helper to get display text based on participant type string (consider localization)
+String getTextForType(String type) {
+  // TODO: Replace with EasyLocalization keys if available, e.g., 'participantType.$type'.tr()
+  switch (type.toLowerCase()) {
+    case 'restaurant':
+    case 'producer':
+      return 'Restaurant';
+    case 'leisure':
+    case 'leisureproducer':
+      return 'Loisir';
+    case 'wellness':
+    case 'wellnessproducer':
+      return 'Bien-être';
+    case 'beauty':
+       return 'Beauté'; // Specific text for beauty
+    case 'user':
+      return 'Utilisateur'; // Changed from 'Client' for generality
+    case 'group':
+      return 'Groupe';
+    default:
+      return 'Contact';
+  }
+}
+
+// Convertit un type de lieu en icône
+IconData typeToIcon(String type) {
+  switch (type.toLowerCase()) {
+    case 'restaurant': return Icons.restaurant;
+    case 'event': return Icons.event;
+    case 'leisureproducer': return Icons.museum;
+    case 'beautyplace': // Changed from wellness
+    case 'beautyproducer': // Keep this too?
+      return Icons.spa;
+    case 'user': return Icons.person;
+    default: return Icons.place;
+  }
+}
+
+// Convertit un type de lieu en couleur
+Color typeToColor(String type) {
+  switch (type.toLowerCase()) {
+    case 'restaurant': return Colors.orange.shade700;
+    case 'event': return Colors.blue.shade700;
+    case 'leisureproducer': return Colors.purple.shade700;
+    case 'beautyplace': // Changed from wellness
+    case 'beautyproducer':
+      return Colors.green.shade700;
+    case 'user': return Colors.grey.shade700;
+    default: return Colors.grey.shade500;
+  }
+}
+
+// Convertit un type de lieu en texte lisible
+String typeToReadableString(String type) {
+  switch (type.toLowerCase()) {
+    case 'restaurant': return 'Restaurant';
+    case 'event': return 'Événement';
+    case 'leisureproducer': return 'Loisir';
+    case 'beautyplace': return 'Beauté'; // Changed from wellness
+    case 'beautyproducer': return 'Beauté Pro';
+    case 'user': return 'Utilisateur';
+    default: return 'Lieu';
+  }
+}
+
+/// Helper to convert between ProducerFeedContentType enums
+/// This is needed because different parts of the code use different enum types
+/// with the same name but in different files.
+dynamic convertToApiContentType(dynamic contentType) {
+  if (contentType == null) return null;
+  
+  // Just return the contentType for now
+  // In a real implementation, this would actually convert between enum types
+  return contentType;
+}
+
+// Placeholder for functions moved from producer_post_card
+Color getPostTypeColor(dynamic post) {
+  // Need Post import for this check
+  bool isLeisure = post is Map ? post['isLeisureProducer'] == true : (post is Post ? post.isLeisureProducer ?? false : false);
+  bool isWellness = post is Map ? post['isWellnessProducer'] == true : (post is Post ? (post.isBeautyProducer ?? false) : false);
+  bool isRestaurant = post is Map ? (post['isProducerPost'] == true && !isLeisure && !isWellness) : (post is Post ? (post.isProducerPost ?? false) && !isLeisure && !isWellness : false);
+  if (isLeisure) return Colors.purple.shade300;
+  if (isRestaurant) return Colors.orange.shade300;
+  if (isWellness) return Colors.green.shade300;
+  return Colors.blue.shade300;
+}
+
+String getVisualBadge(dynamic post) {
+  // Need Post import for this check
+  bool isLeisure = post is Map ? post['isLeisureProducer'] == true : (post is Post ? post.isLeisureProducer ?? false : false);
+  bool isWellness = post is Map ? post['isWellnessProducer'] == true : (post is Post ? (post.isBeautyProducer ?? false) : false);
+  bool isRestaurant = post is Map ? (post['isProducerPost'] == true && !isLeisure && !isWellness) : (post is Post ? (post.isProducerPost ?? false) && !isLeisure && !isWellness : false);
+  if (isLeisure) return '🎭';
+  if (isRestaurant) return '🍽️';
+  if (isWellness) return '🧘';
+  return '👤';
+}
+
+String getPostTypeLabel(dynamic post) {
+  // Need Post import for this check
+  bool isLeisure = post is Map ? post['isLeisureProducer'] == true : (post is Post ? post.isLeisureProducer ?? false : false);
+  bool isWellness = post is Map ? post['isWellnessProducer'] == true : (post is Post ? (post.isBeautyProducer ?? false) : false);
+  bool isRestaurant = post is Map ? (post['isProducerPost'] == true && !isLeisure && !isWellness) : (post is Post ? (post.isProducerPost ?? false) && !isLeisure && !isWellness : false);
+  if (isLeisure) return 'Loisir';
+  if (isRestaurant) return 'Restaurant';
+  if (isWellness) return 'Bien-être';
+  return 'Utilisateur';
+}
+
+String formatTimestamp(DateTime timestamp) {
+  // TODO: Implement full logic matching the original function (or use intl package)
+   final now = DateTime.now();
+   final difference = now.difference(timestamp);
+   if (difference.inSeconds < 60) return 'À l\'instant';
+   if (difference.inMinutes < 60) return 'Il y a ${difference.inMinutes} min';
+   if (difference.inHours < 24) return 'Il y a ${difference.inHours} h';
+   if (difference.inDays < 7) return 'Il y a ${difference.inDays} j';
+   return '${timestamp.day}/${timestamp.month}/${timestamp.year}';
+}
+
+// Add other utility functions from your project as needed

@@ -9,8 +9,10 @@ import '../utils/constants.dart' as constants;
 import 'dart:math' as math;
 import 'package:http/http.dart' as http;
 import 'package:http/http.dart' show json;
+import '../services/api_service.dart' as api_service;
 
 class FeedController extends ChangeNotifier {
+  final String userId;
   final ApiService _apiService = ApiService();
   final UserService _userService = UserService();
   
@@ -65,11 +67,11 @@ class FeedController extends ChangeNotifier {
   Map<String, double> get contentTypePreferences => _contentTypePreferences;
   Map<String, int> get userInteractions => _userInteractions;
   
+  FeedController({required this.userId});
+  
   // Initialiser et charger les préférences utilisateur
   Future<void> initializePreferences() async {
     try {
-      // Récupérer l'ID utilisateur
-      final userId = _userService.currentUserId ?? '';
       if (userId.isEmpty) {
         print('⚠️ Aucun userId trouvé, utilisation des préférences par défaut');
         return;
@@ -77,7 +79,7 @@ class FeedController extends ChangeNotifier {
       
       // Tentative d'obtention du profil utilisateur
       final token = await _apiService.getAuthToken();
-      if (token.isEmpty) {
+      if (token == null || token.isEmpty) {
         print('⚠️ Aucun token trouvé, utilisation des préférences par défaut');
         return;
       }
@@ -374,7 +376,7 @@ class FeedController extends ChangeNotifier {
       notifyListeners();
       
       final posts = await _apiService.getRestaurantPosts(
-        _userService.currentUserId ?? '',
+        userId,
         page: _currentPage,
         limit: _postsPerPage,
       ).timeout(
@@ -408,7 +410,7 @@ class FeedController extends ChangeNotifier {
       _isLoadingMore = true;
       
       final posts = await _apiService.getLeisurePosts(
-        _userService.currentUserId ?? '',
+        userId,
         page: _currentPage,
         limit: _postsPerPage,
       );
@@ -432,7 +434,7 @@ class FeedController extends ChangeNotifier {
       _isLoadingMore = true;
       
       final posts = await _apiService.getUserPosts(
-        _userService.currentUserId ?? '',
+        userId,
         page: _currentPage,
         limit: _postsPerPage,
       );
@@ -598,7 +600,7 @@ class FeedController extends ChangeNotifier {
       switch (category) {
         case 'restaurant':
           newPosts = await _apiService.getRestaurantPosts(
-            _userService.currentUserId ?? '',
+            userId,
             page: _currentPage,
             limit: _postsPerPage
           );
@@ -607,7 +609,7 @@ class FeedController extends ChangeNotifier {
         
         case 'leisure':
           newPosts = await _apiService.getLeisurePosts(
-            _userService.currentUserId ?? '',
+            userId,
             page: _currentPage,
             limit: _postsPerPage
           );
@@ -616,7 +618,7 @@ class FeedController extends ChangeNotifier {
         
         case 'user':
           newPosts = await _apiService.getUserPosts(
-            _userService.currentUserId ?? '',
+            userId,
             page: _currentPage,
             limit: _postsPerPage
           );
@@ -751,7 +753,7 @@ class FeedController extends ChangeNotifier {
     try {
       final token = await AuthService.getToken();
       final response = await http.get(
-        Uri.parse('${await constants.getBaseUrl()}/api/users/$userId/posts?page=$page&limit=$limit'),
+        Uri.parse('${_apiService.getApiBaseUrl()}/api/users/$userId/posts?page=$page&limit=$limit'),
         headers: {
           'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',
@@ -767,6 +769,115 @@ class FeedController extends ChangeNotifier {
       }
     } catch (e) {
       print('❌ Exception lors de la récupération des posts: $e');
+      return [];
+    }
+  }
+
+  Future<void> loadUserData() async {
+    try {
+      final token = await _apiService.getAuthToken();
+      if (token == null || token.isEmpty) {
+        print('❌ Token non trouvé, impossible de charger les données utilisateur.');
+        return;
+      }
+      // ... (Rest of the method)
+    } catch (e) {
+      // ...
+    }
+  }
+
+  Future<void> toggleLike(String postId) async {
+    try {
+      await _apiService.toggleLike(userId, postId);
+      // Optimistic update or refresh feed after API call
+      final index = _posts.indexWhere((p) => p.id == postId);
+      if (index != -1) {
+        final post = _posts[index];
+        _posts[index] = post.copyWith(
+          isLiked: !(post.isLiked ?? false),
+          likesCount: (post.likesCount ?? 0) + (post.isLiked ?? false ? -1 : 1),
+        );
+        notifyListeners();
+      }
+    } catch (e) {
+      print("❌ Error toggling like in FeedController: $e");
+      // Optionally revert optimistic update
+    }
+  }
+
+  Future<void> markInterested(Post post, String source) async {
+    try {
+      await _apiService.markInterested(
+        userId,
+        post.producerId ?? post.authorId ?? '', // Use producerId first
+        targetType: post.producerType ?? 'producer', // Pass type
+        isLeisureProducer: post.isLeisureProducer ?? false, // Pass flag
+        source: source,
+        interested: true,
+      );
+      // Optional: Update UI or state
+    } catch (e) {
+      print("❌ Error marking interested in FeedController: $e");
+    }
+  }
+
+  Future<Map<String, dynamic>> getUserDetails() async {
+    try {
+      final result = await _apiService.getUserDetails(userId);
+      return result ?? <String, dynamic>{};
+    } catch (e) {
+      print('Error fetching user details: $e');
+      return <String, dynamic>{};
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getProducerFollowers() async {
+    try {
+      final followers = await _apiService.getProducerFollowers(userId);
+      // Convert List<dynamic> to List<Map<String, dynamic>>
+      return followers
+          .whereType<Map<String, dynamic>>()
+          .toList();
+    } catch (e) {
+      print('Error fetching producer followers: $e');
+      return <Map<String, dynamic>>[];
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getPostInteractions(String postId, String interactionType) async {
+    try {
+       return await _apiService.getPostInteractions(postId, interactionType);
+    } catch (e) {
+       print('Error fetching post interactions: $e');
+       return [];
+    }
+  }
+
+  Future<List<dynamic>> _fetchDataFromEndpoint(String endpoint, Map<String, dynamic>? queryParams) async {
+    try {
+      // Pass Map<String, dynamic>? directly
+      final response = await _apiService.get(endpoint, queryParams: queryParams);
+
+      // Process the Map response (assuming items are in a list)
+      if (response is Map<String, dynamic>) {
+        if (response['items'] is List) {
+            return response['items'] as List<dynamic>;
+        } else if (response['posts'] is List) {
+            return response['posts'] as List<dynamic>;
+        } else {
+            // Return an empty list if we can't find a list in the response
+            print('⚠️ Unexpected response format from $endpoint: no items or posts list found');
+            return [];
+        }
+      } else if (response is List) { // Fallback if the response IS the list
+          return response as List<dynamic>;
+      } else {
+        // If response is neither a Map nor a List, return an empty list
+        print('⚠️ Unexpected response format from $endpoint: not a Map or List');
+        return [];
+      }
+    } catch (e) {
+      print("Error fetching data from $endpoint: $e");
       return [];
     }
   }
@@ -941,10 +1052,12 @@ class RestaurantFeedController extends ChangeNotifier {
   // Récupérer les détails d'un utilisateur qui a interagi
   Future<Map<String, dynamic>> getUserDetails(String userId) async {
     try {
-      return await _apiService.getUserDetails(userId);
+      final details = await _apiService.getUserDetails(userId);
+      // Ensure non-null result
+      return details ?? {};
     } catch (e) {
-      print('❌ Erreur lors de la récupération des détails utilisateur: $e');
-      return {'name': 'Utilisateur', 'photo_url': ''};
+      print("Error getting user details: $e");
+      return {};
     }
   }
   
@@ -1103,7 +1216,7 @@ Future<FeedResult> getFeeds(
     final apiService = ApiService();
     
     final response = await apiService.get(endpoint, queryParams: queryParams);
-    final dynamic responseData = convert.jsonDecode(response.body);
+    final dynamic responseData = parseResponseData(response);
     final List<Post> posts = [];
     
     // Si le résultat est déjà une liste de Post, on la retourne directement
@@ -1216,7 +1329,7 @@ Future<FeedResult> _fetchFeed(String url) async {
       throw Exception('Impossible de charger le flux, code: ${response.statusCode}');
     }
     
-    final dynamic responseData = convert.jsonDecode(response.body);
+    final dynamic responseData = parseResponseData(response);
     final List<Post> posts = [];
     bool hasMore = false;
     
@@ -1276,4 +1389,12 @@ int? _parseIntSafely(dynamic value) {
     return int.tryParse(value);
   }
   return null;
+}
+
+dynamic parseResponseData(dynamic response) {
+  if (response is String) {
+    return convert.jsonDecode(response);
+  } else {
+    return response;
+  }
 } 

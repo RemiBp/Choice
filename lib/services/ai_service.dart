@@ -584,6 +584,46 @@ class AIService {
         return '/api/ai/producer-insights';
     }
   }
+
+  /// Effectue une requête complexe pour un utilisateur (social, géo, etc.)
+  /// 
+  /// Utilise l'endpoint /api/ai/complex-query pour gérer tous les cas avancés
+  Future<AIQueryResponse> complexUserQuery(String userId, String query) async {
+    try {
+      _log('Requête complexe utilisateur: "$query" (userId: $userId)');
+      final response = await http.post(
+        await _formatUrl('api/ai/complex-query'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'userId': userId,
+          'query': query,
+          // On peut ajouter des options ici si besoin
+        }),
+      );
+      _log('Statut de réponse: [32m${response.statusCode}[0m');
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        _log('Réponse reçue: ${response.body.length} caractères');
+        final responseData = data.containsKey('data') ? data['data'] : data;
+        return AIQueryResponse.fromJson(responseData);
+      } else {
+        _log('Erreur HTTP: ${response.statusCode}, Corps: ${response.body}');
+        throw Exception('Erreur ${response.statusCode}: ${response.body}');
+      }
+    } catch (e) {
+      _log('Exception: $e');
+      return AIQueryResponse(
+        query: query,
+        intent: 'unknown',
+        entities: {},
+        resultCount: 0,
+        executionTimeMs: 0,
+        response: 'Erreur lors de la requête complexe: $e',
+        profiles: [],
+        error: e.toString(),
+      );
+    }
+  }
 }
 
 /// Modèle pour la réponse d'une requête IA

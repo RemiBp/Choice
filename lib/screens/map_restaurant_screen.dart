@@ -29,6 +29,7 @@ import 'map_wellness_screen.dart' as wellness_map;
 import 'map_friends_screen.dart' as friends_map;
 import 'producer_screen.dart';
 import '../main.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class MapRestaurantScreen extends StatefulWidget {
   final gmaps.LatLng? initialPosition;
@@ -193,50 +194,81 @@ class MapRestaurantScreenState extends State<MapRestaurantScreen> with Automatic
   // Liste des termes de recherche pour le calcul de score
   List<String> _searchQueries = [];
   
+  // Définir la variable pour le rayon de recherche calculé
+  double _searchRadius = 5.0; // Rayon en km
+  
+  // Définir la liste pour les résultats des restaurants (si elle n'existe pas)
+  List<Map<String, dynamic>> _restaurantResults = [];
+  
+  // Déclaration de la variable manquante pour le mode recherche par zone
+  bool _isSearchInAreaMode = false;
+  
   // --- Helper function to get the correct ImageProvider (copied from recover_producer.dart) ---
-  ImageProvider? _getImageProvider(String? imageSource) {
+  ImageProvider? _getImageProvider(dynamic source) {
+    String? imageSource;
+    
+    // If it's a restaurant object, extract image source with fallbacks
+    if (source is Map<String, dynamic>) {
+      imageSource = source['photo'] ??
+        (source['photos'] is List && source['photos'].isNotEmpty ? source['photos'][0] : null) ??
+        source['image'] ??
+        source['photo_url'] ??
+        source['icon'] ??
+        null;
+      
+      print('🔍 Restaurant image source extraction: $imageSource');
+    } else if (source is String) {
+      // If it's already a string (direct image source)
+      imageSource = source;
+      if (imageSource.isNotEmpty) {
+        print('🔍 Direct string image source: ${imageSource.substring(0, math.min(30, imageSource.length))}...'); 
+      }
+    }
+
     if (imageSource == null || imageSource.isEmpty) {
+      print('❌ No image source found');
       return null; // No image source
     }
 
     if (imageSource.startsWith('data:image')) {
       try {
+        print('🔍 Processing Base64 image: ${imageSource.substring(0, math.min(30, imageSource.length))}...');
         final commaIndex = imageSource.indexOf(',');
         if (commaIndex != -1) {
           final base64String = imageSource.substring(commaIndex + 1);
+          print('🔍 Base64 length: ${base64String.length} chars');
+          
+          try {
           final Uint8List bytes = base64Decode(base64String);
+            print('✅ Base64 decoded successfully, image size: ${bytes.length} bytes');
           return MemoryImage(bytes);
+          } catch (decodeError) {
+            print('❌ Base64 decode error: $decodeError');
+            return null;
+          }
         } else {
-          print('❌ Invalid Base64 Data URL format in map screen');
+          print('❌ Invalid Base64 Data URL format: no comma found');
           return null; // Invalid format
         }
       } catch (e) {
-        print('❌ Error decoding Base64 image in map screen: $e');
+        print('❌ Error processing Base64 image: $e');
         return null; // Decoding error
       }
     } else if (imageSource.startsWith('http')) {
       // Assume it's a network URL
-      // Use try-catch for potential NetworkImage errors during instantiation
-      try {
+      print('🔍 Using network image: ${imageSource.substring(0, math.min(50, imageSource.length))}...');
         return NetworkImage(imageSource);
-      } catch (e) {
-        print('❌ Error creating NetworkImage in map screen: $e');
-        return null;
-      }
     } else {
-      // Try File path as a fallback (less common for producer photos)
-      /* 
-      try {
-         final file = File(imageSource);
-         if (file.existsSync()) {
-            return FileImage(file);
-         }
-      } catch (e) {
-         // Ignore file errors silently or log if needed
+      print('❓ Unknown image source format: ${imageSource.substring(0, math.min(20, imageSource.length))}...');
+      
+      // Try to handle it as a network URL anyway as a fallback
+      if (imageSource.contains('.jpg') || imageSource.contains('.png') || imageSource.contains('.jpeg')) {
+        print('🔄 Trying to load as network image anyway (contains image extension)');
+        return NetworkImage(imageSource);
       }
-      */
-      print('❌ Unknown image source format in map screen: $imageSource');
-      return null; // Unknown format
+      
+      // Returning null for other cases
+      return null;
     }
   }
   // --- End Helper ---
@@ -569,93 +601,414 @@ class MapRestaurantScreenState extends State<MapRestaurantScreen> with Automatic
     return parts.join(' · ');
   }
   
-  /// Afficher une vue rapide du restaurant
-  void _showRestaurantDetails(Map<String, dynamic> restaurant) {
-    // Chercher les plats correspondants si recherche active
-    List<Map<String, dynamic>> matchingDishes = [];
-
-    if (_itemKeywords != null && _itemKeywords!.isNotEmpty) {
-      final searchTerm = _itemKeywords!.toLowerCase();
-
-      // Fonction pour rechercher dans une liste de catégories d'items
-      void searchItems(List<dynamic>? categories) {
-        if (categories == null) return;
-        for (var category in categories) {
-          if (category is Map<String, dynamic> && category['items'] is List) {
-            for (var item in category['items']) {
-              if (item is Map<String, dynamic>) {
-                final itemName = item['nom']?.toString().toLowerCase() ?? '';
-                final itemDesc = item['description']?.toString().toLowerCase() ?? '';
-                if (itemName.contains(searchTerm) || itemDesc.contains(searchTerm)) {
-                  // Ajouter une copie de l'item avec sa catégorie
-                  matchingDishes.add({
-                    ...item,
-                    'category': category['catégorie']?.toString() ?? 'Autres'
-                  });
-                }
-              }
-            }
-          }
-        }
-      }
-
-      // Rechercher dans les Items Indépendants (root et structured_data)
-      searchItems(restaurant['Items Indépendants']);
-      if (restaurant['structured_data']?['Items Indépendants'] != null) {
-        searchItems(restaurant['structured_data']['Items Indépendants']);
-      }
-
-      // Rechercher dans les Menus Globaux (root et structured_data)
-      // Note: La structure des Menus Globaux est { "nom": ..., "inclus": [{"catégorie": ..., "items": [...]}] }
-      void searchMenuGlobals(List<dynamic>? menus) {
-         if (menus == null) return;
-         for (var menu in menus) {
-           if (menu is Map<String, dynamic> && menu['inclus'] is List) {
-             for (var includedCategory in menu['inclus']) {
-               if (includedCategory is Map<String, dynamic> && includedCategory['items'] is List) {
-                 for (var item in includedCategory['items']) {
-                   if (item is Map<String, dynamic>) {
-                     final itemName = item['nom']?.toString().toLowerCase() ?? '';
-                     final itemDesc = item['description']?.toString().toLowerCase() ?? '';
-                     if (itemName.contains(searchTerm) || itemDesc.contains(searchTerm)) {
-                       matchingDishes.add({
-                         ...item,
-                         'category': includedCategory['catégorie']?.toString() ?? 'Menu',
-                         'menuName': menu['nom']?.toString() ?? 'Menu' // Optionnel: indiquer le menu
-                       });
-                     }
-                   }
-                 }
-               }
-             }
-           }
-         }
-      }
-
-      searchMenuGlobals(restaurant['Menus Globaux']);
-      if (restaurant['structured_data']?['Menus Globaux'] != null) {
-        searchMenuGlobals(restaurant['structured_data']['Menus Globaux']);
-      }
-
-      // Deduplicate results based on item name and price (simple deduplication)
-      final uniqueDishes = <String, Map<String, dynamic>>{};
-      for (var dish in matchingDishes) {
-         final key = "${dish['nom']}-${dish['prix']}";
-         if (!uniqueDishes.containsKey(key)) {
-            uniqueDishes[key] = dish;
-         }
-      }
-      matchingDishes = uniqueDishes.values.toList();
-
-    }
-
+  // Stylized restaurant detail card
+  Widget _showRestaurantDetails(Map<String, dynamic> restaurant) {
     setState(() {
       _selectedRestaurant = restaurant;
-      _matchingDishes = matchingDishes; // Mettre à jour les plats correspondants
     });
+
+    return AnimatedPositioned(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      child: Container(
+        margin: const EdgeInsets.all(16.0),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(15),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black26,
+              blurRadius: 10,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Si nous avons des plats correspondants à la recherche, les afficher en premier
+            if (_matchingDishes.isNotEmpty)
+              Container(
+                padding: const EdgeInsets.only(top: 12, left: 16, right: 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.search, size: 16, color: mapcolors.MapColors.restaurantPrimary),
+                        const SizedBox(width: 4),
+                        Text(
+                          "Plats correspondants à \"${_itemKeywords ?? ''}\"",
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                            color: mapcolors.MapColors.restaurantPrimary,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      height: 120,
+                      child: ListView.builder(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: _matchingDishes.length,
+                        itemBuilder: (context, index) {
+                          final dish = _matchingDishes[index];
+                          final dishName = dish['name'] ?? dish['nom'] ?? 'Plat';
+                          final dishPrice = dish['price'] ?? dish['prix'] ?? '€';
+                          final dishDesc = dish['description'] ?? '';
+                          final dishPhoto = dish['photo_url'] ?? dish['photo'] ?? dish['image'] ?? '';
+                          
+                          return GestureDetector(
+                            onTap: () {
+                              // Naviguer vers la page du producteur avec focus sur ce plat
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (context) => ProducerScreen(
+                                    producerId: restaurant['_id'].toString(),
+                                    userId: getCurrentUserId(context),
+                                  ),
+                                ),
+                              );
+                            },
+                            child: Container(
+                              width: 150,
+                              margin: const EdgeInsets.only(right: 10),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.grey.shade200),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  // Photo du plat
+                                  ClipRRect(
+                                    borderRadius: const BorderRadius.only(
+                                      topLeft: Radius.circular(8),
+                                      topRight: Radius.circular(8),
+                                    ),
+                                    child: SizedBox(
+                                      height: 70,
+                                      width: double.infinity,
+                                      child: _getImageProvider(dishPhoto) != null
+                                          ? Image(
+                                              image: _getImageProvider(dishPhoto)!,
+                                              fit: BoxFit.cover,
+                                              errorBuilder: (context, error, stackTrace) {
+                                                return Container(
+                                                  color: Colors.grey[200],
+                                                  child: Icon(
+                                                    Icons.restaurant_menu,
+                                                    size: 30,
+                                                    color: mapcolors.MapColors.restaurantPrimary,
+                                                  ),
+                                                );
+                                              },
+                                            )
+                                          : Container(
+                                              color: Colors.grey[200],
+                                              child: Icon(
+                                                Icons.restaurant_menu,
+                                                size: 30,
+                                                color: mapcolors.MapColors.restaurantPrimary,
+                                              ),
+                                            ),
+                                    ),
+                                  ),
+                                  // Infos du plat
+                                  Padding(
+                                    padding: const EdgeInsets.all(6.0),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          dishName,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 12,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        Text(
+                                          dishPrice is num ? '${dishPrice.toStringAsFixed(2)}€' : dishPrice.toString(),
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: mapcolors.MapColors.restaurantPrimary,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    const Divider(),
+                  ],
+                ),
+              ),
+            
+            // Restaurant Header with Image (le reste du code inchangé)
+            // ... existing code ...
+            
+            // Restaurant Header with Image
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                // Restaurant image (with fallback)
+                ClipRRect(
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(15),
+                    topRight: Radius.circular(15),
+                  ),
+                  child: AspectRatio(
+                    aspectRatio: 16 / 9,
+                    child: _getImageProvider(restaurant) != null
+                        ? Image(
+                            image: _getImageProvider(restaurant)!,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) {
+                              return Container(
+                                color: Colors.grey[200], // Utiliser Colors.grey[200]
+                                child: Icon(
+                                  Icons.restaurant,
+                                  size: 40,
+                                  color: mapcolors.MapColors.restaurantPrimary,
+                                ),
+                              );
+                            },
+                          )
+                        : Container(
+                            color: Colors.grey[200], // Utiliser Colors.grey[200]
+                            child: Icon(
+                              Icons.restaurant,
+                              size: 40,
+                              color: mapcolors.MapColors.restaurantPrimary,
+                            ),
+                          ),
+                  ),
+                ),
+                
+                // Restaurant info overlay
+                Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.bottomCenter,
+                        end: Alignment.topCenter,
+                        colors: [
+                          Colors.black.withOpacity(0.7),
+                          Colors.transparent,
+                        ],
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Name + Rating 
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                restaurant['name'] ?? 'Restaurant',
+                                style: const TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            if (restaurant['rating'] != null) ...[
+                              Text(
+                                (restaurant['rating'] as num).toStringAsFixed(1),
+                                style: const TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              const Icon(Icons.star, color: Colors.amber, size: 18),
+                            ],
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            
+            // Restaurant Body
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Category tags
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      // Category chip
+                      if (restaurant['category'] != null && restaurant['category'] is List && restaurant['category'].isNotEmpty)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: mapcolors.MapColors.restaurantPrimary.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            restaurant['category'][0].toString(),
+                            style: TextStyle(fontSize: 12, color: mapcolors.MapColors.restaurantPrimary),
+                          ),
+                        ),
+                      
+                      // Cuisine type chip
+                      if (restaurant['cuisine_type'] != null && restaurant['cuisine_type'] is List && restaurant['cuisine_type'].isNotEmpty)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: mapcolors.MapColors.restaurantPrimary.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            restaurant['cuisine_type'][0].toString(),
+                            style: TextStyle(fontSize: 12, color: mapcolors.MapColors.restaurantPrimary),
+                          ),
+                        ),
+                      
+                      // Top Match badge if high relevance
+                      if (_calculateRelevanceScore(restaurant) > 0.7)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.amber,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: const [
+                              Icon(Icons.thumb_up, color: Colors.white, size: 12),
+                              SizedBox(width: 4),
+                              Text(
+                                "TOP MATCH",
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                  
+                  const SizedBox(height: 12),
+                  
+                  // Address and distance
+                  Row(
+                    children: [
+                      const Icon(Icons.location_on, size: 16, color: Colors.grey),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          restaurant['address'] ?? restaurant['formatted_address'] ?? 'Adresse non spécifiée',
+                          style: const TextStyle(fontSize: 14, color: Colors.grey),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (restaurant['distance'] != null)
+                        Text(
+                          '${(restaurant['distance'] as num).toStringAsFixed(1)} km',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.grey,
+                          ),
+                        ),
+                    ],
+                  ),
+                  
+                  const SizedBox(height: 16),
+                  
+                  // Social stats (interests and choices)
+                  _buildSocialStatsRow(restaurant),
+                  
+                  const SizedBox(height: 16),
+                  
+                  // Action buttons
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      // Directions button
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            _openInMaps(restaurant); // Appel correct
+                          },
+                          icon: const Icon(Icons.directions),
+                          label: const Text('Itinéraire'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: mapcolors.MapColors.restaurantPrimary,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                        ),
+                      ),
+                      
+                      const SizedBox(width: 8),
+                      
+                      // View details button
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _navigateToRestaurantDetail, // Appel sans argument
+                          icon: const Icon(Icons.info_outline),
+                          label: const Text('Voir la fiche'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: mapcolors.MapColors.restaurantPrimary,
+                            side: BorderSide(color: mapcolors.MapColors.restaurantPrimary),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
   
-  // Naviguer vers la page détaillée du restaurant
+  // Naviguer vers la page détaillée du restaurant (sans argument)
   void _navigateToRestaurantDetail() {
     if (_selectedRestaurant != null) {
       final String id = _selectedRestaurant!['_id']?.toString() ?? 
@@ -666,9 +1019,36 @@ class MapRestaurantScreenState extends State<MapRestaurantScreen> with Automatic
           MaterialPageRoute(
             builder: (context) => ProducerScreen(
               producerId: id,
-              userId: null, // Vous pouvez passer l'ID utilisateur si disponible
+              userId: getCurrentUserId(context),
             ),
           ),
+        );
+      }
+    }
+  }
+  
+  // Fonction pour ouvrir l'itinéraire dans une app de cartographie
+  Future<void> _openInMaps(Map<String, dynamic> restaurant) async {
+    final coords = getProducerCoords(restaurant);
+    if (coords == null) return;
+    
+    final lat = coords.latitude;
+    final lng = coords.longitude;
+    final String query = Uri.encodeComponent("${coords.latitude},${coords.longitude}");
+    final String label = Uri.encodeComponent(restaurant['name'] ?? 'Destination');
+
+    final googleMapsUrl = Uri.parse("https://www.google.com/maps/search/?api=1&query=$query");
+    final appleMapsUrl = Uri.parse('maps://?q=$label&ll=$lat,$lng');
+
+    if (await canLaunchUrl(googleMapsUrl)) {
+      await launchUrl(googleMapsUrl);
+    } else if (await canLaunchUrl(appleMapsUrl)) {
+      await launchUrl(appleMapsUrl);
+    } else {
+      print("Impossible d'ouvrir une application de cartographie pour l'itinéraire.");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Impossible d'ouvrir une application de cartographie.")),
         );
       }
     }
@@ -687,6 +1067,7 @@ class MapRestaurantScreenState extends State<MapRestaurantScreen> with Automatic
             initialPosition: _initialPosition,
             markers: _markers,
             onMapCreated: _onMapCreated,
+            onCameraMove: _onCameraMove,
           ),
           
           // Sélecteur de carte
@@ -698,6 +1079,48 @@ class MapRestaurantScreenState extends State<MapRestaurantScreen> with Automatic
               currentIndex: 0, // Index 0 pour la carte restaurant
               mapCount: 4, // Nombre total de cartes
               onMapSelected: _navigateToMapScreen,
+            ),
+          ),
+          
+          // Bouton "Rechercher dans cette zone"
+          if (_isMapReady && _cameraPosition != null && _cameraPosition!.zoom > 13 && !_isSearchInAreaMode)
+            Positioned(
+              top: 80,
+              left: 16,
+              right: 16,
+              child: AnimatedOpacity(
+                opacity: 1.0,
+                duration: const Duration(milliseconds: 200),
+                child: ElevatedButton.icon(
+                  icon: const Icon(Icons.search),
+                  label: const Text('Rechercher dans cette zone'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: mapcolors.MapColors.restaurantPrimary,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    elevation: 4,
+                  ),
+                  onPressed: _searchInThisArea,
+                ),
+              ),
+            ),
+            
+          // Bouton de réinitialisation de la recherche
+          if (_isMapReady && _isSearchInAreaMode)
+            Positioned(
+              top: 80,
+              right: 16,
+              child: AnimatedOpacity(
+                opacity: 1.0,
+                duration: const Duration(milliseconds: 200),
+                child: FloatingActionButton.extended(
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Réinitialiser'),
+                  backgroundColor: Colors.white,
+                  foregroundColor: mapcolors.MapColors.restaurantPrimary,
+                  elevation: 4,
+                  onPressed: _resetSearch,
+                ),
             ),
           ),
           
@@ -874,127 +1297,89 @@ class MapRestaurantScreenState extends State<MapRestaurantScreen> with Automatic
                       ),
                       if (_matchingDishes.isNotEmpty)
                         Padding(
-                          padding: const EdgeInsets.only(top: 12.0),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: Colors.blue.shade50,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.blue.shade100),
+                            ),
+                            padding: const EdgeInsets.all(12),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Icon(Icons.restaurant_menu, color: Colors.blue.shade400, size: 28),
+                                const SizedBox(width: 10),
+                                Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'Plats contenant "${_itemKeywords ?? 'N/A'}":',
-                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: mapcolors.MapColors.restaurantPrimary),
-                              ),
-                              SizedBox(height: 8),
-                              Container(
-                                height: 90, // Slightly taller for image
-                                child: ListView.builder(
-                                  scrollDirection: Axis.horizontal,
-                                  itemCount: _matchingDishes.length,
-                                  itemBuilder: (context, index) {
-                                    final dish = _matchingDishes[index];
-                                    final price = dish['prix'] != null ? '${dish['prix']} €' : 'N/A';
-                                    final note = dish['note']?.toString() ?? '-';
-                                    final imageUrl = dish['photo'] ?? dish['image'] ?? null;
-
-                                    return InkWell(
-                                      onTap: () {
-                                        // Ouvre ProducerScreen avec focus sur le plat
-                                        Navigator.of(context).push(
-                                          MaterialPageRoute(
-                                            builder: (context) => ProducerScreen(
-                                              producerId: _selectedRestaurant!['_id']?.toString() ?? _selectedRestaurant!['id']?.toString() ?? '',
-                                              userId: null, // ou passer l'ID utilisateur si dispo
-                                            ),
+                                        _matchingDishes[0]['name'] ?? _matchingDishes[0]['nom'] ?? '',
+                                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.blue.shade900),
+                                      ),
+                                      if (_matchingDishes[0]['category'] != null)
+                                        Padding(
+                                          padding: const EdgeInsets.only(top: 2.0),
+                                          child: Text(
+                                            _matchingDishes[0]['category'].toString(),
+                                            style: TextStyle(fontSize: 13, color: Colors.blue.shade700),
                                           ),
-                                        );
-                                      },
-                                      child: Card(
-                                        margin: EdgeInsets.only(right: 8),
-                                        elevation: 1.0,
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                                        child: Container(
-                                          width: 130, // Fixed width for each card
-                                          padding: EdgeInsets.all(8),
-                                          child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            mainAxisAlignment: MainAxisAlignment.center,
+                                        ),
+                                      Row(
                                             children: [
-                                              // Image du plat si dispo
-                                              if (imageUrl != null)
-                                                ClipRRect(
-                                                  borderRadius: BorderRadius.circular(6),
-                                                            // Use the same helper for dish images
-                                                            child: Builder(
-                                                              builder: (context) {
-                                                                final dishImageProvider = _getImageProvider(imageUrl);
-                                                                return Container(
-                                                    width: 40,
-                                                    height: 40,
-                                                                  color: Colors.grey[200], // Background placeholder
-                                                                  child: dishImageProvider != null
-                                                                    ? Image(
-                                                                        image: dishImageProvider,
-                                                      width: 40,
-                                                      height: 40,
-                                                                        fit: BoxFit.cover,
-                                                                        errorBuilder: (context, error, stackTrace) {
-                                                                          print("❌ Error loading dish image: $error");
-                                                                          return Icon(Icons.image_not_supported, size: 20, color: Colors.grey[600]);
-                                                                        },
-                                                                      )
-                                                                    : Icon(Icons.restaurant_menu, size: 20, color: Colors.grey[500]), // Icon if no image
-                                                                );
-                                                              }
-                                                  ),
-                                                )
-                                              else
-                                                Container(
-                                                  width: 40,
-                                                  height: 40,
-                                                  decoration: BoxDecoration(
-                                                    color: Colors.grey[200],
-                                                    borderRadius: BorderRadius.circular(6),
-                                                  ),
-                                                  child: Icon(Icons.restaurant_menu, size: 20, color: Colors.grey[500]),
-                                                ),
-                                              SizedBox(height: 4),
-                                              Text(
-                                                dish['nom'] ?? 'Inconnu',
-                                                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-                                                maxLines: 2,
-                                                overflow: TextOverflow.ellipsis,
+                                          if (_matchingDishes[0]['price'] != null || _matchingDishes[0]['prix'] != null)
+                                            Container(
+                                              margin: const EdgeInsets.only(right: 8),
+                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                              decoration: BoxDecoration(
+                                                color: Colors.green.shade100,
+                                                borderRadius: BorderRadius.circular(8),
                                               ),
-                                              SizedBox(height: 4),
-                                              Row(
-                                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                                children: [
-                                                  Text(
-                                                    price,
-                                                    style: TextStyle(fontSize: 12, color: Colors.green[700]),
-                                                  ),
-                                                  if (note != '-')
-                                                    Row(
-                                                      children: [
-                                                        Icon(Icons.star, size: 14, color: Colors.amber),
-                                                        SizedBox(width: 2),
-                                                        Text(note, style: TextStyle(fontSize: 12)),
-                                                      ],
+                                              child: Text(
+                                                '${_matchingDishes[0]['price'] ?? _matchingDishes[0]['prix']} €',
+                                                style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green.shade800, fontSize: 13),
+                                              ),
+                                            ),
+                                          if (_matchingDishes[0]['nutri_score'] != null)
+                                                Container(
+                                              margin: const EdgeInsets.only(right: 8),
+                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                                  decoration: BoxDecoration(
+                                                color: Colors.orange.shade100,
+                                                borderRadius: BorderRadius.circular(8),
+                                              ),
+                                              child: Text(
+                                                'Nutri-score: ${_matchingDishes[0]['nutri_score']}',
+                                                style: TextStyle(fontWeight: FontWeight.bold, color: Colors.orange.shade800, fontSize: 13),
+                                              ),
+                                            ),
+                                          if (_matchingDishes[0]['calories'] != null)
+                                            Container(
+                                              margin: const EdgeInsets.only(right: 8),
+                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                              decoration: BoxDecoration(
+                                                color: Colors.purple.shade50,
+                                                borderRadius: BorderRadius.circular(8),
+                                              ),
+                                              child: Text(
+                                                '${_matchingDishes[0]['calories']} kcal',
+                                                style: TextStyle(fontWeight: FontWeight.bold, color: Colors.purple.shade800, fontSize: 13),
+                                              ),
                                                     ),
                                                 ],
                                               ),
                                             ],
                                           ),
                                         ),
+                              ],
                                       ),
-                                    );
-                                  },
                                 ),
                               ),
                             ],
                           ),
                         ),
                     ],
-                  ),
-                ),
-                        ],
                       ),
                     ],
                   ),
@@ -1155,6 +1540,48 @@ class MapRestaurantScreenState extends State<MapRestaurantScreen> with Automatic
                 ),
               ),
             ),
+          
+          // Search in this area button
+          if (_isMapReady && _cameraPosition != null && _cameraPosition!.zoom > 13 && !_isSearchInAreaMode)
+            Positioned(
+              top: 70,
+              left: 16,
+              right: 16,
+              child: AnimatedOpacity(
+                opacity: 1.0,
+                duration: const Duration(milliseconds: 200),
+                child: ElevatedButton.icon(
+                  icon: const Icon(Icons.search),
+                  label: const Text('Rechercher dans cette zone'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: mapcolors.MapColors.restaurantPrimary,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    elevation: 4,
+                  ),
+                  onPressed: _searchInThisArea,
+                ),
+              ),
+            ),
+            
+          // Reset search button (only when in area search mode)
+          if (_isMapReady && _isSearchInAreaMode)
+            Positioned(
+              top: 70,
+              right: 16,
+              child: AnimatedOpacity(
+                opacity: 1.0,
+                duration: const Duration(milliseconds: 200),
+                child: FloatingActionButton.extended(
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Réinitialiser'),
+                  backgroundColor: Colors.white,
+                  foregroundColor: mapcolors.MapColors.restaurantPrimary,
+                  elevation: 4,
+                  onPressed: _resetSearch,
+                ),
+              ),
+            ),
         ],
       ),
       // Ajouter le FloatingActionButton pour les filtres
@@ -1301,10 +1728,29 @@ class MapRestaurantScreenState extends State<MapRestaurantScreen> with Automatic
   }
 
   // Méthode pour naviguer vers différentes cartes
-  void _navigateToMapScreen(String mapType) {
-    if (mapType == 'restaurant') return; // Déjà sur cette carte
-    
-    // Utiliser l'extension NavigationHelper définie dans main.dart
+  void _navigateToMapScreen(dynamic value) {
+    String mapType;
+    if (value is int) {
+      switch (value) {
+        case 0:
+          mapType = 'restaurant';
+          break;
+        case 1:
+          mapType = 'leisure';
+          break;
+        case 2:
+          mapType = 'wellness';
+          break;
+        case 3:
+          mapType = 'friends';
+          break;
+        default:
+          mapType = 'restaurant';
+      }
+    } else {
+      mapType = value.toString();
+    }
+    if (mapType == 'restaurant') return;
     context.changeMapType(mapType);
   }
 
@@ -1312,16 +1758,138 @@ class MapRestaurantScreenState extends State<MapRestaurantScreen> with Automatic
   void _addRestaurantMarkers(List<dynamic> restaurants) {
     if (!mounted) return;
     final Set<gmaps.Marker> newMarkers = {};
+    
+    // Ajouter le marqueur de localisation de l'utilisateur si nécessaire
+    if (_isUsingLiveLocation) {
     _addUserLocationMarker(targetSet: newMarkers);
+    }
+    
+    // Rechercher des items spécifiques dans le menu
     for (final restaurantData in restaurants) {
       if (restaurantData is Map<String, dynamic>) {
         final double score = (restaurantData['relevanceScore'] as num?)?.toDouble() ?? 0.0;
-        _addScoredMarker(newMarkers, restaurantData, score);
+        
+        // Si on recherche un item spécifique, trouver les items correspondants
+        List<Map<String, dynamic>> matchingItems = [];
+        if (_itemKeywords != null && _itemKeywords!.isNotEmpty) {
+          // Chercher dans les différentes structures de menu
+          final menuPaths = [
+            'structured_data.Menus Globaux.inclus.items',
+            'Menus Globaux.inclus.items',
+            'structured_data.Items Indépendants.items',
+            'Items Indépendants.items',
+            'menu'
+          ];
+          
+          for (final path in menuPaths) {
+            final parts = path.split('.');
+            dynamic current = restaurantData;
+            bool pathExists = true;
+            
+            // Naviguer dans l'objet selon le chemin
+            for (final part in parts) {
+              if (current == null || current is! Map<String, dynamic> || !current.containsKey(part)) {
+                pathExists = false;
+                break;
+              }
+              current = current[part];
+            }
+            
+            // Si le chemin existe et que c'est une liste, chercher les items correspondants
+            if (pathExists && current is List) {
+              for (final item in current) {
+                if (item is Map<String, dynamic>) {
+                  final itemName = item['name'] ?? item['nom'] ?? '';
+                  final itemDesc = item['description'] ?? '';
+                  
+                  if (itemName.toString().toLowerCase().contains(_itemKeywords!.toLowerCase()) ||
+                      itemDesc.toString().toLowerCase().contains(_itemKeywords!.toLowerCase())) {
+                    // Ajouter à la liste des items correspondants
+                    matchingItems.add(item);
+                  }
+                }
+              }
+            }
+          }
+        }
+        
+        // Garder trace des items correspondants
+        if (matchingItems.isNotEmpty) {
+          restaurantData['matchingItems'] = matchingItems;
+        }
+        
+        // Créer un snippet plus détaillé si des items correspondent
+        String snippet = _buildSnippet(restaurantData);
+        if (matchingItems.isNotEmpty) {
+          final List<String> itemNames = matchingItems.map((item) => 
+            "${item['name'] ?? item['nom'] ?? 'Item'} (${item['price'] ?? item['prix'] ?? '€'})").toList();
+          
+          snippet += "\n🍽️ Plats correspondants: ${itemNames.join(', ')}";
+        }
+        
+        // Ajouter le marker avec le snippet amélioré
+        final marker = gmaps.Marker(
+          markerId: gmaps.MarkerId(restaurantData['_id'].toString()),
+          position: _getRestaurantPosition(restaurantData),
+          icon: _getMarkerIcon(restaurantData),
+          infoWindow: gmaps.InfoWindow(
+            title: restaurantData['name'],
+            snippet: snippet,
+          ),
+          onTap: () {
+            setState(() {
+              _selectedRestaurant = restaurantData;
+              if (matchingItems.isNotEmpty) {
+                _matchingDishes = matchingItems;
+              } else {
+                _matchingDishes = [];
+              }
+            });
+          },
+        );
+        
+        newMarkers.add(marker);
       }
     }
+    
     setState(() {
       _markers = newMarkers;
     });
+  }
+  
+  /// Obtient la position géographique d'un restaurant en gérant les différents formats
+  gmaps.LatLng _getRestaurantPosition(Map<String, dynamic> restaurant) {
+    // Format GeoJSON (MongoDB)
+    if (restaurant['gps_coordinates'] != null && 
+        restaurant['gps_coordinates']['coordinates'] != null && 
+        restaurant['gps_coordinates']['coordinates'] is List && 
+        restaurant['gps_coordinates']['coordinates'].length >= 2) {
+      final lng = (restaurant['gps_coordinates']['coordinates'][0] as num).toDouble();
+      final lat = (restaurant['gps_coordinates']['coordinates'][1] as num).toDouble();
+      return gmaps.LatLng(lat, lng);
+    } 
+    // Format Google Maps API
+    else if (restaurant['geometry'] != null && restaurant['geometry']['location'] != null) {
+      final lat = restaurant['geometry']['location']['lat'] is double ? 
+        restaurant['geometry']['location']['lat'] as double : 
+        double.tryParse(restaurant['geometry']['location']['lat'].toString()) ?? 0.0;
+      final lng = restaurant['geometry']['location']['lng'] is double ? 
+        restaurant['geometry']['location']['lng'] as double : 
+        double.tryParse(restaurant['geometry']['location']['lng'].toString()) ?? 0.0;
+      return gmaps.LatLng(lat, lng);
+    } 
+    // Format simple lat/lng
+    else if (restaurant['latitude'] != null && restaurant['longitude'] != null) {
+      final lat = (restaurant['latitude'] is num) ? 
+        (restaurant['latitude'] as num).toDouble() : 
+        double.tryParse(restaurant['latitude'].toString()) ?? 0.0;
+      final lng = (restaurant['longitude'] is num) ? 
+        (restaurant['longitude'] as num).toDouble() : 
+        double.tryParse(restaurant['longitude'].toString()) ?? 0.0;
+      return gmaps.LatLng(lat, lng);
+    } 
+    // Valeur par défaut
+    return const gmaps.LatLng(0, 0);
   }
   
   /// Calcule un score de pertinence pour un restaurant basé sur plusieurs critères
@@ -1605,14 +2173,37 @@ class MapRestaurantScreenState extends State<MapRestaurantScreen> with Automatic
 
   // Au moment de créer la carte, définir la position et le zoom
   void _onMapCreated(gmaps.GoogleMapController controller) {
-    // Réduire le nombre d'opérations dans cette méthode
     _mapController = controller;
     
-    // Utiliser Future.delayed pour ne pas bloquer le thread principal
-    Future.delayed(Duration.zero, () {
+    // Utiliser Future.microtask pour s'assurer que le widget est monté
+    Future.microtask(() {
+      if (!mounted) return;
+      setState(() {
+        _isMapReady = true;
+      });
+      
+      // Suivre la position de la caméra
+      controller.getVisibleRegion().then((region) {
+        final center = gmaps.LatLng(
+          (region.northeast.latitude + region.southwest.latitude) / 2,
+          (region.northeast.longitude + region.southwest.longitude) / 2,
+        );
+        
+        controller.getZoomLevel().then((zoomLevel) {
+          if (mounted) {
+            // Utiliser setState pour mettre à jour _cameraPosition
+            setState(() {
+              _cameraPosition = gmaps.CameraPosition(
+                target: center,
+                zoom: zoomLevel,
+              );
+            });
+          }
+        });
+      });
+      
       // Si un zoom initial est fourni, l'utiliser
-      if (widget.initialZoom != null && mounted) {
-        // Animer la caméra vers la position initiale avec le zoom fourni
+      if (widget.initialZoom != null) {
         _mapController?.animateCamera(
           gmaps.CameraUpdate.newLatLngZoom(
             _initialPosition,
@@ -1621,11 +2212,65 @@ class MapRestaurantScreenState extends State<MapRestaurantScreen> with Automatic
         );
       }
       
-      // Charger les restaurants
-      if (mounted) {
         _fetchRestaurants();
-      }
     });
+  }
+  
+  // Ajouter la détection du mouvement de la caméra
+  void _onCameraMove(gmaps.CameraPosition position) {
+    // Utiliser setState pour mettre à jour _cameraPosition
+    setState(() {
+      _cameraPosition = position;
+    });
+  }
+  
+  // Fonction pour rechercher dans la zone visible
+  void _searchInThisArea() {
+    if (_cameraPosition != null) {
+      setState(() {
+        _currentLocation = _cameraPosition!.target;
+        _isSearchInAreaMode = true;
+        
+        final zoom = _cameraPosition!.zoom;
+        if (zoom > 14) {
+          _searchRadius = 1.0; // 1km
+        } else if (zoom > 12) {
+          _searchRadius = 3.0; // 3km
+        } else {
+          _searchRadius = 5.0; // 5km par défaut
+        }
+        
+        _selectedRadius = _searchRadius * 1000;
+      });
+      
+      _clearResults(); // Appeler la fonction définie
+      _fetchRestaurants();
+    }
+  }
+  
+  // Réinitialiser la recherche
+  void _resetSearch() {
+    setState(() {
+      _isSearchInAreaMode = false;
+      _searchRadius = 5.0; // Rayon par défaut
+      _selectedRadius = 5000; // Rayon par défaut pour le slider
+      
+      // Revenir à la position de l'utilisateur si disponible (_currentLocation est la position GPS)
+      // Pas besoin de réassigner _currentLocation s'il représente déjà la pos user
+    });
+    
+    // Animer la caméra vers la position utilisateur
+    if (_currentLocation != null && _mapController != null) { // Correction: _currentLocation et _mapController
+      _mapController!.animateCamera(
+        gmaps.CameraUpdate.newLatLngZoom(
+          _currentLocation!, // Correction: Utiliser _currentLocation
+          14,
+        ),
+      );
+    }
+    
+    _clearResults(); // Correction: Appeler la fonction définie
+    _fetchRestaurants();
   }
 
   // Méthode pour réinitialiser tous les filtres
@@ -2064,6 +2709,12 @@ class MapRestaurantScreenState extends State<MapRestaurantScreen> with Automatic
 
   /// Ajoute ou met à jour le marqueur de la position de l'utilisateur
   void _addUserLocationMarker({Set<gmaps.Marker>? targetSet}) {
+    // Si ce n'est pas la localisation en direct, ne pas afficher le marqueur bleu
+    // pour éviter la confusion lors de "recherche dans cette zone"
+    if (!_isUsingLiveLocation) {
+      return;
+    }
+    
     if (_currentLocation != null && mounted) {
       // Use the loaded custom icon or a fallback
       final icon = _userLocationIcon ?? gmaps.BitmapDescriptor.defaultMarkerWithHue(gmaps.BitmapDescriptor.hueAzure);
@@ -2152,6 +2803,12 @@ class MapRestaurantScreenState extends State<MapRestaurantScreen> with Automatic
     final double relevanceScore = (restaurant['relevanceScore'] ?? 0).toDouble();
     final bool isTopMatch = relevanceScore >= 90;
 
+    // Définir les listes locales pour les IDs
+    final List<String> allInterestIds = (restaurant['interests'] as List<dynamic>?)?.cast<String>() ?? [];
+    final List<String> friendInterestIds = (restaurant['friendsInterests'] as List<dynamic>?)?.cast<String>() ?? [];
+    final List<String> allChoiceIds = (restaurant['choices'] as List<dynamic>?)?.cast<String>() ?? [];
+    final List<String> friendChoiceIds = (restaurant['friendsChoices'] as List<dynamic>?)?.cast<String>() ?? [];
+
     Widget statCol({
       required String emoji,
       required int total,
@@ -2209,12 +2866,89 @@ class MapRestaurantScreenState extends State<MapRestaurantScreen> with Automatic
       );
     }
 
-    void _showDetailsDialog(String title, String type) {
+    void _showDetailsDialog(String title, String type, List<String> allIds, List<String> friendsIds) {
       showDialog(
         context: context,
         builder: (context) => AlertDialog(
           title: Text(title),
-          content: Text('Affichage détaillé des $type (à implémenter)'),
+          content: Container(
+            width: double.maxFinite,
+            constraints: BoxConstraints(maxHeight: 300),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (allIds.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Center(
+                      child: Text(
+                        'Aucun $type pour le moment',
+                        style: TextStyle(color: Colors.grey[600]),
+                      ),
+                    ),
+                  )
+                else ...[
+                  Text(
+                    'Total: ${allIds.length}',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  
+                  if (friendsIds.isNotEmpty) ...[
+                    SizedBox(height: 16),
+                    Text(
+                      'Amis: ${friendsIds.length}',
+                      style: TextStyle(fontWeight: FontWeight.bold, color: type == 'intérêts' ? Colors.pinkAccent : Colors.teal),
+                    ),
+                    SizedBox(height: 8),
+                    Container(
+                      padding: EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: (type == 'intérêts' ? Colors.pinkAccent : Colors.teal).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: friendsIds.map((id) {
+                          // Ici, idéalement, nous récupérerions le nom/avatar de l'ami
+                          // Pour l'instant, affichons juste l'ID avec style
+                          return Container(
+                            padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: (type == 'intérêts' ? Colors.pinkAccent : Colors.teal).withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Text(
+                              'Ami ${id.substring(0, 4)}...',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: type == 'intérêts' ? Colors.pinkAccent : Colors.teal,
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  ],
+                  
+                  SizedBox(height: 16),
+                  
+                  if (allIds.length > friendsIds.length) ...[
+                    Text(
+                      'Autres personnes: ${allIds.length - friendsIds.length}',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    SizedBox(height: 8),
+                    Text(
+                      'Les autres personnes qui ont montré leur ${type.substring(0, type.length - 1)} ne sont pas affichées.',
+                      style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                    ),
+                  ],
+                ],
+              ],
+            ),
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
@@ -2236,7 +2970,12 @@ class MapRestaurantScreenState extends State<MapRestaurantScreen> with Automatic
           color: Colors.amber[800],
           friendColor: Colors.pinkAccent,
           highlight: totalInterests > 0,
-          onTap: () => _showDetailsDialog('Intérêts', 'intérêts'),
+          onTap: () => _showDetailsDialog(
+            'Intérêts', 
+            'intérêts',
+            allInterestIds, // Utilise la variable locale
+            friendInterestIds, // Utilise la variable locale
+          ),
         ),
         statCol(
           emoji: '✅',
@@ -2246,7 +2985,12 @@ class MapRestaurantScreenState extends State<MapRestaurantScreen> with Automatic
           color: Colors.green,
           friendColor: Colors.teal,
           highlight: totalChoices > 0,
-          onTap: () => _showDetailsDialog('Choices', 'choices'),
+          onTap: () => _showDetailsDialog(
+            'Choices', 
+            'choices',
+            allChoiceIds, // Utilise la variable locale
+            friendChoiceIds, // Utilise la variable locale
+          ),
         ),
         if (isTopMatch)
           Container(
@@ -2267,6 +3011,26 @@ class MapRestaurantScreenState extends State<MapRestaurantScreen> with Automatic
           ),
       ],
     );
+  }
+
+  // Définition de la méthode manquante pour effacer les résultats
+  void _clearResults() {
+    setState(() {
+      _markers.clear();
+      _restaurantResults = [];
+      
+      // Si on n'est pas en mode recherche par zone, on remet le marqueur de position utilisateur
+      if (!_isSearchInAreaMode && _currentLocation != null) {
+        _markers.add(
+          gmaps.Marker(
+            markerId: const gmaps.MarkerId('user_location'),
+            position: _currentLocation!,
+            icon: _userLocationIcon ?? gmaps.BitmapDescriptor.defaultMarker,
+            zIndex: 2,
+          ),
+        );
+      }
+    });
   }
 } 
 

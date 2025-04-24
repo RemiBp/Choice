@@ -5,7 +5,7 @@ class MapSelector extends StatelessWidget {
   final int currentIndex;
   final int mapCount;
   final Function(String) onMapSelected;
-  final List<String> mapTypes = ['restaurant', 'leisure', 'wellness', 'friends'];
+  final List<String> mapTypes = ['restaurant', 'leisure', 'beautyPlace', 'friends'];
   final List<IconData> mapIcons = [
     Icons.restaurant,
     Icons.theater_comedy,

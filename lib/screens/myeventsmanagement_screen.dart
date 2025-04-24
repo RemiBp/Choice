@@ -3097,11 +3097,41 @@ class _MyEventsManagementScreenState extends State<MyEventsManagementScreen>
           ? '${_oldPriceController.text}€' 
           : null;
       
+      // Récupération des informations du producteur pour associer le lieu
+      String lieu = event['lieu'] ?? '';
+      String adresse = event['adresse'] ?? '';
+      
+      // Si les champs lieu/adresse sont vides, essayer de récupérer depuis producerData
+      if ((lieu.isEmpty || adresse.isEmpty) && _producerData != null) {
+        lieu = lieu.isEmpty ? (_producerData!['lieu'] ?? _producerData!['name'] ?? '') : lieu;
+        adresse = adresse.isEmpty ? (_producerData!['adresse'] ?? _producerData!['address'] ?? '') : adresse;
+      }
+      
+      // Si toujours vide et producerId disponible, essayer de les récupérer
+      if ((lieu.isEmpty || adresse.isEmpty) && widget.producerId.isNotEmpty) {
+        try {
+          final response = await http.get(
+            Uri.parse('${await getBaseUrl()}/api/leisureProducers/${widget.producerId}')
+          );
+          
+          if (response.statusCode == 200) {
+            final data = json.decode(response.body);
+            lieu = lieu.isEmpty ? (data['lieu'] ?? data['name'] ?? '') : lieu;
+            adresse = adresse.isEmpty ? (data['adresse'] ?? data['address'] ?? '') : adresse;
+          }
+        } catch (e) {
+          print('❌ Erreur lors de la récupération des données du producteur: $e');
+        }
+      }
+      
       // Construction du document selon la structure exacte de MongoDB
       final Map<String, dynamic> eventData = {
         'intitulé': _titleController.text,
+        'title': _titleController.text, // Ajouter title pour compatibilité
         'détail': _descriptionController.text,
+        'description': _descriptionController.text, // Ajouter description pour compatibilité
         'catégorie': _selectedCategory,
+        'category': _selectedCategory, // Ajouter category pour compatibilité
         'tags': _selectedTags,
         'date_debut': dateDebutFormatted,
         'date_fin': dateFinFormatted,
@@ -3110,8 +3140,20 @@ class _MyEventsManagementScreenState extends State<MyEventsManagementScreen>
         'prix_reduit': prixReduit,
         'ancien_prix': ancienPrix,
         'published': event['published'] ?? true,
-        'last_updated': DateTime.now().toIso8601String(),
+        'lieu': lieu,
+        'venue': lieu, // Ajouter venue pour compatibilité
+        'adresse': adresse,
+        'address': adresse, // Ajouter address pour compatibilité
+        'updated_at': DateTime.now().toIso8601String(),
       };
+      
+      // Conserver l'ID du producteur
+      eventData['producer_id'] = event['producer_id'] ?? widget.producerId;
+      
+      // Conserver les statistiques
+      eventData['interest_count'] = event['interest_count'] ?? 0;
+      eventData['choice_count'] = event['choice_count'] ?? 0;
+      eventData['comments_count'] = event['comments_count'] ?? 0;
       
       // Si une image a été sélectionnée, la convertir en base64
       if (_imageBytes != null) {
@@ -3119,24 +3161,8 @@ class _MyEventsManagementScreenState extends State<MyEventsManagementScreen>
         eventData['image'] = 'data:image/jpeg;base64,$base64Image';
       }
       
-      // Conserver l'ID du producteur
-      eventData['producer_id'] = event['producer_id'] ?? widget.producerId;
-      
-      // Conserver le lieu et l'adresse s'ils existent
-      if (event['lieu'] != null) {
-        eventData['lieu'] = event['lieu'];
-      }
-      if (event['adresse'] != null) {
-        eventData['adresse'] = event['adresse'];
-      }
-      
-      // Conserver les statistiques
-      eventData['interest_count'] = event['interest_count'] ?? 0;
-      eventData['choice_count'] = event['choice_count'] ?? 0;
-      eventData['comments_count'] = event['comments_count'] ?? 0;
-      
       // Utiliser la route correcte pour l'API selon la structure du projet
-      final baseUrl = ApiService.baseUrl;
+      final baseUrl = await getBaseUrl();
       Uri url;
       
       // Choisir la bonne route API en fonction de la structure backend

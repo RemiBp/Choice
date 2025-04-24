@@ -17,14 +17,24 @@ class ApiConfig {
   // Délai entre les tentatives de reconnexion (en secondes)
   static const int retryDelay = 2;
   
-  // Configuration des endpoints
+  // Constants for endpoints
+  static const String RESTAURANTS_ENDPOINT = '/api/restaurants';
+  static const String LEISURE_ENDPOINT = '/api/leisure';
+  static const String LEISURE_PRODUCERS_ENDPOINT = '/api/leisureProducers';
+  // static const String WELLNESS_ENDPOINT = '/api/wellness'; // REMOVED - Merged into beauty
+  static const String BEAUTY_PLACES_ENDPOINT = '/api/beauty_places';
+  static const String BEAUTY_PRODUCERS_ENDPOINT = '/api/beauty';
+  static const String UNIFIED_ENDPOINT = '/api/unified';
+
+  // Map for easy access - ensure keys match expected types
   static const Map<String, String> endpoints = {
-    'wellness': '/api/beauty_wellness',
-    'producers': '/api/producers',
-    'places': '/api/beauty_places',
-    'hotspots': '/api/location-history/hotspots',
-    'auth': '/api/wellness/auth',
-    'users': '/api/users',
+    'restaurant': RESTAURANTS_ENDPOINT,
+    'leisure': LEISURE_ENDPOINT,
+    'leisureProducer': LEISURE_PRODUCERS_ENDPOINT,
+    // 'wellness': WELLNESS_ENDPOINT, // REMOVED
+    'beautyPlace': BEAUTY_PLACES_ENDPOINT,
+    'beautyProducer': BEAUTY_PRODUCERS_ENDPOINT,
+    'unified': UNIFIED_ENDPOINT,
   };
   
   // Nom de la collection MongoDB (pour référence)
@@ -84,7 +94,6 @@ class ApiConfig {
   }
 
   // API endpoints - à adapter selon les besoins de la partie wellness
-  static const String WELLNESS_ENDPOINT = '/api/wellness';
   static const String WELLNESS_AUTH_ENDPOINT = '/api/wellness/auth';
   static const String WELLNESS_BOOKINGS_ENDPOINT = '/api/wellness/bookings';
   static const String WELLNESS_SERVICES_ENDPOINT = '/api/wellness/services';

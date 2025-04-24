@@ -165,5 +165,12 @@
     "forbidden": "Forbidden",
     "invalid_input": "Invalid input",
     "validation_error": "Validation error"
+  },
+  "my_offers_screen": {
+    "app_bar_title": "My Offers",
+    "error_loading": "Error loading offers",
+    "retry": "Retry",
+    "no_offers": "You don't have any offers at the moment.",
+    "expired_status": "Expired"
   }
 } 

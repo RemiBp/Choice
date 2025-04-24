@@ -165,5 +165,12 @@
     "forbidden": "Interdit",
     "invalid_input": "Entrée invalide",
     "validation_error": "Erreur de validation"
+  },
+  "my_offers_screen": {
+    "app_bar_title": "Mes Offres",
+    "error_loading": "Erreur lors du chargement des offres",
+    "retry": "Réessayer",
+    "no_offers": "Vous n'avez aucune offre pour le moment.",
+    "expired_status": "Expirée"
   }
 } 

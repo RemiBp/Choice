@@ -1371,26 +1371,35 @@ class MapService {
     final baseUrl = constants.getBaseUrl();
     final uri = Uri.parse(baseUrl + '/api/producers/advanced-search').replace(queryParameters: queryParams);
     print('🔍 [fetchAdvancedRestaurants] GET $uri');
+    
     try {
-      final response = await http.get(uri, headers: {'Content-Type': 'application/json'});
+      // Ajouter un timeout pour éviter les attentes trop longues
+      final client = http.Client();
+      final request = http.Request('GET', uri);
+      request.headers['Content-Type'] = 'application/json';
+      request.headers['Accept'] = 'application/json';
+      
+      // Ajouter un timeout de 15 secondes
+      final streamedResponse = await client.send(request).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () {
+          client.close();
+          throw TimeoutException('La requete a mis trop de temps a s\'executer');
+        },
+      );
+      
+      // Lire la réponse en streaming pour les gros résultats
+      final response = await http.Response.fromStream(streamedResponse);
+      
       if (response.statusCode == 200) {
         return json.decode(response.body) as Map<String, dynamic>;
       } else {
-        print('❌ Erreur API: ${response.statusCode} - ${response.body}');
+        print('❌ Erreur API: ${response.statusCode} - ${response.body.substring(0, math.min(200, response.body.length))}...');
         return {'success': false, 'message': 'Erreur API', 'results': []};
       }
     } catch (e) {
       print('❌ Erreur réseau: $e');
-      return {'success': false, 'message': 'Erreur réseau', 'results': []};
+      return {'success': false, 'message': 'Erreur réseau: ${e.toString()}', 'results': []};
     }
   }
-}
-
-// Classe personnalisée pour les exceptions de timeout
-class TimeoutException implements Exception {
-  final String message;
-  TimeoutException(this.message);
-  
-  @override
-  String toString() => message;
 } 

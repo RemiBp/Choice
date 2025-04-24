@@ -21,7 +21,7 @@ class PremiumFeatureService {
     try {
       final token = await AuthService.getToken(); // Get token
       final response = await http.get(
-        Uri.parse('${constants.getBaseUrl()}/api/subscription/producer/$producerId/subscription'),
+        Uri.parse('${constants.getBaseUrl()}/api/premium-features/subscription-info/$producerId'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token', // Add token header
@@ -32,17 +32,11 @@ class PremiumFeatureService {
         final data = json.decode(response.body);
         return data;
       } else {
-        throw Exception('Erreur lors de la récupération des informations d\'abonnement');
+        throw Exception('Erreur lors de la récupération des informations d\'abonnement (Code: ${response.statusCode})');
       }
     } catch (e) {
-      print('❌ Erreur lors de la récupération des informations d\'abonnement: $e');
-      // Retourner un niveau gratuit par défaut en cas d'erreur
-      return {
-        'subscription': {
-          'level': 'gratuit',
-          'active': true,
-        }
-      };
+      print('❌ Erreur dans getSubscriptionInfo: $e');
+      rethrow;
     }
   }
   
@@ -55,8 +49,7 @@ class PremiumFeatureService {
     
     try {
       final token = await AuthService.getToken(); // Get token
-      // Appel à l'API pour vérifier l'accès
-      final url = Uri.parse('${constants.getBaseUrl()}/api/subscription/check-feature-access?producerId=$producerId&featureId=$featureId'); // Pass params in query
+      final url = Uri.parse('${constants.getBaseUrl()}/api/premium-features/can-access/$producerId/$featureId');
       final response = await http.get(
         url,
         headers: {
@@ -73,52 +66,14 @@ class PremiumFeatureService {
         _updateCache(producerId, featureId, hasAccess);
         
         return hasAccess;
-      } else if (response.statusCode == 403) {
-        // 403 = Accès refusé, pas d'abonnement approprié
+      } else {
+        print('❌ Erreur lors de la vérification de l\'accès (Code: ${response.statusCode}) - Refus d\'accès présumé.');
         _updateCache(producerId, featureId, false);
         return false;
-      } else {
-        throw Exception('Erreur lors de la vérification de l\'accès à la fonctionnalité');
       }
     } catch (e) {
-      print('❌ Erreur lors de la vérification de l\'accès à la fonctionnalité: $e');
-      
-      // En cas d'erreur réseau, vérifier le niveau d'abonnement localement
-      // et faire une vérification basique
-      try {
-        final subscriptionInfo = await getSubscriptionInfo(producerId);
-        final String level = subscriptionInfo['subscription']?['level'] ?? 'gratuit';
-        
-        // Mapping simple des fonctionnalités vers les niveaux minimums requis
-        final featureLevelMap = {
-          'advanced_analytics': 'starter',
-          'audience_demographics': 'pro',
-          'growth_predictions': 'pro',
-          'simple_campaigns': 'pro',
-          'advanced_targeting': 'legend',
-          'campaign_automation': 'legend',
-        };
-        
-        // Ordre des niveaux pour les comparaisons
-        final levelOrder = ['gratuit', 'starter', 'pro', 'legend'];
-        
-        // Niveau minimum requis pour la fonctionnalité
-        final requiredLevel = featureLevelMap[featureId] ?? 'gratuit';
-        
-        // Comparer les niveaux
-        final currentLevelIndex = levelOrder.indexOf(level);
-        final requiredLevelIndex = levelOrder.indexOf(requiredLevel);
-        
-        final hasAccess = currentLevelIndex >= requiredLevelIndex;
-        
-        // Mettre en cache
-        _updateCache(producerId, featureId, hasAccess);
-        
-        return hasAccess;
-      } catch (e) {
-        print('❌ Erreur lors de la vérification locale du niveau d\'abonnement: $e');
-        return false;
-      }
+      print('❌ Erreur dans canAccessFeature: $e');
+      return false;
     }
   }
   

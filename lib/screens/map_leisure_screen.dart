@@ -63,7 +63,7 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> with SingleTickerPr
   // Filter properties
   String _searchKeyword = '';
   bool _showFilterPanel = false;
-  int _selectedFilterIndex = 0; // 0: Lieux, 1: Événements
+  int _selectedFilterIndex = 1; // 0: Lieux, 1: Événements // DEFAULT TO EVENTS
   int _selectedTabIndex = 0; // 0: Général, 1: Détails
   
   // General filters
@@ -394,7 +394,7 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> with SingleTickerPr
         'radius': _selectedRadius,
       };
       
-      // Ajouter les filtres optionnels
+      // --- Common Filters ---
       if (_searchKeyword.isNotEmpty) {
         params['keyword'] = _searchKeyword;
       }
@@ -407,97 +407,61 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> with SingleTickerPr
         params['categories'] = _selectedCategories.join(',');
       }
       
-      // Ajouter les filtres d'émotions
-      if (_selectedEmotions.isNotEmpty) {
-        params['emotions'] = _selectedEmotions.join(',');
-      }
-      
-      // Ajouter les filtres de prix
+      // Price filter (common to both, applied differently in backend)
       if (_priceRange.start > 0 || _priceRange.end < 500) {
-        params['minPrice'] = _priceRange.start.toInt().toString();
-        params['maxPrice'] = _priceRange.end.toInt().toString();
+        if (_priceRange.start > 0) params['minPrice'] = _priceRange.start.toInt().toString();
+        if (_priceRange.end < 500) params['maxPrice'] = _priceRange.end.toInt().toString();
       }
       
-      // Ajouter les filtres de date
-      if (_dateStart != null) {
-        // Format de date ISO pour l'API
-        params['dateStart'] = DateFormat('yyyy-MM-dd').format(_dateStart!);
-      }
+      // --- Endpoint specific logic ---
+      List<dynamic> placesData = [];
+      String endpointPath = '';
       
-      if (_dateEnd != null) {
-        params['dateEnd'] = DateFormat('yyyy-MM-dd').format(_dateEnd!);
-      }
-      
-      // Ajouter les filtres d'heure
-      if (_timeStart != null && _timeStart!.isNotEmpty) {
-        params['timeStart'] = _timeStart;
-      }
-      
-      if (_timeEnd != null && _timeEnd!.isNotEmpty) {
-        params['timeEnd'] = _timeEnd;
-      }
-      
-      // Ajouter les jours de la semaine sélectionnés
-      if (_selectedDays.isNotEmpty) {
-        params['days'] = _selectedDays.join(',');
-      }
-      
-      // Ajouter les autres filtres spécifiques
-      if (_selectedFilterIndex == 0) { // Lieux
+      if (_selectedFilterIndex == 1) { // ==== Fetching EVENTS ==== 
+        endpointPath = '/api/leisure/events'; // Use the main events endpoint
+        print('🔍 Fetching EVENTS...');
+        
+        // Event-specific filters
+        if (_selectedEmotions.isNotEmpty) {
+          params['emotions'] = _selectedEmotions.join(',');
+        }
+        
+        // *** Appel API pour les événements ***
+        // Utilisation directe de http.get car MapService.getLeisureVenues n'est pas adapté
+        final uri = Uri.parse('${constants.getBaseUrl()}$endpointPath').replace(queryParameters: params.map((k, v) => MapEntry(k, v.toString())));
+        print('📞 Calling Event API: ${uri.toString()}');
+        final response = await http.get(uri);
+        
+        if (response.statusCode == 200) {
+          final decodedData = json.decode(response.body);
+          // La réponse peut être une liste directe ou un objet avec une clé 'events' (si debug)
+          if (decodedData is List) {
+            placesData = decodedData;
+          } else if (decodedData is Map && decodedData.containsKey('events')) {
+            placesData = decodedData['events'] as List;
+            print('🐞 Debug info received: ${decodedData['debug']}');
+          }
+        } else {
+          throw Exception('Failed to load events: ${response.statusCode} ${response.body}');
+        }
+      } else { // ==== Fetching VENUES ==== 
+        endpointPath = '/api/leisure/venues';
+        print('🏢 Fetching VENUES...');
+        
+        // Venue-specific filters (supported by backend /venues)
         if (_selectedProducerType != null && _selectedProducerType != 'Tous') {
           params['producerType'] = _selectedProducerType;
         }
-        
         if (_selectedAccessibility.isNotEmpty) {
           params['accessibility'] = _selectedAccessibility.join(',');
         }
+        // Note: sortBy for venues might differ, backend defaults to note
         
-        if (_minMiseEnScene > 0) {
-          params['minMiseEnScene'] = _minMiseEnScene.toString();
-        }
-        
-        if (_minJeuActeurs > 0) {
-          params['minJeuActeurs'] = _minJeuActeurs.toString();
-        }
-        
-        if (_minScenario > 0) {
-          params['minScenario'] = _minScenario.toString();
-        }
-      } else { // Événements
-        if (_selectedEventType != null && _selectedEventType != 'Tous') {
-          params['eventType'] = _selectedEventType;
-        }
-        
-        if (_selectedLineup.isNotEmpty) {
-          params['lineup'] = _selectedLineup.join(',');
-        }
-        
-        if (_minAmbiance > 0) {
-          params['minAmbiance'] = _minAmbiance.toString();
-        }
-        
-        if (_minOrganisation > 0) {
-          params['minOrganisation'] = _minOrganisation.toString();
-        }
-        
-        if (_minProgrammation > 0) {
-          params['minProgrammation'] = _minProgrammation.toString();
-        }
-        
-        if (_familyFriendly) {
-          params['familyFriendly'] = 'true';
-        }
-        
-        if (_sortBy != 'date') {
-          params['sortBy'] = _sortBy;
-        }
+        // *** Appel API pour les lieux via MapService ***
+        print('📞 Calling Venue API via MapService with params: ${params.toString()}');
+        // Assumes getLeisureVenues targets the /venues endpoint correctly
+        placesData = await _mapService.getLeisureVenues(params);
       }
-      
-      print('🔍 Recherche d\'événements autour de (${params['latitude']}, ${params['longitude']}) dans un rayon de ${params['radius']}m');
-      print('📊 Filtres: Catégories=${params['categories'] ?? "toutes"}, Émotions=${params['emotions'] ?? "toutes"}, Dates=${params['dateStart'] ?? "non spécifié"} à ${params['dateEnd'] ?? "non spécifié"}');
-      
-      // Appeler l'API
-      final placesData = await _mapService.getLeisureVenues(params);
       
       if (placesData is List && placesData.isNotEmpty) {
         // Vérifier si les données contiennent bien des coordonnées
@@ -1773,9 +1737,7 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> with SingleTickerPr
                     child: widget_selector.MapSelector(
                       currentIndex: 1, // Index 1 pour la carte loisirs
                       mapCount: 4, // Nombre total de cartes
-                      onMapSelected: (value) {
-                        _navigateToMapScreen(value);
-                      },
+                      onMapSelected: _navigateToMapScreen,
                     ),
                   ),
                   
@@ -1989,10 +1951,29 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> with SingleTickerPr
   }
 
   // Méthode pour naviguer vers différentes cartes
-  void _navigateToMapScreen(String mapType) {
-    if (mapType == 'leisure') return; // Déjà sur cette carte
-    
-    // Utiliser l'extension NavigationHelper définie dans main.dart
+  void _navigateToMapScreen(dynamic value) {
+    String mapType;
+    if (value is int) {
+      switch (value) {
+        case 0:
+          mapType = 'restaurant';
+          break;
+        case 1:
+          mapType = 'leisure';
+          break;
+        case 2:
+          mapType = 'wellness';
+          break;
+        case 3:
+          mapType = 'friends';
+          break;
+        default:
+          mapType = 'leisure';
+      }
+    } else {
+      mapType = value.toString();
+    }
+    if (mapType == 'leisure') return;
     context.changeMapType(mapType);
   }
 
@@ -2144,357 +2125,10 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> with SingleTickerPr
       bottom: 20,
       left: 20,
       right: 20,
-      child: _buildPlaceInfoCard(_selectedPlace!),
+      child: _buildUpdatedPlaceInfoCard(_selectedPlace!),
     );
   }
 
-  // Méthode pour créer la carte d'information détaillée d'un lieu
-  Widget _buildPlaceInfoCard(Place place) {
-    // Identifier si c'est un lieu avec plusieurs événements ou un événement unique
-    final bool isVenue = place.events != null && place.events!.isNotEmpty;
-    final int eventCount = isVenue ? place.events!.length : 0;
-    
-    // Vérifier si ce lieu est dans les signets
-    final String venueId = place.id;
-    final bool isBookmarked = _bookmarkedVenueIds.contains(venueId);
-    
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 8,
-            offset: Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Info principale avec image
-          Stack(
-            children: [
-              // Image/Illustration
-              ClipRRect(
-                borderRadius: BorderRadius.only(
-                  topLeft: Radius.circular(16),
-                  topRight: Radius.circular(16),
-                ),
-                child: place.image.isNotEmpty
-                    ? Image.network(
-                        place.image,
-                        height: 160,
-                        width: double.infinity,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
-                          return Container(
-                            height: 160,
-                            color: mapcolors.MapColors.leisurePrimary.withOpacity(0.3),
-                            child: Center(
-                              child: Icon(
-                                isVenue ? Icons.theater_comedy : Icons.event,
-                                size: 60,
-                                color: mapcolors.MapColors.leisurePrimary,
-                              ),
-                            ),
-                          );
-                        },
-                      )
-                    : Container(
-                        height: 160,
-                        color: mapcolors.MapColors.leisurePrimary.withOpacity(0.3),
-                        child: Center(
-                          child: Icon(
-                            isVenue ? Icons.theater_comedy : Icons.event,
-                            size: 60,
-                            color: mapcolors.MapColors.leisurePrimary,
-                          ),
-                        ),
-                      ),
-              ),
-              
-              // Bouton de signet et partage
-              Positioned(
-                top: 8,
-                right: 8,
-                child: Row(
-                  children: [
-                    // Bouton de signet
-                    Container(
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.9),
-                        shape: BoxShape.circle,
-                      ),
-                      child: IconButton(
-                        icon: Icon(
-                          isBookmarked ? Icons.bookmark : Icons.bookmark_border,
-                          color: isBookmarked ? mapcolors.MapColors.leisurePrimary : Colors.grey[700],
-                        ),
-                        onPressed: () => _toggleBookmark(venueId),
-                        tooltip: isBookmarked ? 'Retirer des favoris' : 'Ajouter aux favoris',
-                      ),
-                    ),
-                    
-                    SizedBox(width: 8),
-                    
-                    // Bouton de partage
-                    Container(
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.9),
-                        shape: BoxShape.circle,
-                      ),
-                      child: IconButton(
-                        icon: Icon(Icons.share, color: Colors.grey[700]),
-                        onPressed: () {
-                          // Partager ce lieu
-                          Share.share(
-                            'Découvre ${place.name} sur Choice!\n\n'
-                            '${place.description}\n\n'
-                            'Adresse: ${place.address}\n\n'
-                            'https://onelink.to/choiceapp?place=${place.id}',
-                          );
-                        },
-                        tooltip: 'Partager',
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          
-          // Contenu informatif
-          Padding(
-            padding: EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Titre avec gestion d'overflow
-                Text(
-                  place.name,
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                SizedBox(height: 8),
-                
-                // Affichage du lieu et notation avec wrapping
-                Wrap(
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  spacing: 4,
-                  children: [
-                    Icon(Icons.location_on, color: Colors.grey[600], size: 16),
-                    Flexible(
-                      child: Text(
-                        place.address,
-                        style: TextStyle(
-                          color: Colors.grey[700],
-                          fontSize: 14,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    if (place.rating > 0) ...[
-                      SizedBox(width: 8),
-                      Icon(Icons.star, color: Colors.amber, size: 16),
-                      Text(
-                        place.rating.toStringAsFixed(1),
-                        style: TextStyle(
-                          color: Colors.grey[700],
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-                
-                SizedBox(height: 8),
-                
-                // Info sur les événements (si c'est un lieu)
-                if (isVenue && eventCount > 0)
-                  Container(
-                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: Colors.grey[100],
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.event, color: mapcolors.MapColors.leisurePrimary, size: 16),
-                        SizedBox(width: 4),
-                        Text(
-                          '$eventCount ${eventCount > 1 ? 'événements' : 'événement'} à venir',
-                          style: TextStyle(
-                            color: Colors.grey[800],
-                            fontWeight: FontWeight.w500,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                
-                SizedBox(height: 12),
-                
-                // Description (si disponible)
-                if (place.description.isNotEmpty && place.description != 'null')
-                  Container(
-                    constraints: BoxConstraints(maxHeight: 80),
-                    child: SingleChildScrollView(
-                      child: Text(
-                        place.description,
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey[800],
-                        ),
-                        maxLines: 4,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ),
-                
-                SizedBox(height: 16),
-                
-                // Boutons d'action avec espacement fixe
-                Row(
-                  children: [
-                    // Bouton de détails
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: () {
-                          // Navigation vers la page détaillée EventLeisureScreen
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => EventLeisureScreen(
-                                eventData: place.rawData,
-                                id: place.id,
-                              ),
-                            ),
-                          );
-                        },
-                        icon: Icon(Icons.info_outline, size: 16),
-                        label: Text('Détails', overflow: TextOverflow.ellipsis),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: mapcolors.MapColors.leisurePrimary,
-                          foregroundColor: Colors.white,
-                          padding: EdgeInsets.symmetric(vertical: 12),
-                        ),
-                      ),
-                    ),
-                    SizedBox(width: 8),
-                    // Bouton d'intérêt ou de réservation
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () {
-                          // TODO: Ajouter aux favoris ou réserver
-                        },
-                        icon: Icon(isVenue ? Icons.favorite_border : Icons.calendar_today, size: 16),
-                        label: Text(
-                          isVenue ? 'Intéressé' : 'Réserver',
-                          overflow: TextOverflow.ellipsis
-                        ),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: mapcolors.MapColors.leisurePrimary,
-                          side: BorderSide(color: mapcolors.MapColors.leisurePrimary),
-                          padding: EdgeInsets.symmetric(vertical: 12),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                
-                // Événements à venir (si c'est un lieu avec plusieurs événements) - Limité pour éviter overflow
-                if (isVenue && eventCount > 0) ...[
-                  SizedBox(height: 16),
-                  Text(
-                    'Événements à venir',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  SizedBox(height: 8),
-                  SizedBox(
-                    height: 90, // Taille fixe pour éviter overflow
-                    child: ListView.builder(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: eventCount > 3 ? 3 : eventCount, // Limite à 3 événements maximum
-                      itemBuilder: (context, index) {
-                        final event = place.events![index];
-                        final String eventTitle = event['intitulé'] ?? event['title'] ?? 'Événement';
-                        final String eventCategory = event['catégorie'] ?? event['category'] ?? '';
-                        
-                        return Container(
-                          width: 180, // Largeur fixe pour éviter overflow
-                          margin: EdgeInsets.only(right: 8, bottom: 4),
-                          decoration: BoxDecoration(
-                            color: Colors.grey[100],
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.grey[300]!),
-                          ),
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(8),
-                            onTap: () {
-                              // Navigation vers la page détaillée de l'événement
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => EventLeisureScreen(
-                                    eventData: event,
-                                    id: event['_id'] ?? event['id'],
-                                  ),
-                                ),
-                              );
-                            },
-                            child: Padding(
-                              padding: EdgeInsets.all(8),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    eventTitle,
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 13,
-                                    ),
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  SizedBox(height: 4),
-                                  if (eventCategory.isNotEmpty)
-                                    Text(
-                                      eventCategory,
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: Colors.grey[700],
-                                      ),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
   
   // Obtenir l'icône correspondant à la catégorie
   IconData _getCategoryIcon(String category) {
@@ -2708,36 +2342,42 @@ class _MapLeisureScreenState extends State<MapLeisureScreen> with SingleTickerPr
       itemBuilder: (context, index) {
         final venue = _bookmarkedVenues[index];
         return Padding(
-          padding: const EdgeInsets.only(bottom: 16.0),
+          padding: const EdgeInsets.only(bottom: 12.0),
           child: LeisureBookmarkWidget(
             venue: venue,
             isBookmarked: true,
             onTap: (venueId) {
               // Afficher les détails du lieu
-              final selectedVenue = _bookmarkedVenues.firstWhere(
-                (v) => v['id']?.toString() == venueId || v['_id']?.toString() == venueId,
-                orElse: () => <String, dynamic>{},
+              final selectedVenueData = _bookmarkedVenues.firstWhere(
+                (v) => (v['id']?.toString() ?? v['_id']?.toString()) == venueId,
+                orElse: () => <String, dynamic>{}, // Return empty map if not found
               );
               
-              if (selectedVenue.isNotEmpty) {
+              if (selectedVenueData.isNotEmpty) {
+                // Ensure rawData is passed if available, otherwise use the venue map itself
+                final rawDataForPlace = selectedVenueData['rawData'] ?? selectedVenueData;
+                final placeToSelect = Place.fromMap(rawDataForPlace); // Create Place object
+                
                 setState(() {
-                  _selectedPlace = Place.fromMap(selectedVenue);
+                  _selectedPlace = placeToSelect; // Use the created Place object
                   _showBookmarksView = false;
                 });
                 
                 // Si la carte est prête, centrer sur le lieu
                 if (_controller.isCompleted) {
-                  _controller.future.then((controller) {
-                    controller.animateCamera(
-                      CameraUpdate.newLatLngZoom(
-                        LatLng(
-                          selectedVenue['latitude'] ?? 0.0,
-                          selectedVenue['longitude'] ?? 0.0,
+                  final double? lat = placeToSelect.latitude;
+                  final double? lng = placeToSelect.longitude;
+                  
+                  if (lat != null && lng != null) {
+                    _controller.future.then((controller) {
+                      controller.animateCamera(
+                        CameraUpdate.newLatLngZoom(
+                          LatLng(lat, lng),
+                          15.0,
                         ),
-                        15.0,
-                      ),
-                    );
-                  });
+                      );
+                    });
+                  }
                 }
               }
             },

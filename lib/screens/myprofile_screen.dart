@@ -18,13 +18,14 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import '../models/post.dart'; // Import PostLocation class
 import '../models/post_location.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../utils/utils.dart'; // Import utils pour getBaseUrl()
+import '../utils/utils.dart'; // Import utils pour getBaseUrl() et getImageProvider
 import 'CreatePostScreen.dart';
-import '../utils.dart' show getImageProvider;
 import 'edit_profile_screen.dart'; // Import EditProfileScreen
 import 'post_detail_screen.dart'; // Import PostDetailScreen
 import 'dart:io'; // Pour File (utilisé dans _ChoiceForm)
 import 'package:choice_app/screens/choice_detail_screen.dart'; // Importer le nouvel écran
+import 'choice_creation_screen.dart'; // Importer l'écran de création de choice
+import 'profile_screen.dart'; // Import ProfileScreen
 
 /// Classe delegate pour TabBar persistant
 class _SliverAppBarDelegate extends SliverPersistentHeaderDelegate {
@@ -75,6 +76,11 @@ class _MyProfileScreenState extends State<MyProfileScreen> with AutomaticKeepAli
   void initState() {
     super.initState();
     _fetchData(); // Lancer la récupération des données
+    
+    // Vérifier périodiquement si nous devons demander le coup de cœur du mois
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkIfShouldAskForFavoriteChoice();
+    });
   }
 
   // Fonction principale pour récupérer les données utilisateur et posts
@@ -285,43 +291,49 @@ class _MyProfileScreenState extends State<MyProfileScreen> with AutomaticKeepAli
    }
 
 
-  /// Récupère les informations minimales d'un utilisateur par son ID
+  /// Récupère les informations minimales d'un utilisateur ou producteur par son ID
   Future<Map<String, dynamic>> _fetchMinimalUserInfo(String userId) async {
-    if (!mounted) return {'_id': userId, 'name': '...', 'profilePicture': null};
-
-        final authService = provider_pkg.Provider.of<AuthService>(context, listen: false);
+    if (!mounted) return {'_id': userId, 'name': '...', 'profilePicture': null, 'type': 'unknown'};
+    final authService = provider_pkg.Provider.of<AuthService>(context, listen: false);
     final token = await authService.getTokenInstance(forceRefresh: false);
     final baseUrl = getBaseUrlFromUtils();
-        
     final headers = {
-          'Content-Type': 'application/json',
+      'Content-Type': 'application/json',
       if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
     };
 
-    try {
-      // Utiliser l'endpoint /info qui est plus léger
-      final url = Uri.parse('$baseUrl/api/users/$userId/info');
-      final response = await http.get(url, headers: headers).timeout(const Duration(seconds: 5));
-
-      if (!mounted) return {'_id': userId, 'name': 'Erreur', 'profilePicture': null};
-      
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        // Retourner un map normalisé avec les clés attendues
-        return {
-          '_id': data['_id']?.toString() ?? userId,
-          'name': data['name'] ?? 'Utilisateur',
-          'profilePicture': data['profilePicture'] ?? data['avatar'], // Gérer les deux clés possibles
-        };
-              } else {
-        print('❌ Erreur récupération info utilisateur ($userId): ${response.statusCode}');
-        return {'_id': userId, 'name': 'Erreur ${response.statusCode}', 'profilePicture': null};
-      }
-    } catch (e) {
-      print('❌ Exception récupération info utilisateur ($userId): $e');
-       if (!mounted) return {'_id': userId, 'name': 'Erreur réseau', 'profilePicture': null};
-      return {'_id': userId, 'name': 'Erreur réseau', 'profilePicture': null};
+    // Helper interne pour fetch info sur un endpoint
+    Future<Map<String, dynamic>?> tryFetch(String url, String type) async {
+      try {
+        final response = await http.get(Uri.parse(url), headers: headers).timeout(const Duration(seconds: 5));
+        if (response.statusCode == 200) {
+          final data = json.decode(response.body);
+          return {
+            '_id': data['_id']?.toString() ?? userId,
+            'name': data['name'] ?? data['username'] ?? 'Utilisateur',
+            'profilePicture': data['profilePicture'] ?? data['avatar'] ?? data['logo'] ?? data['photo_url'],
+            'type': type,
+          };
+        }
+      } catch (_) {}
+      return null;
     }
+
+    // 1. Essayer user
+    final userInfo = await tryFetch('$baseUrl/api/users/$userId/info', 'user');
+    if (userInfo != null) return userInfo;
+    // 2. Essayer producer (restaurant)
+    final producerInfo = await tryFetch('$baseUrl/api/producers/$userId/info', 'producer');
+    if (producerInfo != null) return producerInfo;
+    // 3. Essayer leisureProducer
+    final leisureInfo = await tryFetch('$baseUrl/api/leisureProducers/$userId/info', 'leisureProducer');
+    if (leisureInfo != null) return leisureInfo;
+    // 4. Essayer wellnessProducer
+    final wellnessInfo = await tryFetch('$baseUrl/api/wellnessProducers/$userId/info', 'wellness');
+    if (wellnessInfo != null) return wellnessInfo;
+
+    // Si rien trouvé
+    return {'_id': userId, 'name': 'Inconnu', 'profilePicture': null, 'type': 'unknown'};
   }
 
     /// Récupère les détails d'un ensemble de lieux (restaurants, events, etc.)
@@ -332,10 +344,11 @@ class _MyProfileScreenState extends State<MyProfileScreen> with AutomaticKeepAli
        // Filtrer les IDs invalides
        List<String> validPlaceIds = placeIds
            .where((id) => id.isNotEmpty && mongoose.isValidObjectId(id))
+           .toSet() // Ensure unique IDs
            .toList();
        if (validPlaceIds.isEmpty) return {};
 
-       print("🔄 Fetching details for ${validPlaceIds.length} places...");
+       print("🔄 Fetching details for ${validPlaceIds.length} places using BATCH endpoint...");
 
        Map<String, dynamic> results = {};
        final authService = provider_pkg.Provider.of<AuthService>(context, listen: false);
@@ -346,29 +359,67 @@ class _MyProfileScreenState extends State<MyProfileScreen> with AutomaticKeepAli
        }
        final baseUrl = getBaseUrlFromUtils();
 
-       // TODO: Utiliser un endpoint batch /api/unified/batch?ids=id1,id2,... si disponible
+       try {
+         // Utiliser le nouvel endpoint batch
+         final idsParam = validPlaceIds.join(',');
+         final url = Uri.parse('$baseUrl/api/unified/batch?ids=$idsParam');
+         final response = await http.get(url, headers: headers).timeout(const Duration(seconds: 15)); // Augmenter timeout pour les lots importants
 
-       // Fallback: appels individuels
-       for (String placeId in validPlaceIds) {
-         try {
-           final url = Uri.parse('$baseUrl/api/unified/$placeId'); // Utiliser l'API unifiée
-           final response = await http.get(url, headers: headers).timeout(const Duration(seconds: 5));
-           if (response.statusCode == 200) {
-             results[placeId] = json.decode(response.body);
+         if (!mounted) return {};
+
+         if (response.statusCode == 200) {
+           final decodedBody = json.decode(response.body);
+           if (decodedBody is Map<String, dynamic>) {
+             // La réponse est déjà un Map<String, dynamic> avec les IDs comme clés
+             results = decodedBody;
+             print("✅ Batch fetch successful. Received ${results.length} details.");
            } else {
-             print("❓ Détails non trouvés ou erreur pour $placeId (${response.statusCode})");
-             results[placeId] = {'_id': placeId, 'name': 'Détails indisponibles', 'error': true};
-      }
-    } catch (e) {
-           print("⚠️ Erreur fetch détails pour $placeId: $e");
-           results[placeId] = {'_id': placeId, 'name': 'Erreur réseau', 'error': true};
+             print("❌ Batch fetch response format error: Expected Map, got ${decodedBody.runtimeType}");
+             // Mettre des erreurs pour tous les IDs demandés
+             for (String id in validPlaceIds) {
+                results[id] = {'_id': id, 'name': 'Erreur format réponse', 'error': true};
+             }
+           }
+         } else {
+           print("❌ Erreur batch fetch (${response.statusCode}): ${response.body}");
+           
+           // Si le batch endpoint échoue, on fait fallback sur les appels individuels
+           print("⚠️ Fallback to individual requests...");
+           for (String placeId in validPlaceIds) {
+             try {
+               final url = Uri.parse('$baseUrl/api/unified/$placeId');
+               final response = await http.get(url, headers: headers).timeout(const Duration(seconds: 5));
+               if (response.statusCode == 200) {
+                 results[placeId] = json.decode(response.body);
+               } else {
+                 print("❓ Détails non trouvés ou erreur pour $placeId (${response.statusCode})");
+                 results[placeId] = {'_id': placeId, 'name': 'Détails indisponibles', 'error': true};
+               }
+               // Petite pause pour éviter de surcharger le serveur
+               await Future.delayed(const Duration(milliseconds: 50));
+               if (!mounted) break;
+             } catch (e) {
+               print("⚠️ Erreur fetch détails pour $placeId: $e");
+               results[placeId] = {'_id': placeId, 'name': 'Erreur réseau', 'error': true};
+             }
+           }
          }
-         // Petite pause pour éviter de surcharger le serveur (si appels individuels)
-         await Future.delayed(const Duration(milliseconds: 50));
-          if (!mounted) return results; // Arrêter si le widget est démonté
+       } catch (e) {
+         print("⚠️ Exception batch fetch: $e");
+         // Mettre des erreurs pour tous les IDs demandés
+         for (String id in validPlaceIds) {
+           results[id] = {'_id': id, 'name': 'Erreur réseau', 'error': true};
+         }
        }
 
-       print("✅ Fin fetchPlaceDetails.");
+       // Assurer que tous les IDs demandés ont une entrée (même si c'est une erreur)
+       for (String id in validPlaceIds) {
+         if (!results.containsKey(id)) {
+           results[id] = {'_id': id, 'name': 'Non trouvé', 'error': true};
+         }
+       }
+
+       print("✅ Fin fetchPlaceDetails (batch).");
        return results;
     }
 
@@ -489,9 +540,9 @@ class _MyProfileScreenState extends State<MyProfileScreen> with AutomaticKeepAli
     print("TODO: Implement start conversation with user $targetUserId");
     // Exemple de navigation (à adapter)
     // Navigator.push(context, MaterialPageRoute(builder: (context) => MessagingScreen(targetUserId: targetUserId)));
-     ScaffoldMessenger.of(context).showSnackBar(
-       const SnackBar(content: Text('Fonctionnalite de messagerie a implementer.')),
-     );
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Fonctionnalite de messagerie a implementer')),
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -511,11 +562,11 @@ class _MyProfileScreenState extends State<MyProfileScreen> with AutomaticKeepAli
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-                          backgroundColor: Colors.white,
+      backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-         builder: (modalContext) => DraggableScrollableSheet(
+      builder: (modalContext) => DraggableScrollableSheet(
         initialChildSize: 0.7,
         minChildSize: 0.5,
         maxChildSize: 0.9,
@@ -529,75 +580,200 @@ class _MyProfileScreenState extends State<MyProfileScreen> with AutomaticKeepAli
                 style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
               ),
             ),
-               const Divider(height: 1),
+            const Divider(height: 1),
             Expanded(
               child: ListView.builder(
                 controller: scrollController,
-                   itemCount: userIds.length,
+                itemCount: userIds.length,
                 itemBuilder: (context, index) {
-                     final userId = userIds[index];
-                     // Utiliser FutureBuilder pour charger les infos de chaque user
-                     return FutureBuilder<Map<String, dynamic>>(
-                       future: _fetchMinimalUserInfo(userId),
-                       builder: (context, snapshot) {
-                         Widget leadingWidget = CircleAvatar(backgroundColor: Colors.grey[300]);
-                         Widget titleWidget = Container(height: 10, width: 100, color: Colors.grey[300]);
-                         Widget? subtitleWidget = Container(height: 8, width: 60, color: Colors.grey[200]);
-                         VoidCallback? onTapAction = null;
+                  final userId = userIds[index];
+                  return FutureBuilder<Map<String, dynamic>>(
+                    future: _fetchMinimalUserInfo(userId),
+                    builder: (context, snapshot) {
+                      Widget leadingWidget = CircleAvatar(backgroundColor: Colors.grey[300]);
+                      Widget titleWidget = Container(height: 10, width: 100, color: Colors.grey[300]);
+                      Widget? subtitleWidget = Container(height: 8, width: 60, color: Colors.grey[200]);
+                      VoidCallback? onTapAction;
 
-                         if (snapshot.connectionState == ConnectionState.done) {
-                           if (snapshot.hasError || !snapshot.hasData || snapshot.data == null) {
-                             leadingWidget = const CircleAvatar(child: Icon(Icons.error_outline, color: Colors.red));
-                             titleWidget = Text('Erreur chargement');
-                             subtitleWidget = Text('ID: $userId', style: TextStyle(fontSize: 10, color: Colors.red));
-                           } else {
-                             final userInfo = snapshot.data!;
-                             final profilePic = userInfo['profilePicture'];
-                             final userName = userInfo['name'] ?? 'Utilisateur inconnu';
-                             leadingWidget = CircleAvatar(
-                               backgroundColor: Colors.grey[200],
-                               backgroundImage: (profilePic != null && profilePic is String && profilePic.isNotEmpty)
-                                   ? CachedNetworkImageProvider(profilePic) // Utiliser CachedNetwork
-                              : null,
-                               child: (profilePic == null || !(profilePic is String) || profilePic.isEmpty)
-                          ? const Icon(Icons.person, color: Colors.grey)
-                              : null,
-                             );
-                             titleWidget = Text(userName);
-                             subtitleWidget = null; // Pas de sous-titre par défaut
-                             onTapAction = () {
-                               Navigator.pop(modalContext); // Fermer la modale
-                               // Naviguer vers le profil seulement si ce n'est pas le profil actuel
-                               if (userId != widget.userId) {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                                     builder: (context) => MyProfileScreen(userId: userId, isCurrentUser: false),
-                                   ),
-                                 );
-                               } else {
-                                 print("ℹ️ Clic sur l'utilisateur courant dans la liste.");
-                               }
-                             };
-                           }
-                         }
+                      if (snapshot.connectionState == ConnectionState.done) {
+                        if (snapshot.hasError || !snapshot.hasData || snapshot.data == null) {
+                          leadingWidget = const CircleAvatar(child: Icon(Icons.error_outline, color: Colors.red));
+                          titleWidget = Text('Erreur chargement');
+                          subtitleWidget = Text('ID: $userId', style: TextStyle(fontSize: 10, color: Colors.red));
+                        } else {
+                          final userInfo = snapshot.data!;
+                          final profilePic = userInfo['profilePicture'];
+                          final userName = userInfo['name'] ?? 'Utilisateur inconnu';
+                          final userType = userInfo['type'] ?? 'unknown';
+                          leadingWidget = CircleAvatar(
+                            backgroundColor: Colors.grey[200],
+                            backgroundImage: (profilePic != null && profilePic is String && profilePic.isNotEmpty)
+                                ? CachedNetworkImageProvider(profilePic)
+                                : null,
+                            child: (profilePic == null || !(profilePic is String) || profilePic.isEmpty)
+                                ? const Icon(Icons.person, color: Colors.grey)
+                                : null,
+                          );
+                          titleWidget = Text(userName);
+                          subtitleWidget = Text(_getTypeLabel(userType), style: const TextStyle(fontSize: 12, color: Colors.teal));
+                          onTapAction = () {
+                            Navigator.pop(modalContext); // Fermer la modale
+                            // Naviguer selon le type
+                            if (userType == 'user') {
+                              if (userId != widget.userId) {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => ProfileScreen(userId: userId, viewMode: 'public'),
+                                  ),
+                                );
+                              }
+                            } else if (userType == 'producer' || userType == 'restaurant') {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => ProducerScreen(producerId: userId),
+                                ),
+                              );
+                            } else if (userType == 'leisureProducer' || userType == 'leisure') {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => ProducerLeisureScreen(producerId: userId),
+                                ),
+                              );
+                            } else if (userType == 'wellness') {
+                              // TODO: Créer WellnessProducerScreen si besoin
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => ProducerScreen(producerId: userId),
+                                ),
+                              );
+                            } else {
+                              // Fallback
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Type de profil inconnu ou non supporté.')),
+                              );
+                            }
+                          };
+                        }
+                      }
 
-                         return ListTile(
-                           leading: leadingWidget,
-                           title: titleWidget,
-                           subtitle: subtitleWidget,
-                           onTap: onTapAction,
+                      return ListTile(
+                        leading: leadingWidget,
+                        title: titleWidget,
+                        subtitle: subtitleWidget,
+                        onTap: onTapAction,
                       );
                     },
                   );
                 },
               ),
-                          ),
-                      ],
-                    ),
-                  ),
+            ),
+          ],
+        ),
+      ),
     );
   }
+
+    /// Affiche la liste stylisée des intérêts (lieux favoris)
+    void _showInterestsListModal(BuildContext context, List<String> interestIds, String title) {
+      if (!mounted) return;
+      if (interestIds.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Liste "$title" vide.')),
+        );
+        return;
+      }
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.white,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (modalContext) => DraggableScrollableSheet(
+          initialChildSize: 0.7,
+          minChildSize: 0.5,
+          maxChildSize: 0.9,
+          expand: false,
+          builder: (_, scrollController) => FutureBuilder<Map<String, dynamic>>(
+            future: _fetchPlaceDetails(interestIds),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              final placeDetailsMap = snapshot.data ?? {};
+              return Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Text(
+                      title,
+                      style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: ListView.builder(
+                      controller: scrollController,
+                      itemCount: interestIds.length,
+                      itemBuilder: (context, index) {
+                        final placeId = interestIds[index];
+                        final place = placeDetailsMap[placeId] ?? {'name': 'Données indisponibles', 'error': true};
+                        final hasError = place['error'] == true;
+                        final String placeName = place['name'] ?? 'Lieu favori';
+                        final String? imageUrl = (place['photos'] is List && place['photos'].isNotEmpty)
+                          ? place['photos'][0]
+                          : place['image'] ?? place['photo_url'];
+                        final String address = place['address'] ?? place['adresse'] ?? place['lieu'] ?? '';
+                        final String type = (place['_fetched_as'] ?? place['type'] ?? 'unknown').toString().toLowerCase();
+                        IconData icon = Icons.place;
+                        if (hasError) icon = Icons.error_outline;
+                        else if (type.contains('restaurant')) icon = Icons.restaurant;
+                        else if (type.contains('leisure')) icon = Icons.museum;
+                        else if (type.contains('wellness')) icon = Icons.spa;
+                        else if (type.contains('event')) icon = Icons.event;
+                        return ListTile(
+                          leading: (imageUrl != null && imageUrl.isNotEmpty && !hasError)
+                            ? CircleAvatar(backgroundImage: getImageProvider(imageUrl)!)
+                            : CircleAvatar(child: Icon(icon, color: hasError ? Colors.red : Colors.teal)),
+                          title: Text(placeName),
+                          subtitle: Text(address.isNotEmpty ? address : type),
+                          onTap: hasError ? null : () {
+                            Navigator.pop(modalContext);
+                            _navigateToDetails(placeId, type);
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+      );
+    }
+
+    /// Retourne un label lisible pour le type d'entité
+    String _getTypeLabel(String type) {
+      switch (type) {
+        case 'user':
+          return 'Utilisateur';
+        case 'producer':
+        case 'restaurant':
+          return 'Restaurant';
+        case 'leisureProducer':
+        case 'leisure':
+          return 'Producteur de loisirs';
+        case 'wellness':
+          return 'Bien-être';
+        default:
+          return 'Inconnu';
+      }
+    }
 
     /// Affiche la liste des choices de l'utilisateur
   void _showChoicesModal(BuildContext context, List<dynamic> choices) {
@@ -844,7 +1020,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> with AutomaticKeepAli
 
        if (!mounted) return;
 
-       if (response.statusCode == 200) {
+      if (response.statusCode == 200) {
          print("✅ Like/Unlike success for post $postId");
          // Rafraîchir les données pour mettre à jour l'UI (compteur, icône)
          // C'est simple mais pas optimal. Idéalement, on mettrait à jour l'état local du post.
@@ -875,12 +1051,44 @@ class _MyProfileScreenState extends State<MyProfileScreen> with AutomaticKeepAli
     return constants.getBaseUrlSync(); // Utiliser la version synchrone
   }
 
-  /// Convertit une liste dynamique en liste de strings, filtrant les nulls
+  /// Convertit une liste dynamique en liste de strings (IDs), filtrant les nulls et gérant les objets ConnectionSchema
   List<String> _ensureStringList(dynamic list) {
     if (list == null) return <String>[];
-    if (list is List<String>) return list;
+    if (list is List<String>) return list; // Already a list of strings (IDs)
     if (list is List) {
-      return list.where((item) => item != null).map((item) => item.toString()).toList();
+      List<String> ids = [];
+      for (var item in list) {
+        if (item == null) continue;
+        if (item is String && mongoose.isValidObjectId(item)) { // If it's already a valid ID string
+          ids.add(item);
+        } else if (item is Map<String, dynamic>) { // If it's an object (likely ConnectionSchema)
+          // Try to extract the ID from common fields ('userId', '_id')
+          final idFromUserId = item['userId']?.toString();
+          final idFromId = item['_id']?.toString(); // Fallback in case the object itself is the user ID (less likely based on schema)
+
+          String? finalId = null;
+          if (idFromUserId != null && mongoose.isValidObjectId(idFromUserId)) {
+            finalId = idFromUserId;
+          } else if (idFromId != null && mongoose.isValidObjectId(idFromId)) {
+            finalId = idFromId;
+          }
+
+          if (finalId != null) {
+            ids.add(finalId);
+          } else {
+             print("⚠️ _ensureStringList: Could not extract valid ObjectId from Map item: $item");
+          }
+        } else {
+          // Try converting other types, but check validity
+          final potentialId = item.toString();
+          if (mongoose.isValidObjectId(potentialId)) {
+            ids.add(potentialId);
+          } else {
+            print("⚠️ _ensureStringList: Item is neither a String ID nor a recognized Map, and toString() is not a valid ID: $item");
+          }
+        }
+      }
+      return ids;
     }
     return <String>[];
   }
@@ -984,26 +1192,8 @@ class _MyProfileScreenState extends State<MyProfileScreen> with AutomaticKeepAli
                   _ProfileHeader(
                     user: user,
                     isCurrentUser: widget.isCurrentUser,
-                    // Passer le callback pour la navigation vers l'édition
-                    onEditProfile: () {
-                      if (widget.isCurrentUser && mounted) {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (context) => EditProfileScreen(userId: widget.userId)),
-                        ).then((result) {
-                           // Si l'édition a réussi (retourne true), rafraîchir les données
-                           if (result == true) {
-                              print("🔄 Refreshing profile data after edit...");
-                              _fetchData();
-                           }
-                        });
-                      }
-                    },
-                    // Passer le callback pour démarrer une conversation
                     onStartConversation: () => _startConversation(widget.userId),
-                    // Passer le callback pour le menu principal
                     onShowMainMenu: () => _showMainMenu(context),
-                     // Passer le callback pour les options de profil externe
                     onShowExternalProfileOptions: () => _showExternalProfileOptions(context, user),
                   ),
 
@@ -1014,6 +1204,20 @@ class _MyProfileScreenState extends State<MyProfileScreen> with AutomaticKeepAli
                        onNavigateToDetails: _navigateToDetails,
                        onShowUserList: _showUserListModal,
                        onShowChoicesList: () => _showChoicesModal(context, user['choices'] ?? []),
+                       onShowInterestsList: (ctx, ids, title) => _showInterestsListModal(ctx, ids, title),
+                       onEditProfileFromMenu: () {
+                         if (widget.isCurrentUser && mounted) {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (context) => EditProfileScreen(userId: widget.userId)),
+                            ).then((result) {
+                               if (result == true) {
+                                  print("🔄 Refreshing profile data after edit...");
+                                  _fetchData();
+                               }
+                            });
+                         }
+                       }
                     ),
                   ),
 
@@ -1064,33 +1268,16 @@ class _MyProfileScreenState extends State<MyProfileScreen> with AutomaticKeepAli
         // === Floating Action Button ===
         floatingActionButton: widget.isCurrentUser ? FloatingActionButton(
             onPressed: () {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-                useSafeArea: true,
-                builder: (BuildContext dialogContext) {
-                  return FractionallySizedBox(
-                    heightFactor: 0.95,
-                    child: Container(
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.only(
-                      topLeft: Radius.circular(20),
-                      topRight: Radius.circular(20),
-                    ),
-                  ),
-                      child: SafeArea(
-                            child: CreatePostScreen(userId: widget.userId),
-                      ),
-                    ),
-                );
-              },
-            );
-          },
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => ChoiceCreationScreen(userId: widget.userId),
+                ),
+              );
+            },
             backgroundColor: Colors.teal,
-            child: const Icon(Icons.add, size: 30),
-            tooltip: "Créer un post ou un choice",
+            child: const Icon(Icons.add_task_outlined, size: 30), // Changed icon
+            tooltip: "Créer un Choice", 
           ) : null,
       ),
     );
@@ -1119,11 +1306,24 @@ class _MyProfileScreenState extends State<MyProfileScreen> with AutomaticKeepAli
                 mainAxisSize: MainAxisSize.min,
                       children: [
                   Container(width: 40, height: 4, margin: const EdgeInsets.symmetric(vertical: 12), decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2))),
+                  _buildMenuOption(icon: Icons.edit_outlined, text: 'Modifier le profil', onTap: () { 
+                     Navigator.pop(modalContext);
+                     // Find the _ProfileStats widget and call its callback
+                     // This is a bit indirect, ideally state management would handle this better
+                     // For now, assume the _ProfileStats is accessible via context or state
+                     Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => EditProfileScreen(userId: widget.userId)),
+                     ).then((result) {
+                       if (result == true) {
+                          print("🔄 Refreshing profile data after edit...");
+                          _fetchData(); // Refresh data on return
+                       }
+                     });
+                  }),
                   _buildMenuOption(icon: Icons.bookmark_border, text: 'Publications sauvegardees', onTap: () { Navigator.pop(modalContext); /* TODO */ }),
                   _buildMenuOption(icon: Icons.language, text: 'Langue', onTap: () { Navigator.pop(modalContext); Navigator.push(context, MaterialPageRoute(builder: (context) => LanguageSettingsScreen())); }),
-                  // Correction: Passer le userId requis
                   _buildMenuOption(icon: Icons.notifications_none, text: 'Notifications par email', onTap: () { Navigator.pop(modalContext); Navigator.push(context, MaterialPageRoute(builder: (context) => EmailNotificationsScreen(userId: widget.userId))); }),
-                  // _buildMenuOption(icon: Icons.dark_mode_outlined, text: 'Mode sombre', isToggle: true, onTap: () { /* TODO: Theme toggle */ }),
                   const Divider(height: 1),
                   _buildMenuOption(icon: Icons.block, text: 'Profils bloqués', onTap: () { Navigator.pop(modalContext); /* TODO */ }),
                   _buildMenuOption(icon: Icons.logout, text: 'Déconnexion', color: Colors.red, onTap: () async {
@@ -1189,6 +1389,153 @@ class _MyProfileScreenState extends State<MyProfileScreen> with AutomaticKeepAli
          );
       }
 
+  // Fonction qui vérifie si on doit demander à l'utilisateur son choice favori
+  void _checkIfShouldAskForFavoriteChoice() async {
+    // Ne demander que pour l'utilisateur courant
+    if (!widget.isCurrentUser || !mounted) return;
+    
+    final userData = await _userFuture;
+    if (userData == null) return;
+    
+    // Vérifier s'il y a des choices
+    final choices = (userData['choices'] is List) 
+      ? List<Map<String, dynamic>>.from(userData['choices'].whereType<Map<String, dynamic>>()) 
+      : <Map<String, dynamic>>[];
+    
+    if (choices.isEmpty) return; // Ne rien faire s'il n'y a pas de choices
+    
+    // Vérifier la date du dernier coup de cœur
+    final lastFavoriteChoiceTimestamp = userData['lastFavoriteChoiceTimestamp'];
+    
+    final now = DateTime.now();
+    final currentMonth = DateTime(now.year, now.month);
+    DateTime? lastFavoriteDate;
+    
+    if (lastFavoriteChoiceTimestamp != null) {
+      // Convertir en DateTime selon le format
+      if (lastFavoriteChoiceTimestamp is String) {
+        lastFavoriteDate = DateTime.tryParse(lastFavoriteChoiceTimestamp);
+      } else if (lastFavoriteChoiceTimestamp is int) {
+        lastFavoriteDate = DateTime.fromMillisecondsSinceEpoch(lastFavoriteChoiceTimestamp);
+      }
+    }
+    
+    // Si pas de date ou date du mois précédent (ou avant), demander le coup de cœur
+    final shouldAsk = lastFavoriteDate == null || 
+                      DateTime(lastFavoriteDate.year, lastFavoriteDate.month).isBefore(currentMonth);
+                      
+    if (shouldAsk && mounted) {
+      // Attendre un peu pour ne pas montrer immédiatement à l'ouverture
+      await Future.delayed(const Duration(seconds: 2));
+      if (mounted) {
+        _showFavoriteChoiceDialog(choices);
+      }
+    }
+  }
+
+  // Fonction qui affiche le dialogue de sélection du coup de cœur
+  void _showFavoriteChoiceDialog(List<Map<String, dynamic>> choices) {
+    showDialog(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: const Text('Votre coup de cœur du mois'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Sélectionnez votre Choice préféré du mois pour le mettre en avant sur votre profil.',
+                  style: TextStyle(fontSize: 14),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  height: 300,
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: choices.length,
+                    itemBuilder: (context, index) {
+                      final choice = choices[index];
+                      return ListTile(
+                        leading: choice['locationImage'] != null && choice['locationImage'].isNotEmpty
+                            ? CircleAvatar(backgroundImage: NetworkImage(choice['locationImage']))
+                            : const CircleAvatar(child: Icon(Icons.place)),
+                        title: Text(choice['locationName'] ?? 'Choice sans nom'),
+                        subtitle: Text(choice['comment'] ?? '', maxLines: 1, overflow: TextOverflow.ellipsis),
+                        onTap: () {
+                          // Sélectionner ce choice comme favori
+                          _setFavoriteChoice(choice);
+                          Navigator.of(dialogContext).pop();
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              child: const Text('Plus tard'),
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // Fonction qui enregistre le choice favori de l'utilisateur
+  Future<void> _setFavoriteChoice(Map<String, dynamic> choice) async {
+    if (!mounted) return;
+    
+    try {
+      final authService = provider_pkg.Provider.of<AuthService>(context, listen: false);
+      final token = await authService.getTokenInstance();
+      if (token == null || token.isEmpty) return;
+      
+      final baseUrl = getBaseUrlFromUtils();
+      final url = Uri.parse('$baseUrl/api/users/${widget.userId}/favorite-choice');
+      
+      final headers = {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json'
+      };
+      
+      final response = await http.post(
+        url,
+        headers: headers,
+        body: json.encode({
+          'choiceId': choice['_id'],
+          'timestamp': DateTime.now().toIso8601String()
+        }),
+      );
+      
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        // Actualiser les données du profil
+        _fetchData();
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Votre coup de cœur a été mis à jour!'))
+          ); // <-- Added missing parenthesis here
+        }
+      } else {
+        throw Exception('Échec de la mise à jour: ${response.statusCode}');
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: ${e.toString()}'))
+        );
+      }
+      print('❌ Erreur lors de la mise à jour du coup de cœur: $e');
+    }
+  }
 }
 
 //==============================================================================
@@ -1197,7 +1544,6 @@ class _MyProfileScreenState extends State<MyProfileScreen> with AutomaticKeepAli
 class _ProfileHeader extends StatelessWidget {
   final Map<String, dynamic> user;
   final bool isCurrentUser;
-  final VoidCallback onEditProfile;
   final VoidCallback onStartConversation;
   final VoidCallback onShowMainMenu;
   final VoidCallback onShowExternalProfileOptions;
@@ -1207,7 +1553,6 @@ class _ProfileHeader extends StatelessWidget {
      Key? key,
      required this.user,
      required this.isCurrentUser,
-     required this.onEditProfile,
      required this.onStartConversation,
      required this.onShowMainMenu,
      required this.onShowExternalProfileOptions,
@@ -1319,12 +1664,9 @@ class _ProfileHeader extends StatelessWidget {
       ),
       actions: isCurrentUser
        ? [ // Actions pour profil courant
-            IconButton(icon: const Icon(Icons.edit_outlined, color: Colors.white), tooltip: "Modifier", onPressed: onEditProfile),
             IconButton(icon: const Icon(Icons.menu, color: Colors.white), tooltip: "Menu", onPressed: onShowMainMenu),
          ]
        : [ // Actions pour profil externe
-            // TODO: Ajouter un bouton Follow/Unfollow ici (nécessite état)
-            // Exemple: FollowButton(targetUserId: user['_id'], ...)
             IconButton(icon: const Icon(Icons.message_outlined, color: Colors.white), tooltip: "Message", onPressed: onStartConversation),
             IconButton(icon: const Icon(Icons.more_vert, color: Colors.white), tooltip: "Options", onPressed: onShowExternalProfileOptions),
          ],
@@ -1341,6 +1683,8 @@ class _ProfileStats extends StatelessWidget {
    final Function(String, String) onNavigateToDetails;
    final Function(BuildContext, List<String>, String) onShowUserList;
    final VoidCallback onShowChoicesList;
+   final Function(BuildContext, List<String>, String) onShowInterestsList;
+   final VoidCallback onEditProfileFromMenu;
 
    const _ProfileStats({
      Key? key,
@@ -1348,6 +1692,8 @@ class _ProfileStats extends StatelessWidget {
      required this.onNavigateToDetails,
      required this.onShowUserList,
      required this.onShowChoicesList,
+     required this.onShowInterestsList,
+     required this.onEditProfileFromMenu,
    }) : super(key: key);
 
     // Copié ici pour être autonome
@@ -1364,15 +1710,43 @@ class _ProfileStats extends StatelessWidget {
    Widget build(BuildContext context) {
      final followersIds = _ensureStringList(user['followers']);
      final followingIds = _ensureStringList(user['following']);
-     final postsIds = _ensureStringList(user['posts']);
+     final interestsIds = _ensureStringList(user['interests']); // Calculate interests count
      final choices = (user['choices'] is List) ? user['choices'] : [];
      final likedTags = _ensureStringList(user['liked_tags']);
+     
+     // Stats d'activité: nombre de posts par mois, nombre de choices ce mois, etc.
+     final DateTime now = DateTime.now();
+     final DateTime firstDayOfMonth = DateTime(now.year, now.month, 1);
+     
+     // Calculer le nombre de choices créés ce mois
+     int choicesThisMonth = 0;
+     if (choices.isNotEmpty) {
+       choicesThisMonth = choices.where((choice) {
+         if (choice is Map && choice['createdAt'] != null) {
+           DateTime createdAt;
+           if (choice['createdAt'] is String) {
+             createdAt = DateTime.tryParse(choice['createdAt']) ?? DateTime(2000);
+           } else {
+             createdAt = DateTime.fromMillisecondsSinceEpoch(choice['createdAt'] ?? 0);
+           }
+           return createdAt.isAfter(firstDayOfMonth);
+         }
+         return false;
+       }).length;
+     }
+     
+     // Coup de cœur du mois
+     Map<String, dynamic>? favoriteChoice;
+     if (user['favoriteChoice'] is Map) {
+       favoriteChoice = Map<String, dynamic>.from(user['favoriteChoice']);
+     }
 
      return Container(
        color: Colors.white,
        padding: const EdgeInsets.symmetric(vertical: 16), // Pas de padding H ici
        child: Column(
           children: [
+             // Première ligne: statistiques classiques (followers, following, etc.)
              Row(
                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                children: [
@@ -1380,47 +1754,322 @@ class _ProfileStats extends StatelessWidget {
                  _verticalDivider(),
                  _buildStatButton(context, icon: Icons.person_outline, label: 'Abonnements', count: followingIds.length, onTap: () => onShowUserList(context, followingIds, 'Abonnements')),
                  _verticalDivider(),
-                 _buildStatButton(context, icon: Icons.article_outlined, label: 'Posts', count: postsIds.length, onTap: null),
+                 _buildStatButton(context, icon: Icons.star_border, label: 'Intérêts', count: interestsIds.length, onTap: () => onShowInterestsList(context, interestsIds, 'Intérêts')),
                  _verticalDivider(),
                  _buildStatButton(context, icon: Icons.check_circle_outline, label: 'Choices', count: choices.length, onTap: onShowChoicesList),
                ],
              ),
-             // Afficher les tags si présents
-             if (likedTags.isNotEmpty) ...[
-                 const SizedBox(height: 16),
-                 const Divider(height: 1, indent: 20, endIndent: 20),
-                 const SizedBox(height: 12),
-                 _buildLikedTagsSection(context, likedTags),
-                 const SizedBox(height: 4),
-             ]
+             const Divider(height: 32, thickness: 0.5),
+             
+             // Troisième ligne: Badges et récompenses
+             if (user['badges'] != null && user['badges'] is List && user['badges'].isNotEmpty)
+             Padding(
+               padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+               child: Column(
+                 crossAxisAlignment: CrossAxisAlignment.start,
+                 children: [
+                   const Row(
+                     children: [
+                       Icon(Icons.emoji_events_outlined, size: 16, color: Colors.amber),
+                       SizedBox(width: 8),
+                       Text('Badges et récompenses', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                     ],
+                   ),
+                   const SizedBox(height: 8),
+                   SingleChildScrollView(
+                     scrollDirection: Axis.horizontal,
+                     child: Row(
+                       children: List.generate(
+                         (user['badges'] as List).length,
+                         (index) => _buildBadge(user['badges'][index]),
+                       ),
+                     ),
+                   ),
+                 ],
+               ),
+             ),
+             
+             // S'il existe un coup de cœur du mois
+             if (favoriteChoice != null)
+             Padding(
+               padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+               child: Column(
+                 crossAxisAlignment: CrossAxisAlignment.start,
+                 children: [
+                   Row(
+                     children: [
+                       Icon(Icons.favorite, size: 16, color: Colors.red.shade400),
+                       const SizedBox(width: 8),
+                       const Text('Coup de cœur du mois', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                     ],
+                   ),
+                   const SizedBox(height: 8),
+                   InkWell(
+                     onTap: () {
+                       // Ajouter l'action pour ouvrir le choice favori
+                     },
+                     child: Container(
+                       padding: const EdgeInsets.all(8),
+                       decoration: BoxDecoration(
+                         color: Colors.red.shade50,
+                         borderRadius: BorderRadius.circular(8),
+                         border: Border.all(color: Colors.red.shade200),
+                       ),
+                       child: Row(
+                         children: [
+                           ClipRRect(
+                             borderRadius: BorderRadius.circular(8),
+                             child: SizedBox(
+                               width: 50,
+                               height: 50,
+                               child: Image.network(
+                                 favoriteChoice['image'] ?? 'https://via.placeholder.com/50',
+                                 fit: BoxFit.cover,
+                                 errorBuilder: (ctx, error, stackTrace) => Container(
+                                   color: Colors.grey.shade200,
+                                   child: const Icon(Icons.image_not_supported, color: Colors.grey),
+                                 ),
+                               ),
+                             ),
+                           ),
+                           const SizedBox(width: 12),
+                           Expanded(
+                             child: Column(
+                               crossAxisAlignment: CrossAxisAlignment.start,
+                               children: [
+                                 Text(
+                                   favoriteChoice['name'] ?? 'Coup de cœur',
+                                   style: const TextStyle(fontWeight: FontWeight.bold),
+                                   maxLines: 1,
+                                   overflow: TextOverflow.ellipsis,
+                                 ),
+                                 Text(
+                                   favoriteChoice['comment'] ?? '',
+                                   style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                   maxLines: 2,
+                                   overflow: TextOverflow.ellipsis,
+                                 ),
+                               ],
+                             ),
+                           ),
+                         ],
+                       ),
+                     ),
+                   ),
+                 ],
+               ),
+             ),
+             
+             // Quatrième ligne: Accès rapide aux catégories
+             Padding(
+               padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+               child: Column(
+                 crossAxisAlignment: CrossAxisAlignment.start,
+                 children: [
+                   const Row(
+                     children: [
+                       Icon(Icons.category_outlined, size: 16, color: Colors.blue),
+                       SizedBox(width: 8),
+                       Text('Accès rapide', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                     ],
+                   ),
+                   const SizedBox(height: 8),
+                   SingleChildScrollView(
+                     scrollDirection: Axis.horizontal,
+                     child: Row(
+                       children: [
+                         _buildQuickAccessButton(context, 'Restaurants', Icons.restaurant, Colors.orange, () {
+                           // Navigation vers recherche filtrée par restaurants
+                         }),
+                         _buildQuickAccessButton(context, 'Événements', Icons.event, Colors.blue, () {
+                           // Navigation vers recherche filtrée par événements
+                         }),
+                         _buildQuickAccessButton(context, 'Loisirs', Icons.museum, Colors.purple, () {
+                           // Navigation vers recherche filtrée par loisirs
+                         }),
+                         _buildQuickAccessButton(context, 'Wellness', Icons.spa, Colors.green, () {
+                           // Navigation vers recherche filtrée par wellness
+                         }),
+                       ],
+                     ),
+                   ),
+                 ],
+               ),
+             ),
+             
+             // Cinquième ligne: Boutons d'action supplémentaires (partage only now)
+             Padding(
+               padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+               child: Row(
+                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                 children: [
+                   // Bouton de partage (Kept, now takes full width if edit is gone)
+                   Expanded(
+                     child: OutlinedButton.icon(
+                       onPressed: () {
+                         _shareProfile(context);
+                       },
+                       icon: const Icon(Icons.share),
+                       label: const Text('Partager profil'),
+                       style: OutlinedButton.styleFrom(
+                         foregroundColor: Colors.teal,
+                         side: const BorderSide(color: Colors.teal),
+                         padding: const EdgeInsets.symmetric(vertical: 10),
+                       ),
+                     ),
+                   ),
+                 ],
+               ),
+             ),
+             
+             const Divider(height: 16, thickness: 0.5),
           ],
        ),
      );
    }
 
-   // Widget interne pour un bouton de stat
-   Widget _buildStatButton(BuildContext context, {required IconData icon, required String label, required int count, VoidCallback? onTap}) {
+   // Méthode pour partager le profil
+   void _shareProfile(BuildContext context) {
+     // Implémenter le partage du profil via les mécanismes natifs
+     // Exemple: utiliser le package share_plus
+     ScaffoldMessenger.of(context).showSnackBar(
+       const SnackBar(content: Text('Partage du profil en cours de développement')),
+     );
+   }
+
+   // Widget pour un badge
+   Widget _buildBadge(dynamic badge) {
+     String title = 'Badge';
+     IconData icon = Icons.star;
+     Color color = Colors.amber;
+     
+     if (badge is Map) {
+       title = badge['title'] ?? 'Badge';
+       
+       // Choisir l'icône en fonction du type de badge
+       switch (badge['type']) {
+         case 'verified':
+           icon = Icons.verified;
+           color = Colors.blue;
+           break;
+         case 'premium':
+           icon = Icons.workspace_premium;
+           color = Colors.amber;
+           break;
+         case 'new':
+           icon = Icons.new_releases;
+           color = Colors.green;
+           break;
+         case 'contributor':
+           icon = Icons.emoji_events;
+           color = Colors.orange;
+           break;
+         default:
+           icon = Icons.star;
+           color = Colors.amber;
+       }
+     }
+     
+     return Padding(
+       padding: const EdgeInsets.only(right: 12.0),
+       child: Tooltip(
+         message: title,
+         child: Container(
+           padding: const EdgeInsets.all(8),
+           decoration: BoxDecoration(
+             color: color.withOpacity(0.1),
+             borderRadius: BorderRadius.circular(8),
+             border: Border.all(color: color.withOpacity(0.3)),
+           ),
+           child: Icon(icon, color: color, size: 24),
+         ),
+       ),
+     );
+   }
+   
+   // Widget pour une carte de statistique d'activité
+   Widget _buildActivityCard({required String title, required String value, required IconData icon, required Color color}) {
+     return Container(
+       padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+       decoration: BoxDecoration(
+         color: color.withOpacity(0.05),
+         borderRadius: BorderRadius.circular(8),
+         border: Border.all(color: color.withOpacity(0.2)),
+       ),
+       child: Column(
+         crossAxisAlignment: CrossAxisAlignment.start,
+         children: [
+           Row(
+             children: [
+               Icon(icon, size: 14, color: color),
+               const SizedBox(width: 4),
+               Text(title, style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+             ],
+           ),
+           const SizedBox(height: 4),
+           Text(
+             value,
+             style: TextStyle(
+               fontSize: 20,
+               fontWeight: FontWeight.bold,
+               color: color,
+             ),
+           ),
+         ],
+       ),
+     );
+   }
+   
+   // Widget pour un bouton d'accès rapide
+   Widget _buildQuickAccessButton(BuildContext context, String label, IconData icon, Color color, VoidCallback onTap) {
+     return Padding(
+       padding: const EdgeInsets.only(right: 8.0),
+       child: InkWell(
+         onTap: onTap,
+         borderRadius: BorderRadius.circular(8),
+         child: Container(
+           padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+           decoration: BoxDecoration(
+             color: color.withOpacity(0.1),
+             borderRadius: BorderRadius.circular(8),
+             border: Border.all(color: color.withOpacity(0.3)),
+           ),
+           child: Row(
+             children: [
+               Icon(icon, size: 16, color: color),
+               const SizedBox(width: 6),
+               Text(label, style: TextStyle(color: color, fontWeight: FontWeight.w500)),
+             ],
+           ),
+         ),
+       ),
+     );
+   }
+   
+   // ... Widgets existants ...
+   Widget _buildStatButton(BuildContext context, {required IconData icon, required String label, required int count, required VoidCallback onTap}) {
      return InkWell(
        onTap: onTap,
-       borderRadius: BorderRadius.circular(8),
-       child: Container(
-         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-         constraints: const BoxConstraints(minWidth: 70),
+       child: Padding(
+         padding: const EdgeInsets.all(8.0),
          child: Column(
-           mainAxisSize: MainAxisSize.min,
            children: [
-             Icon(icon, color: Colors.teal, size: 24),
+             Icon(icon, color: Colors.grey[700]),
              const SizedBox(height: 4),
              Text(
-               count.toString(),
-               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+               count.toString(), // Nombre
+               style: const TextStyle(
+                 fontSize: 18,
+                 fontWeight: FontWeight.bold,
+               ),
              ),
              const SizedBox(height: 2),
              Text(
-               label,
-               style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-               maxLines: 1,
-               overflow: TextOverflow.ellipsis,
+               label, // Libellé
+               style: TextStyle(
+                 fontSize: 12,
+                 color: Colors.grey[600],
+               ),
              ),
            ],
          ),
@@ -1428,50 +2077,14 @@ class _ProfileStats extends StatelessWidget {
      );
    }
 
-   // Widget interne pour le séparateur vertical
    Widget _verticalDivider() {
-     return Container(height: 30, width: 1, color: Colors.grey[200]);
+     return Container(
+       height: 30,
+       width: 1,
+       color: Colors.grey[300],
+     );
    }
-
-   // Widget interne pour la section des tags
-   Widget _buildLikedTagsSection(BuildContext context, List<String> tags) {
-       return Container(
-         width: double.infinity, // Prendre toute la largeur
-         padding: const EdgeInsets.symmetric(horizontal: 20),
-         child: Column(
-           crossAxisAlignment: CrossAxisAlignment.start,
-           children: [
-             Row(
-               children: [
-                 Icon(Icons.sell_outlined, size: 16, color: Colors.grey[700]),
-                 const SizedBox(width: 8),
-                 Text(
-                   // Correction: Utiliser des guillemets doubles
-                   "Centres d'interet (Tags)",
-                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey[700]),
-                 ),
-               ],
-             ),
-             const SizedBox(height: 10),
-             Wrap(
-               spacing: 6,
-               runSpacing: 6,
-               children: tags.map<Widget>((tag) {
-                 return Chip(
-                   label: Text(tag, style: TextStyle(fontSize: 12, color: Colors.teal.shade800)),
-                   backgroundColor: Colors.teal.withOpacity(0.08),
-                   materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                   side: BorderSide.none,
-                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                 );
-               }).toList(),
-             ),
-           ],
-        ),
-      );
-    }
-  }
+}
 
 //==============================================================================
 // WIDGET: _ProfileTabs (Stateless)
@@ -1564,65 +2177,82 @@ class _ProfileTabs extends StatelessWidget {
         
          final placeDetailsMap = snapshot.data ?? {};
 
+        // --- CHANGE: Use GridView instead of ListView ---
         return GridView.builder(
-           padding: const EdgeInsets.all(12),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            childAspectRatio: 0.8,
-             crossAxisSpacing: 12,
-             mainAxisSpacing: 12,
+          padding: const EdgeInsets.all(12.0), // Add padding around grid
+          itemCount: interestsIds.length,
+           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+             crossAxisCount: 2, // Number of columns
+             crossAxisSpacing: 12.0, // Spacing between columns
+             mainAxisSpacing: 12.0, // Spacing between rows
+             childAspectRatio: 0.8, // Adjust aspect ratio (width/height)
           ),
-           itemCount: interestsIds.length,
           itemBuilder: (context, index) {
-             final interestId = interestsIds[index];
-             final placeDetail = placeDetailsMap[interestId] ?? {'error': true, 'name': 'Données indisponibles'};
-             bool hasError = placeDetail['error'] == true;
+            final interestId = interestsIds[index];
+            final placeDetail = placeDetailsMap[interestId] ?? {'error': true, 'name': 'Données indisponibles'};
+            bool hasError = placeDetail['error'] == true;
 
-             // Déterminer les infos d'affichage
-             final String placeName = placeDetail['name'] ?? 'Lieu favori';
-             final String? imageUrl = (placeDetail['photos'] is List && placeDetail['photos'].isNotEmpty)
-                                     ? placeDetail['photos'][0]
-                                     : placeDetail['image'] ?? placeDetail['photo_url'];
-             final String address = placeDetail['address'] ?? placeDetail['adresse'] ?? placeDetail['lieu'] ?? '';
+            final String placeName = placeDetail['name'] ?? 'Lieu favori';
+            final String? imageUrl = (placeDetail['photos'] is List && placeDetail['photos'].isNotEmpty)
+                                ? placeDetail['photos'][0]
+                                : placeDetail['image'] ?? placeDetail['photo_url'];
+            final String address = placeDetail['address'] ?? placeDetail['adresse'] ?? placeDetail['lieu'] ?? '';
+            final String type = (placeDetail['_fetched_as'] ?? placeDetail['type'] ?? 'unknown').toString().toLowerCase();
 
-             // Déterminer type et icône
-            IconData placeIcon = Icons.place;
-             String placeType = 'unknown';
-             if (hasError) {
-                placeIcon = Icons.error_outline;
-             } else if (placeDetail['_fetched_as'] == 'producers' || placeDetail['category']?.contains('Restaurant') == true) {
-                 placeIcon = Icons.restaurant; placeType = 'restaurant';
-             } else if (placeDetail['_fetched_as'] == 'events' || placeDetail['date_debut'] != null) {
-                 placeIcon = Icons.event; placeType = 'event';
-             } else if (placeDetail['_fetched_as'] == 'leisureProducers' || placeDetail['categorie']?.contains('Leisure') == true) {
-                 placeIcon = Icons.museum; placeType = 'leisureProducer';
-             } else if (placeDetail['_fetched_as'] == 'wellnessProducers') {
-                 placeIcon = Icons.spa; placeType = 'wellness';
+            IconData icon = Icons.place;
+            Color iconColor = Colors.teal;
+            if (hasError) {
+              icon = Icons.error_outline;
+              iconColor = Colors.red;
+            } else {
+               switch (type) {
+                 case 'restaurant': icon = Icons.restaurant; iconColor = Colors.orange; break;
+                 case 'event': icon = Icons.event; iconColor = Colors.blue; break;
+                 case 'leisureproducer': icon = Icons.museum; iconColor = Colors.purple; break;
+                 case 'wellness': case 'beautyplace': icon = Icons.spa; iconColor = Colors.green; break;
+               }
             }
-            
-            return GestureDetector(
-               onTap: hasError ? null : () => onNavigateToDetails(interestId, placeType),
-              child: Card(
-                clipBehavior: Clip.antiAlias,
-                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                elevation: 2,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                     // Image ou Placeholder
-                          Positioned.fill(
+
+            // Build the grid item card
+            return Card(
+               clipBehavior: Clip.antiAlias, // Clip image to card shape
+               elevation: 2.0,
+               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+               child: InkWell(
+                 onTap: hasError ? null : () => onNavigateToDetails(interestId, type),
+                 child: Column(
+                   crossAxisAlignment: CrossAxisAlignment.stretch, // Make children fill width
+                   children: [
+                     Expanded(
                        child: (imageUrl != null && imageUrl.isNotEmpty && !hasError)
-                         ? Image(image: getImageProvider(imageUrl)!, fit: BoxFit.cover, errorBuilder: (ctx, err, st) => _buildPlaceholderImage(Colors.grey[200]!, placeIcon, placeName))
-                         : _buildPlaceholderImage(hasError ? Colors.red[100]! : Colors.grey[200]!, placeIcon, placeName),
+                          ? CachedNetworkImage(
+                              imageUrl: imageUrl,
+                              fit: BoxFit.cover,
+                              errorWidget: (ctx, url, err) => _buildPlaceholderImage(Colors.grey[200]!, icon, 'Erreur image'),
+                              placeholder: (ctx, url) => Container(color: Colors.grey[100]),
+                            )
+                          : Container(
+                              color: iconColor.withOpacity(0.1),
+                              child: Icon(icon, size: 40, color: iconColor.withOpacity(0.8)),
+                            ),
                      ),
-                     // Gradient et texte
-                      _buildCardOverlay(placeName, address, Icons.star, Colors.pink.shade400, 'FAVORI'),
-                  ],
-                ),
-              ),
-            );
+                     Padding(
+                       padding: const EdgeInsets.all(8.0),
+                       child: Text(
+                         placeName,
+                         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                         maxLines: 2, 
+                         overflow: TextOverflow.ellipsis,
+                         textAlign: TextAlign.center,
+                       ),
+                     ),
+                   ],
+                 ),
+               ),
+             );
           },
         );
+        // --- END CHANGE ---
       },
     );
   }
@@ -1658,77 +2288,130 @@ class _ProfileTabs extends StatelessWidget {
         
              final placeDetailsMap = snapshot.data ?? {};
         
+        // --- CHANGE: Use GridView instead of ListView ---
         return GridView.builder(
-                padding: const EdgeInsets.all(12),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            childAspectRatio: 0.8,
-                   crossAxisSpacing: 12,
-                   mainAxisSpacing: 12,
+          padding: const EdgeInsets.all(12.0),
+          itemCount: choices.length,
+           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+             crossAxisCount: 2, // Number of columns
+             crossAxisSpacing: 12.0, // Spacing between columns
+             mainAxisSpacing: 12.0, // Spacing between rows
+             childAspectRatio: 0.8, // Adjust aspect ratio (width/height)
           ),
-                itemCount: choices.length,
-      itemBuilder: (context, index) {
-                   final choice = choices[index]; // Doit être un Map<String, dynamic> complet
-                   
-                   // Récupérer l'ID du lieu depuis le choice peuplé ou le champ targetId
-                   final String? targetId = choice['locationId']?['_id']?.toString() ?? choice['targetId']?.toString();
+          itemBuilder: (context, index) {
+            final choice = choices[index];
+            final String? targetId = choice['locationId']?['_id']?.toString() ?? choice['targetId']?.toString();
 
-                   if (targetId == null || !mongoose.isValidObjectId(targetId)) {
-                       return Card(child: Center(child: Text('Donnée Choice invalide (ID lieu manquant) #$index')));
-                   }
-
-                   // Récupérer les détails du lieu pré-chargés ou depuis le choice si peuplé
-                   final placeDetail = placeDetailsMap[targetId] ?? choice['locationId'] ?? {'error': true, 'name': 'Détails lieu indisponibles'};
-                   bool hasError = placeDetail['error'] == true;
-
-                   // Infos d'affichage
-                   final String placeName = placeDetail['name'] ?? 'Lieu inconnu';
-                   final String? imageUrl = (placeDetail['photos'] is List && placeDetail['photos'].isNotEmpty)
-                                            ? placeDetail['photos'][0]
-                                            : placeDetail['image'] ?? placeDetail['photo_url'];
-                   final String address = placeDetail['address'] ?? placeDetail['adresse'] ?? '';
-                   final String placeType = placeDetail['type']?.toString() ?? choice['targetType']?.toString() ?? 'unknown';
-
-                   // Icône
-            IconData placeIcon = Icons.place;
-                   if (hasError) {
-                      placeIcon = Icons.error_outline;
-                   } else {
-                       switch (placeType.toLowerCase()) {
-                          case 'restaurant': case 'producer': placeIcon = Icons.restaurant; break;
-                          case 'event': placeIcon = Icons.event; break;
-                          case 'leisureproducer': case 'leisure': placeIcon = Icons.museum; break;
-                          case 'wellness': placeIcon = Icons.spa; break;
-                       }
+            if (targetId == null || !mongoose.isValidObjectId(targetId)) {
+              return const Card(child: Center(child: Text('Donnée invalide')));
             }
-            
-            return GestureDetector(
-                      // MODIFICATION ICI: Naviguer vers ChoiceDetailScreen au lieu de onNavigateToDetails
-                      onTap: hasError ? null : () => onNavigateToChoiceDetail(choice, placeDetail),
-              child: Card(
-                clipBehavior: Clip.antiAlias,
-                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                elevation: 2,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                               // Image ou Placeholder
-                    Positioned.fill(
-                                 child: (imageUrl != null && imageUrl.isNotEmpty && !hasError)
-                                   ? Image(image: getImageProvider(imageUrl)!, fit: BoxFit.cover, errorBuilder: (ctx, err, st) => _buildPlaceholderImage(Colors.grey[200]!, placeIcon, placeName))
-                                   : _buildPlaceholderImage(hasError ? Colors.red[100]! : Colors.grey[200]!, placeIcon, placeName),
-                               ),
-                               // Gradient et texte + Badge Choice
-                               _buildCardOverlay(placeName, address, Icons.check_circle, Colors.teal, 'CHOICE'),
-                            ],
-                         ),
-                      ),
-                   );
+            if (choice['_id'] == null) {
+               return const Card(child: Center(child: Text('Donnée invalide')));
+            }
+
+            final placeDetail = placeDetailsMap[targetId] ?? choice['locationId'] ?? {'error': true, 'name': 'Détails lieu indisponibles'};
+            bool hasError = placeDetail['error'] == true;
+
+            final String placeName = placeDetail['name'] ?? 'Lieu inconnu';
+            final String? imageUrl = (placeDetail['photos'] is List && placeDetail['photos'].isNotEmpty)
+                                      ? placeDetail['photos'][0]
+                                      : placeDetail['image'] ?? placeDetail['photo_url'];
+            final String address = placeDetail['address'] ?? placeDetail['adresse'] ?? '';
+            final String placeType = (placeDetail['_fetched_as'] ?? placeDetail['type'] ?? choice['targetType'] ?? 'unknown').toString().toLowerCase();
+            final String review = choice['review'] ?? choice['comment'] ?? ''; // récupérer le texte du choice
+
+            IconData icon = Icons.place; 
+            Color iconColor = Colors.teal;
+            if (hasError) {
+               icon = Icons.error_outline; 
+               iconColor = Colors.red;
+            } else {
+               switch (placeType) {
+                  case 'restaurant': case 'producer': 
+                    icon = Icons.restaurant; 
+                    iconColor = Colors.orange; 
+                    break;
+                  case 'event': 
+                    icon = Icons.event; 
+                    iconColor = Colors.blue; 
+                    break;
+                  case 'leisureproducer': case 'leisure': 
+                    icon = Icons.museum; 
+                    iconColor = Colors.purple; 
+                    break;
+                  case 'wellness': case 'beautyplace': 
+                    icon = Icons.spa; 
+                    iconColor = Colors.green; 
+                    break;
+               }
+            }
+
+            return Card(
+              clipBehavior: Clip.antiAlias,
+              elevation: 2.0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+              child: InkWell(
+                onTap: () {
+                  if (hasError) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text("Détails du lieu associés indisponibles."))
+                    );
+                  } else {
+                    onNavigateToChoiceDetail(choice, placeDetail);
+                  }
                 },
-             );
+                child: Column(
+                   crossAxisAlignment: CrossAxisAlignment.stretch,
+                   children: [
+                     Expanded(
+                       child: (imageUrl != null && imageUrl.isNotEmpty && !hasError)
+                          ? CachedNetworkImage(
+                              imageUrl: imageUrl,
+                              fit: BoxFit.cover,
+                              errorWidget: (ctx, url, err) => _buildPlaceholderImage(Colors.grey[200]!, icon, 'Erreur image'),
+                              placeholder: (ctx, url) => Container(color: Colors.grey[100]),
+                            )
+                          : Container(
+                              color: iconColor.withOpacity(0.1),
+                              child: Icon(icon, size: 40, color: iconColor.withOpacity(0.8)),
+                            ),
+                     ),
+                     Padding(
+                       padding: const EdgeInsets.all(8.0),
+                       child: Column(
+                         mainAxisSize: MainAxisSize.min, // Take minimum space
+                         children: [
+                            Text(
+                              placeName,
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.center,
+                            ),
+                            if (review.isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4.0),
+                                child: Text(
+                                    '"${review}"' , // Add quotes
+                                    style: TextStyle(fontSize: 11, color: Colors.grey[600], fontStyle: FontStyle.italic),
+                                    maxLines: 2, 
+                                    overflow: TextOverflow.ellipsis,
+                                    textAlign: TextAlign.center,
+                                ),
+                              ),
+                         ],
+                       ),
+                     ),
+                   ],
+                ),
+              ),
+            );
           },
-       );
-   }
+        );
+        // --- END CHANGE ---
+       },
+   );
+}
 
    Widget _buildPostsSection(BuildContext context) {
        // Utiliser le snapshot des posts passé en paramètre

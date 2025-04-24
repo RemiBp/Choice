@@ -164,6 +164,9 @@ class _MapFriendsScreenState extends State<MapFriendsScreen> {
   // Ajouter cette variable d'état avec les autres variables d'état en haut de la classe
   bool _showFilterPanel = false;
 
+  // Ajouter un cache pour les BitmapDescriptor des marqueurs
+  final Map<String, gmaps.BitmapDescriptor> _markerIconCache = {};
+
   @override
   void initState() {
     super.initState();
@@ -185,16 +188,31 @@ class _MapFriendsScreenState extends State<MapFriendsScreen> {
   // Méthode pour initialiser l'écran de manière sécurisée
   Future<void> _initializeScreen() async {
     try {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = ''; // Clear any previous errors
+      });
+
       _filterSections = filter_models.DefaultFilters.getFriendsFilters();
       await _initLocationService();
+      
+      // Charger les amis avant les activités pour optimiser l'expérience
       await _loadFriends();
+      
+      // Attendre que la carte soit ready pour charger les activités
+      if (_isMapReady) {
+        _loadFriendsActivities();
+      }
+      
       setState(() {
         _isInitialized = true;
+        _isLoading = false;
       });
     } catch (e) {
       setState(() {
         _initErrorMessage = 'Erreur lors de l\'initialisation: $e';
         _isInitialized = true; // Marquer comme initialisé même en cas d'erreur
+        _isLoading = false;
       });
       print("❌ Erreur d'initialisation de la carte des amis: $e");
     }
@@ -283,44 +301,65 @@ class _MapFriendsScreenState extends State<MapFriendsScreen> {
   
   // Charge les activités des amis depuis le service
   Future<void> _loadFriendsActivities() async {
+    if (!mounted) return;
+    
+    setState(() {
+      _isLoading = true;
+      _errorMessage = '';
+    });
+    
     try {
-      setState(() {
-        _isLoading = true;
-        _errorMessage = '';
-      });
-      
       final userId = widget.userId ?? _userId;
       
-      // Récupérer les données des activités des amis depuis l'API
-      final result = await _mapService.getFriendsMapData(userId: userId);
-      
-      if (result == null || (result['choices'].isEmpty && result['interests'].isEmpty)) {
-        setState(() {
-          _isLoading = false;
-          _activities = [];
-          _markers.clear();
-          _errorMessage = 'Aucune activité trouvée. Suivez des amis pour voir leurs choix et intérêts sur la carte.';
-        });
-        return;
-      }
-      
-      // Transformer et filtrer les données
-      final List<Map<String, dynamic>> processedActivities = _processActivities(result);
-      
-      setState(() {
-        _activities = processedActivities;
-        _isLoading = false;
-        _errorMessage = '';
+      // Ajouter un délai minimal pour que l'animation de chargement soit visible
+      Future.delayed(Duration(milliseconds: 300), () async {
+        try {
+          // Récupérer les données des activités des amis depuis l'API
+          final result = await _mapService.getFriendsMapData(userId: userId);
+          
+          if (!mounted) return;
+        
+          if (result == null || (result['choices'].isEmpty && result['interests'].isEmpty)) {
+            setState(() {
+              _isLoading = false;
+              _activities = [];
+              _markers.clear();
+              _errorMessage = 'Aucune activité trouvée. Suivez des amis pour voir leurs choix et intérêts sur la carte.';
+            });
+            return;
+          }
+          
+          // Transformer et filtrer les données
+          final List<Map<String, dynamic>> processedActivities = _processActivities(result);
+          
+          // Si le widget est toujours monté, mettre à jour l'état
+          if (mounted) {
+            setState(() {
+              _activities = processedActivities;
+              _isLoading = false;
+              _errorMessage = '';
+            });
+            
+            // Générer les marqueurs pour les activités
+            _createMarkers();
+          }
+        } catch (e) {
+          if (mounted) {
+            setState(() {
+              _isLoading = false;
+              _errorMessage = 'Impossible de charger les activités: $e';
+            });
+          }
+        }
       });
-      
-      // Générer les marqueurs pour les activités
-      _createMarkers();
     } catch (e) {
       print('❌ Erreur lors du chargement des activités des amis: $e');
-      setState(() {
-        _isLoading = false;
-        _errorMessage = 'Impossible de charger les activités: $e';
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'Impossible de charger les activités: $e';
+        });
+      }
     }
   }
 
@@ -475,86 +514,104 @@ class _MapFriendsScreenState extends State<MapFriendsScreen> {
     return min(1.0, max(0.0, score));
   }
   
-  // Crée les marqueurs pour la carte
+  // Crée les marqueurs pour la carte de manière plus optimisée
   Future<void> _createMarkers() async {
-    final Set<gmaps.Marker> markers = {};
-    
-    for (final activity in _activities) {
-      final String activityId = activity['id'] ?? '';
-      final String name = activity['name'] ?? 'Sans nom';
-      final String friendId = activity['friendId'] ?? '';
-      final String friendName = activity['friendName'] ?? 'Ami';
-      final String type = activity['type'] ?? '';
-      final bool isChoice = activity['isChoice'] ?? false;
-      final bool isInterest = activity['isInterest'] ?? false;
-      final double score = activity['score'] ?? 0.5;
-      
-      // Récupérer l'ami
-      final friend = _friends.firstWhere(
-        (f) => f['id'] == friendId,
-        orElse: () => {'name': friendName, 'avatar': null},
-      );
-      
-      // Coordonnées
-      final double lat = activity['latitude'] ?? 0;
-      final double lng = activity['longitude'] ?? 0;
-      
-      if (lat != 0 && lng != 0) {
-        final gmaps.LatLng position = gmaps.LatLng(lat, lng);
-        
-        // Déterminer la couleur du marqueur en fonction du type d'activité
-        Color markerColor;
-        if (isInterest) {
-          markerColor = Colors.blue;
-        } else if (isChoice) {
-          markerColor = Colors.amber;
-        } else {
-          markerColor = _getActivityColor(type);
-        }
-        
-        // Générer un marqueur personnalisé en fonction du score
-        gmaps.BitmapDescriptor markerIcon;
-        
-        try {
-          // Utiliser la méthode personnalisée pour créer un marqueur plus avancé
-          markerIcon = await _createCustomMarkerBitmap(
-            color: markerColor,
-            score: score,
-            rating: activity['rating']?.toDouble() ?? 0.0,
-          );
-        } catch (e) {
-          // Fallback avec une méthode plus simple
-          markerIcon = await marker_gen.MapMarkerGenerator.generateFriendMarker(
-            friendName,
-            markerColor,
-          );
-        }
-        
-        final marker = gmaps.Marker(
-          markerId: gmaps.MarkerId(activityId),
-          position: position,
-          icon: markerIcon,
-          onTap: () => _onMarkerTapped(activity),
-          // Rendre le marqueur plus gros si c'est celui sélectionné
-          zIndex: activityId == _lastTappedMarkerId ? 1.0 : 0.0,
-        );
-        
-        markers.add(marker);
-      }
-    }
+    if (_isComputingMarkers) return; // Éviter les calculs simultanés
     
     setState(() {
-      _markers.clear();
-      _markers.addAll(markers);
+      _isComputingMarkers = true;
     });
     
-    // Ajuster la vue de la carte pour voir tous les marqueurs
-    if (markers.isNotEmpty && _isMapReady) {
-      _fitMarkersOnMap();
+    try {
+      final Set<gmaps.Marker> markers = {};
+      
+      for (final activity in _activities) {
+        final String activityId = activity['id'] ?? '';
+        final String type = activity['type'] ?? '';
+        final bool isChoice = activity['isChoice'] ?? false;
+        final bool isInterest = activity['isInterest'] ?? false;
+        final double score = activity['score'] ?? 0.5;
+        
+        // Coordonnées
+        final double lat = activity['latitude'] ?? 0;
+        final double lng = activity['longitude'] ?? 0;
+        
+        if (lat != 0 && lng != 0) {
+          final gmaps.LatLng position = gmaps.LatLng(lat, lng);
+          
+          // Déterminer la couleur du marqueur en fonction du type d'activité
+          Color markerColor;
+          if (isInterest) {
+            markerColor = Colors.blue;
+          } else if (isChoice) {
+            markerColor = Colors.amber;
+          } else {
+            markerColor = _getActivityColor(type);
+          }
+          
+          // Créer une clé de cache unique pour ce type de marqueur
+          final String markerKey = '${markerColor.value}_${(score * 10).round()}_${activity['rating'] ?? 0}';
+          
+          // Générer un marqueur personnalisé en fonction du score (avec cache)
+          gmaps.BitmapDescriptor markerIcon;
+          
+          if (_markerIconCache.containsKey(markerKey)) {
+            // Utiliser le marqueur en cache
+            markerIcon = _markerIconCache[markerKey]!;
+          } else {
+            try {
+              // Créer un nouveau marqueur et le mettre en cache
+              markerIcon = await _createCustomMarkerBitmap(
+                color: markerColor,
+                score: score,
+                rating: activity['rating']?.toDouble() ?? 0.0,
+              );
+              _markerIconCache[markerKey] = markerIcon;
+            } catch (e) {
+              // Fallback avec une méthode plus simple
+              markerIcon = await marker_gen.MapMarkerGenerator.generateFriendMarker(
+                activity['friendName'] ?? 'Ami',
+                markerColor,
+              );
+            }
+          }
+          
+          final marker = gmaps.Marker(
+            markerId: gmaps.MarkerId(activityId),
+            position: position,
+            icon: markerIcon,
+            onTap: () => _onMarkerTapped(activity),
+            // Rendre le marqueur plus gros si c'est celui sélectionné
+            zIndex: activityId == _lastTappedMarkerId ? 1.0 : 0.0,
+          );
+          
+          markers.add(marker);
+        }
+      }
+      
+      if (mounted) {
+        setState(() {
+          _markers.clear();
+          _markers.addAll(markers);
+          _isComputingMarkers = false;
+        });
+      }
+      
+      // Ajuster la vue de la carte pour voir tous les marqueurs
+      if (markers.isNotEmpty && _isMapReady) {
+        _fitMarkersOnMap();
+      }
+    } catch (e) {
+      print('❌ Erreur lors de la création des marqueurs: $e');
+      if (mounted) {
+        setState(() {
+          _isComputingMarkers = false;
+        });
+      }
     }
   }
   
-  // Créer un bitmap personnalisé pour les marqueurs
+  // Version optimisée de la création des marqueurs
   Future<gmaps.BitmapDescriptor> _createCustomMarkerBitmap({
     required Color color,
     required double score,
@@ -568,39 +625,38 @@ class _MapFriendsScreenState extends State<MapFriendsScreen> {
       final Paint paint = Paint()..color = color;
       final double radius = size / 2;
       
-      // Dessiner le cercle principal
+      // Simplifier le dessin pour des performances meilleures
       canvas.drawCircle(Offset(radius, radius), radius, paint);
       
-      // Dessiner le bord
+      // Utiliser moins d'effets visuels
       final Paint borderPaint = Paint()
         ..color = isSelected ? Colors.white : color.withOpacity(0.8)
         ..style = PaintingStyle.stroke
         ..strokeWidth = isSelected ? 4 : 2;
       canvas.drawCircle(Offset(radius, radius), radius - 2, borderPaint);
       
-      // Dessiner un indicateur de score (plus le score est élevé, plus la taille est grande)
-      final double innerRadius = radius * 0.6 * math.max(0.5, score);
-      final Paint innerPaint = Paint()..color = isSelected 
-        ? Colors.white.withOpacity(0.9) 
-        : color.withOpacity(0.6);
-      canvas.drawCircle(Offset(radius, radius), innerRadius, innerPaint);
+      // Dessiner un indicateur de score
+      if (score > 0.5) {
+        final double innerRadius = radius * 0.6;
+        final Paint innerPaint = Paint()..color = Colors.white.withOpacity(0.7);
+        canvas.drawCircle(Offset(radius, radius), innerRadius, innerPaint);
+      }
       
-      // Dessiner les étoiles pour le rating
-      if (rating > 0) {
+      // Dessiner le texte de rating s'il est significatif
+      if (rating >= 3.5) {
         final TextPainter textPainter = TextPainter(
           text: TextSpan(
-            text: '★ ${rating.toStringAsFixed(1)}',
+            text: '★${rating.toStringAsFixed(1)}',
             style: TextStyle(
-              fontSize: isSelected ? 18 : 14,
+              fontSize: 16,
               fontWeight: FontWeight.bold,
-              color: isSelected ? color : Colors.white,
+              color: Colors.black87,
             ),
           ),
           textDirection: ui.TextDirection.ltr,
         );
         textPainter.layout();
         
-        // Centrer le texte
         final double xCenter = (size - textPainter.width) / 2;
         final double yCenter = (size - textPainter.height) / 2;
         textPainter.paint(canvas, Offset(xCenter, yCenter));
@@ -612,18 +668,15 @@ class _MapFriendsScreenState extends State<MapFriendsScreen> {
         size.toInt(),
       );
       
-      // Convertir l'image en bytes
       final ByteData? data = await image.toByteData(format: ui.ImageByteFormat.png);
       
       if (data == null) {
-        // Fallback en cas d'erreur
         return gmaps.BitmapDescriptor.defaultMarkerWithHue(gmaps.BitmapDescriptor.hueAzure);
       }
       
-      // Convertir en BitmapDescriptor
       return gmaps.BitmapDescriptor.fromBytes(data.buffer.asUint8List());
     } catch (e) {
-      print('Erreur lors de la création du marqueur personnalisé: $e');
+      print('❌ Erreur lors de la création du marqueur personnalisé: $e');
       return gmaps.BitmapDescriptor.defaultMarkerWithHue(gmaps.BitmapDescriptor.hueAzure);
     }
   }
@@ -954,8 +1007,10 @@ class _MapFriendsScreenState extends State<MapFriendsScreen> {
       );
     }
     
-    // Charger les amis et leurs activités
-    _loadFriendsActivities();
+    // Charger les amis et leurs activités seulement quand la carte est prête
+    if (_isInitialized && !_isLoading) {
+      _loadFriendsActivities();
+    }
   }
   
   // Méthode pour appliquer les filtres depuis MapScreen
@@ -1272,10 +1327,29 @@ class _MapFriendsScreenState extends State<MapFriendsScreen> {
     );
   }
 
-  void _navigateToMapScreen(String mapType) {
-    if (mapType == 'friends') return; // Déjà sur cette carte
-    
-    // Utiliser l'extension NavigationHelper définie dans main.dart
+  void _navigateToMapScreen(dynamic value) {
+    String mapType;
+    if (value is int) {
+      switch (value) {
+        case 0:
+          mapType = 'restaurant';
+          break;
+        case 1:
+          mapType = 'leisure';
+          break;
+        case 2:
+          mapType = 'wellness';
+          break;
+        case 3:
+          mapType = 'friends';
+          break;
+        default:
+          mapType = 'friends';
+      }
+    } else {
+      mapType = value.toString();
+    }
+    if (mapType == 'friends') return;
     context.changeMapType(mapType);
   }
 

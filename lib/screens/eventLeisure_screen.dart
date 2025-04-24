@@ -11,6 +11,8 @@ import 'package:intl/intl.dart';
 import '../utils/leisureHelpers.dart';
 import '../utils/constants.dart' as constants;
 import '../utils.dart' show getImageProvider;
+import '../models/user_model.dart'; // Import the correct User model
+import 'profile_screen.dart'; // Assuming you have a ProfileScreen
 
 class EventLeisureScreen extends StatefulWidget {
   final dynamic eventData;
@@ -33,6 +35,10 @@ class _EventLeisureScreenState extends State<EventLeisureScreen> {
   bool _isLoading = true;
   String? _error;
   late String _eventId;
+  // --- NEW ---: State for event interactions
+  List<UserModel> _interestedUsers = [];
+  List<UserModel> _choiceUsers = [];
+  bool _isLoadingInteractions = false;
   
   // Mappings détaillés pour l'analyse AI par catégorie
   final Map<String, Map<String, dynamic>> CATEGORY_MAPPINGS_DETAILED = {
@@ -188,18 +194,20 @@ class _EventLeisureScreenState extends State<EventLeisureScreen> {
   void initState() {
     super.initState();
     
-    // If eventData is provided, use it directly
     if (widget.eventData != null) {
-      setState(() {
-        _eventData = widget.eventData;
-        _isLoading = false;
-        // Extract the event ID from eventData if needed
-        _eventId = widget.eventData!['_id'] ?? '';
-      });
+      _eventData = Map<String, dynamic>.from(widget.eventData); 
+      _isLoading = false;
+      _eventId = _eventData!['_id'] ?? widget.id ?? '';
+      // --- NEW --- : Fetch event interactions after getting data
+      if (_eventId.isNotEmpty) {
+        _fetchEventInteractions();
+      }
+    } else if (widget.id != null && widget.id!.isNotEmpty) {
+      _eventId = widget.id!;
+      _fetchEventDetails(); // This will now also trigger _fetchEventInteractions
     } else {
-      // Otherwise, use the provided eventId and fetch data
-      _eventId = widget.eventData!['_id'] ?? '';
-      _fetchEventDetails();
+      _error = "Aucun ID d'événement fourni";
+      _isLoading = false;
     }
   }
 
@@ -270,17 +278,20 @@ class _EventLeisureScreenState extends State<EventLeisureScreen> {
       
       // Si l'une des tentatives a réussi, formater les données
       if (success && responseData != null) {
+        _eventData = {
+          ...responseData,
+          'date_formatted': formatEventDate(responseData['date_debut'] ?? responseData['prochaines_dates']),
+          'is_passed': isEventPassed(responseData),
+          'image': getEventImageUrl(responseData),
+        };
+        // --- NEW --- : Fetch event interactions after fetching event details
+        if (_eventId.isNotEmpty) {
+          await _fetchEventInteractions();
+        }
         setState(() {
-          _eventData = {
-            ...responseData!,
-            'date_formatted': formatEventDate(responseData['date_debut'] ?? responseData['prochaines_dates']),
-            'is_passed': isEventPassed(responseData),
-            'image': getEventImageUrl(responseData),
-          };
           _isLoading = false;
         });
       } else {
-        // Si toutes les tentatives ont échoué
         setState(() {
           _error = 'Erreur lors de la récupération des données de l\'événement';
           _isLoading = false;
@@ -292,6 +303,102 @@ class _EventLeisureScreenState extends State<EventLeisureScreen> {
         _isLoading = false;
       });
     }
+  }
+  
+  // --- NEW --- : Fetch event interactions (interested/choice users)
+  Future<void> _fetchEventInteractions() async {
+    if (_eventId.isEmpty) return;
+    
+    setState(() {
+      _isLoadingInteractions = true;
+    });
+    
+    try {
+      // Endpoint to get interaction details for an event
+      // Adjust endpoint if necessary based on your actual API
+      final baseUrl = await constants.getBaseUrl();
+      final url = Uri.parse('$baseUrl/api/events/$_eventId/interactions'); 
+      
+      print('🔄 Fetching interactions for event $_eventId from $url');
+      
+      final response = await http.get(url);
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        
+        // Assuming the API returns lists of user IDs
+        List<String> interestedIds = List<String>.from(data['interestedUsers'] ?? []);
+        List<String> choiceIds = List<String>.from(data['choiceUsers'] ?? []); // Adjust key if needed
+        
+        print('✅ Fetched Interactions: ${interestedIds.length} interested, ${choiceIds.length} choices');
+        
+        // Fetch full profiles for these users (reuse or adapt _fetchUserProfiles)
+        List<UserModel> interestedProfiles = await _fetchUserProfiles(interestedIds);
+        List<UserModel> choiceProfiles = await _fetchUserProfiles(choiceIds);
+        
+        setState(() {
+          _interestedUsers = interestedProfiles;
+          _choiceUsers = choiceProfiles;
+        });
+        
+      } else {
+        print('⚠️ Failed to fetch interactions: ${response.statusCode}');
+        setState(() {
+          _interestedUsers = [];
+          _choiceUsers = [];
+        });
+      }
+      
+    } catch (e) {
+      print('❌ Error fetching event interactions: $e');
+      setState(() {
+        _interestedUsers = [];
+        _choiceUsers = [];
+      });
+    } finally {
+      setState(() {
+        _isLoadingInteractions = false;
+      });
+    }
+  }
+  
+  // --- RE-ADD --- : Helper to fetch multiple user profiles (can be reused)
+  Future<List<UserModel>> _fetchUserProfiles(List<String> userIds) async {
+    List<UserModel> profiles = [];
+    if (userIds.isEmpty) return profiles;
+    
+    final baseUrl = await constants.getBaseUrl();
+    final client = http.Client();
+    
+    // Optimize: Use a batch endpoint if available, e.g., /api/users/batch?ids=id1,id2
+    // For simplicity, fetching one by one:
+    for (String userId in userIds) {
+      try {
+        // Try fetching from /api/users/:id/profile first
+        var url = Uri.parse('$baseUrl/api/users/$userId/profile'); 
+        var response = await client.get(url).timeout(const Duration(seconds: 5));
+
+        if (response.statusCode != 200) {
+          // Fallback to /api/users/:id if profile endpoint fails
+          url = Uri.parse('$baseUrl/api/users/$userId'); 
+          response = await client.get(url).timeout(const Duration(seconds: 5));
+        }
+
+        if (response.statusCode == 200) {
+          final userData = json.decode(response.body);
+          // Assuming UserModel.fromJson handles potential structure differences
+          profiles.add(UserModel.fromJson(userData)); 
+        } else {
+          print('⚠️ Could not fetch profile for user $userId: ${response.statusCode}');
+          // Add a placeholder or skip?
+          // profiles.add(UserModel(id: userId, displayName: 'Utilisateur Inconnu'));
+        }
+      } catch (e) {
+        print('❌ Error fetching profile for user $userId: $e');
+        // profiles.add(UserModel(id: userId, displayName: 'Erreur Réseau'));
+      }
+    }
+    return profiles;
   }
 
   @override
@@ -386,6 +493,32 @@ class _EventLeisureScreenState extends State<EventLeisureScreen> {
                   // Notes globales
                   _buildGlobalNotes(),
 
+                  const SizedBox(height: 16),
+
+                  // --- NEW --- : Display Event Interested Users
+                  _buildInteractionUserList(
+                    title: 'Personnes intéressées par cet événement',
+                    icon: Icons.favorite,
+                    iconColor: Colors.red,
+                    users: _interestedUsers,
+                    isLoading: _isLoadingInteractions,
+                  ),
+                  
+                  // --- NEW --- : Display Event Choice Users
+                  _buildInteractionUserList(
+                    title: 'Personnes ayant choisi cet événement',
+                    icon: Icons.check_circle,
+                    iconColor: Colors.blue, // Or green?
+                    users: _choiceUsers,
+                    isLoading: _isLoadingInteractions,
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  // --- NEW --- : Optional Event Info Section
+                  _buildOptionalEventInfoSection(_eventData!), 
+                  
+                  _buildPriceDetails(),
                   const SizedBox(height: 16),
 
                   // Boutons pour événements similaires et même catégorie
@@ -2899,5 +3032,196 @@ class _EventLeisureScreenState extends State<EventLeisureScreen> {
       SnackBar(content: Text(message), backgroundColor: Colors.red),
     );
   }
-}
-                        
+
+  // --- NEW --- : Generic Widget to display user lists (Interested/Choice)
+  Widget _buildInteractionUserList({
+    required String title,
+    required IconData icon,
+    required Color iconColor,
+    required List<UserModel> users,
+    required bool isLoading,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.only(top: 16), // Add margin between sections
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Title
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: iconColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(icon, color: iconColor),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          // User List or Loading/Empty State
+          isLoading
+            ? const Center(child: Padding(
+                padding: EdgeInsets.symmetric(vertical: 16.0),
+                child: CircularProgressIndicator(),
+              ))
+            : users.isEmpty
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 16.0),
+                    child: Text(
+                      'Personne pour le moment.',
+                      style: TextStyle(color: Colors.grey[600]),
+                    ),
+                  ),
+                )
+              : SizedBox(
+                  height: 80, // Fixed height for horizontal list
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: users.length,
+                    itemBuilder: (context, index) {
+                      final user = users[index];
+                      // Use a helper or default avatar logic
+                      final avatarUrl = user.photoUrl ?? 'https://ui-avatars.com/api/?name=${Uri.encodeComponent(user.name ?? 'U')}';
+                      
+                      return GestureDetector(
+                        onTap: () {
+                          // Navigate to user profile screen
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => ProfileScreen(userId: user.id ?? ''), // Pass user ID
+                            ),
+                          );
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.only(right: 12),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              CircleAvatar(
+                                radius: 25,
+                                backgroundImage: getImageProvider(avatarUrl), 
+                                backgroundColor: Colors.grey[200],
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                user.name ?? 'Utilisateur',
+                                style: const TextStyle(fontSize: 12),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+        ],
+      ),
+    );
+  }
+  
+  // --- NEW --- : Widget to display optional event info
+  Widget _buildOptionalEventInfoSection(Map<String, dynamic> eventData) {
+    final accessibility = (eventData['accessibility'] as List?)?.whereType<String>().toList() ?? [];
+    final ageRestriction = eventData['age_restriction'] as String?;
+    final language = eventData['language'] as String?;
+    
+    bool hasAccessibility = accessibility.isNotEmpty;
+    bool hasAgeRestriction = ageRestriction != null && ageRestriction.isNotEmpty;
+    bool hasLanguage = language != null && language.isNotEmpty && language != 'fr'; // Only show if not default French
+    
+    if (!hasAccessibility && !hasAgeRestriction && !hasLanguage) {
+      return const SizedBox.shrink();
+    }
+    
+    return Container(
+      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.only(bottom: 16), // Add margin below
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (hasAccessibility)
+            _buildInfoRow(icon: Icons.accessible, label: "Accessibilité", items: accessibility),
+          if (hasAgeRestriction)
+            _buildInfoRow(icon: Icons.person_outline, label: "Restriction d'âge", value: ageRestriction),
+          if (hasLanguage)
+            _buildInfoRow(icon: Icons.language, label: "Langue", value: language),
+        ],
+      ),
+    );
+  }
+  
+  // --- NEW --- : Helper to display a row of info (icon + label + value/chips)
+  Widget _buildInfoRow({required IconData icon, required String label, String? value, List<String>? items}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 20, color: Colors.teal.shade400),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Colors.black87)),
+                const SizedBox(height: 4),
+                if (value != null)
+                  Text(value, style: TextStyle(fontSize: 14, color: Colors.grey[700])),
+                if (items != null && items.isNotEmpty)
+                  Wrap(
+                    spacing: 6.0,
+                    runSpacing: 4.0,
+                    children: items.map((item) => Chip(
+                      label: Text(item, style: const TextStyle(fontSize: 12)),
+                      backgroundColor: Colors.teal.withOpacity(0.1),
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      side: BorderSide.none,
+                      visualDensity: VisualDensity.compact,
+                    )).toList(),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}                        

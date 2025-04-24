@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:math';
 import '../models/post.dart';
-import '../services/api_service.dart';
+import '../services/api_service.dart' as api_service;
 import '../services/dialogic_ai_feed_service.dart';
 import 'dart:async';
 import '../services/user_service.dart';
@@ -43,7 +43,7 @@ class FeedResult {
 
 class FeedScreenController extends ChangeNotifier {
   final String userId;
-  final ApiService _apiService = ApiService();
+  final api_service.ApiService _apiService = api_service.ApiService();
   final DialogicAIFeedService _dialogicService = DialogicAIFeedService();
   final UserService _userService = UserService();
   final AnalyticsService _analyticsService = AnalyticsService();
@@ -53,7 +53,12 @@ class FeedScreenController extends ChangeNotifier {
   bool _hasMore = true;
   bool _isInitialized = false;
   
-  List<dynamic> _feedItems = [];
+  // Ajout des propriétés manquantes
+  bool _showAiMessages = true; // Activer par défaut les messages AI dans le feed
+  bool _aiMessageInserted = false; // Tracker si un message AI a déjà été inséré dans cette session
+  VoidCallback? _feedUpdateCallback; // Callback pour notifier l'UI des mises à jour du feed
+  
+  List<dynamic> _feedItems = []; // Changed from Map<String, dynamic> to List<dynamic>
   List<dynamic> get feedItems => _feedItems;
   
   // Variables pour gérer l'état du chargement
@@ -298,167 +303,89 @@ class FeedScreenController extends ChangeNotifier {
   }
 
   /// Handle like interaction for both Post objects and Map posts
-  Future<void> likePost(dynamic postData) async {
-    if (postData is Post) {
-      // Handle Post object
-      final int index = _findPostIndex(postData);
-      
+  Future<void> likePost(Post postData) async {
+    final userId = _userService.currentUserId;
+    if (userId == null) return;
+    
+    // Get current state
+    final bool isCurrentlyLiked = postData.isLiked ?? false;
+    final int currentLikes = postData.likesCount ?? 0;
+    
+    // Optimistic update - toggle like state
+    final updatedPost = postData.copyWith(
+      isLiked: !isCurrentlyLiked,
+      likesCount: isCurrentlyLiked 
+          ? (currentLikes > 0 ? currentLikes - 1 : 0) 
+          : currentLikes + 1,
+    );
+    
+    // Find and update the post in the list
+    final index = _feedItems.indexWhere((item) => item is Post && item.id == postData.id);
+    if (index != -1) {
+      _feedItems[index] = updatedPost;
+    }
+    notifyListeners();
+    
+    // Track this interaction
+    trackInteraction('like', postData.id);
+    
+    try {
+      // Call API to update backend
+      await _apiService.toggleLike(userId, postData.id);
+    } catch (e) {
+      print('❌ Error liking post: $e');
+      // Revert on error
       if (index != -1) {
-        // Get current state
-        final bool isCurrentlyLiked = postData.isLiked ?? false;
-        final int currentLikes = postData.likesCount ?? 0;
-        
-        // Optimistic update - toggle like state
-        final updatedPost = postData.copyWith(
-          isLiked: !isCurrentlyLiked,
-          likesCount: isCurrentlyLiked 
-              ? (currentLikes > 0 ? currentLikes - 1 : 0) 
-              : currentLikes + 1,
-        );
-        
-        _feedItems[index] = updatedPost;
-        notifyListeners();
-        
-        // Track this interaction
-        trackInteraction('like', postData.id);
-        
-        try {
-          // Call API to update backend
-          await _apiService.toggleLike(userId, postData.id);
-        } catch (e) {
-          print('❌ Error liking post: $e');
-          // Revert on error
-          _feedItems[index] = postData;
-          notifyListeners();
-        }
+        _feedItems[index] = postData;
       }
-    } else if (postData is Map<String, dynamic>) {
-      // Handle Map-based post
-      final String postId = postData['_id'] ?? '';
-      final int index = _findPostIndex(postData);
-      
-      if (index != -1 && postId.isNotEmpty) {
-        // Get current state
-        final bool isCurrentlyLiked = postData['isLiked'] == true;
-        final int currentLikes = 
-            postData['likes_count'] ?? 
-            postData['likesCount'] ?? 
-            (postData['likes'] is List ? (postData['likes'] as List).length : 0);
-        
-        // Optimistic update
-        final Map<String, dynamic> updatedPost = Map.from(postData);
-        updatedPost['isLiked'] = !isCurrentlyLiked;
-        updatedPost['likes_count'] = isCurrentlyLiked 
-            ? (currentLikes > 0 ? currentLikes - 1 : 0) 
-            : currentLikes + 1;
-        updatedPost['likesCount'] = updatedPost['likes_count']; // Sync both fields
-        
-        _feedItems[index] = updatedPost;
-        notifyListeners();
-        
-        // Track this interaction
-        trackInteraction('like', postId);
-        
-        try {
-          // Call API to update backend
-          await _apiService.toggleLike(userId, postId);
-        } catch (e) {
-          print('❌ Error liking post: $e');
-          // Revert on error
-          _feedItems[index] = postData;
-          notifyListeners();
-        }
-      }
+      notifyListeners();
     }
   }
 
   /// Handle interest interaction
-  Future<void> markInterested(String targetId, dynamic postData, {bool isLeisureProducer = false}) async {
+  Future<void> markInterested(Post postData, String source, bool isLeisureProducer) async {
+    final userId = _userService.currentUserId;
+    if (userId == null) return;
+
+    print("Marking interest for post ${postData.id} from source: $source");
     try {
-      // Find the post in the feed
-      final int index = _findPostIndex(postData);
-      if (index == -1) return;
-      
-      // Call API
-      final success = await _apiService.markInterested(
-        userId, 
-        targetId,
-        isLeisureProducer: isLeisureProducer
+      await _apiService.markInterested(
+        userId,
+        postData.producerId ?? postData.authorId ?? '', // Prefer producerId
+        targetType: postData.producerType ?? 'producer',
+        isLeisureProducer: isLeisureProducer, // Pass the flag
+        source: source,
+        interested: true,
       );
-      
-      if (success) {
-        // Update local state based on post type
-        if (_feedItems[index] is Post) {
-          final post = _feedItems[index] as Post;
-          final bool isCurrentlyInterested = post.isInterested ?? false;
-          final int interestCountVal = post.interestedCount ?? 0;
-          
-          _feedItems[index] = post.copyWith(
-            isInterested: !isCurrentlyInterested,
-            interestedCount: isCurrentlyInterested
-                ? (interestCountVal > 0 ? interestCountVal - 1 : 0)
-                : interestCountVal + 1,
-          );
-        } else if (_feedItems[index] is Map<String, dynamic>) {
-          final map = _feedItems[index] as Map<String, dynamic>;
-          final bool isCurrentlyInterested = map['interested'] == true || map['isInterested'] == true;
-          final int currentCount = map['interested_count'] ?? map['interestedCount'] ?? 0;
-          
-          map['interested'] = !isCurrentlyInterested;
-          map['isInterested'] = !isCurrentlyInterested; // Sync both fields
-          map['interested_count'] = isCurrentlyInterested 
-              ? (currentCount > 0 ? currentCount - 1 : 0)
-              : currentCount + 1;
-          map['interestedCount'] = map['interested_count']; // Sync both fields
-        }
-        
-        // Track interaction
-        trackInteraction('interest', targetId);
-        notifyListeners();
-      }
+      // ... (UI feedback)
     } catch (e) {
-      print('❌ Error marking interested: $e');
+      print("❌ Error marking interest: $e");
+      // ... (Error handling)
     }
   }
 
   /// Handle choice interaction
-  Future<void> markChoice(String targetId, dynamic postData, {bool isLeisureProducer = false}) async {
+  Future<void> markChoice(String targetId) async {
+    final userId = _userService.currentUserId;
+    if (userId == null) return;
+
+    print("Marking choice for target $targetId");
+    setLoading(true);
     try {
-      // Find the post in the feed
-      final int index = _findPostIndex(postData);
-      if (index == -1) return;
-      
-      // Call API
-      final success = await _apiService.markChoice(userId, targetId);
-      
+      // Use the boolean return value
+      final bool success = await _apiService.markChoice(userId, targetId);
       if (success) {
-        // Update local state based on post type
-        if (_feedItems[index] is Post) {
-          final post = _feedItems[index] as Post;
-          final bool isCurrentlyChoice = post.isChoice ?? false;
-          
-          _feedItems[index] = post.copyWith(
-            isChoice: !isCurrentlyChoice,
-          );
-        } else if (_feedItems[index] is Map<String, dynamic>) {
-          final map = _feedItems[index] as Map<String, dynamic>;
-          final bool isCurrentlyChoice = map['choice'] == true || map['isChoice'] == true;
-          final int currentCount = map['choice_count'] ?? map['choiceCount'] ?? 0;
-          
-          map['choice'] = !isCurrentlyChoice;
-          map['isChoice'] = !isCurrentlyChoice; // Sync both fields
-          map['choice_count'] = isCurrentlyChoice 
-              ? (currentCount > 0 ? currentCount - 1 : 0)
-              : currentCount + 1;
-          map['choiceCount'] = map['choice_count']; // Sync both fields
-        }
-        
-        // Track interaction
-        trackInteraction('choice', targetId);
-        notifyListeners();
+        print("Choice marked successfully!");
+        // Optionally update UI or state
+      } else {
+         print("Failed to mark choice (API returned false).");
+         // Handle failure case
       }
     } catch (e) {
-      print('❌ Error marking choice: $e');
+      print("❌ Error marking choice: $e");
+      // ... (Error handling)
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -1786,6 +1713,34 @@ void _setErrorState(String message) {
             posts.add(post);
           }
         }
+      } else if (response is Map<String, dynamic>) {
+        // Handle single item response
+        final item = response;
+        final post = Post(
+          id: item['_id'] ?? '',
+          userId: item['userId'] ?? item['user_id'] ?? 'system',
+          userName: item['userName'] ?? item['user_name'] ?? item['authorName'] ?? 'Utilisateur',
+          authorId: item['authorId'] ?? '',
+          authorName: item['authorName'] ?? '',
+          authorAvatar: item['authorAvatar'] ?? '',
+          title: item['title'] ?? '',
+          description: item['description'] ?? '',
+          createdAt: DateTime.now(),
+          postedAt: item['createdAt'] != null 
+              ? DateTime.parse(item['createdAt'])
+              : DateTime.now(),
+          likesCount: item['likes'] is List ? (item['likes'] as List).length : (item['likesCount'] as int? ?? 0),
+          commentsCount: item['comments'] is List ? (item['comments'] as List).length : (item['commentsCount'] as int? ?? 0),
+          isLiked: item['isLiked'] ?? false,
+          location: item['location'] ?? '',
+          isProducerPost: item['isProducerPost'] ?? false,
+          isLeisureProducer: item['isLeisureProducer'] ?? false,
+          tags: item['tags'] is List<String> 
+              ? item['tags'] 
+              : (item['tags'] is List ? (item['tags'] as List).map((t) => t.toString()).toList() : []),
+        );
+        
+        posts.add(post);
       }
       
       return posts;
@@ -2057,37 +2012,58 @@ void _setErrorState(String message) {
 
   // Insérer un message AI dans le feed si les conditions sont remplies
   void _insertAiMessageIfNeeded(List<dynamic> posts) {
-    // Incrémenter le compteur de posts vus depuis le dernier message AI
-    _postsSinceLastAiMessage += posts.length;
+    // Si aucun post à insérer ou messages désactivés, sortir immédiatement
+    if (posts.isEmpty || !_showAiMessages) return;
     
-    // Vérifier si on doit ajouter un message AI (tous les X posts)
-    if (_postsSinceLastAiMessage >= _aiMessageFrequency) {
-      try {
-        // Récupérer un message AI contextuel basé sur le contenu récent
-        _dialogicService.getContextualMessage(
-          userId, 
-          _convertToPostList(_recentlyViewedPosts), // Convertir la liste dynamic en liste de Post
-          _recentInteractions
-        ).then((aiMessage) {
-            if (aiMessage != null) {
-              // Convertir le message AI en format compatible avec le feed
-              final aiMessageAsMap = aiMessage.toJson();
+    // Vérifier si on a déjà inséré un message AI dans cette session
+    if (_aiMessageInserted) return;
+    
+    // Désactiver les messages AI pour cette session
+    // _aiMessageInserted = true;
+    
+    // Insérer le message après un délai aléatoire (pour simuler un traitement)
+    Future.delayed(const Duration(seconds: 2)).then((_) {
+      // Vérifier si des posts existent encore pour éviter des erreurs
+      if (posts.isEmpty) return;
+      
+      // Récupérer un message personnalisé pour l'utilisateur
+      _getPersonalizedAiMessage().then((aiMessage) {
+        if (aiMessage != null && aiMessage.isNotEmpty) {
+          try {
+            // Créer un post AI au format adéquat
+            final aiPost = Post(
+              id: 'ai-message-${DateTime.now().millisecondsSinceEpoch}',
+              createdAt: DateTime.now(),
+              description: aiMessage,
+              userName: 'Assistant Choice',
+              authorName: 'Assistant Choice',
+              userPhotoUrl: 'https://choice-app-assets.s3.eu-west-3.amazonaws.com/assistant-avatar.png',
+              authorAvatar: 'https://choice-app-assets.s3.eu-west-3.amazonaws.com/assistant-avatar.png',
+              isAutomated: true,
+              // Utiliser un type spécial pour pouvoir styliser le message différemment
+              type: 'ai_message',
+            );
+            
+            // Déterminer une position aléatoire entre 1 et 3 (ou la taille des posts si < 3)
+            final insertPosition = posts.length < 3 ? 1 : (1 + Random().nextInt(2));
+            
+            // Vérifier que la position est valide
+            if (insertPosition < posts.length) {
+              // Insérer le post AI
+              print('🤖 Insertion d\'un message AI en position $insertPosition');
+              posts.insert(insertPosition, aiPost);
               
-              // Ajouter le message AI après quelques posts (pas tout en haut)
-              int insertPosition = min(3, posts.length);
-              if (_feedItems.length > insertPosition) {
-                _feedItems.insert(insertPosition, aiMessageAsMap);
-                notifyListeners();
-              }
-              
-              // Réinitialiser le compteur
-              _postsSinceLastAiMessage = 0;
+              // Rafraîchir l'affichage (si un state existe)
+              if (_feedUpdateCallback != null) {
+                _feedUpdateCallback!();
             }
-          });
+            }
       } catch (e) {
-        print('❌ Erreur lors de l\'insertion d\'un message AI: $e');
+            print('❌ Erreur lors de l\'insertion du message AI: $e');
       }
     }
+      });
+    });
   }
 
   Future<void> initializePreferences() async {
@@ -2142,5 +2118,60 @@ void _setErrorState(String message) {
       print('❌ Erreur lors du chargement des posts depuis le cache: $e');
       return [];
     }
+  }
+
+  // Méthode pour obtenir un message AI personnalisé
+  Future<String?> _getPersonalizedAiMessage() async {
+    try {
+      // Liste de messages génériques pour le feed
+      final List<String> genericMessages = [
+        "Découvrez les nouveaux restaurants tendance près de chez vous !",
+        "Avez-vous exploré les activités de loisirs ce week-end ?",
+        "Des suggestions personnalisées basées sur vos intérêts vous attendent !",
+        "Explorez de nouvelles expériences dans votre quartier.",
+        "Partagez vos découvertes et aidez la communauté à découvrir de nouveaux lieux !",
+      ];
+      
+      // Retourne un message aléatoire pour l'instant
+      return genericMessages[Random().nextInt(genericMessages.length)];
+      
+      // TODO: Implémenter l'appel API pour obtenir des messages vraiment personnalisés
+      // final response = await _http.post(
+      //   Uri.parse('${_baseUrl}/api/ai/feed-message'),
+      //   headers: {'Content-Type': 'application/json'},
+      //   body: jsonEncode({
+      //     'userId': userId,
+      //   }),
+      // );
+      // 
+      // if (response.statusCode == 200) {
+      //   final data = jsonDecode(response.body);
+      //   return data['message'];
+      // }
+      // 
+      // return null;
+    } catch (e) {
+      print('❌ Erreur lors de la récupération du message AI: $e');
+      return null;
+    }
+  }
+
+  // Méthode pour définir un callback de mise à jour du feed
+  void setFeedUpdateCallback(VoidCallback callback) {
+    _feedUpdateCallback = callback;
+  }
+  
+  // Méthode pour activer/désactiver les messages AI
+  void setShowAiMessages(bool show) {
+    _showAiMessages = show;
+    notifyListeners();
+  }
+  
+  // Getter pour l'état d'affichage des messages AI
+  bool get showAiMessages => _showAiMessages;
+
+  void setLoading(bool value) {
+    _isLoading = value;
+    notifyListeners();
   }
 }

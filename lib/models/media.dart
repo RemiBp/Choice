@@ -50,35 +50,63 @@ class Media {
   }
 
   factory Media.fromJson(Map<String, dynamic> json) {
+    double? parseDouble(dynamic value) {
+      if (value == null) return null;
+      if (value is double) return value;
+      if (value is int) return value.toDouble();
+      if (value is String) return double.tryParse(value);
+      return null;
+    }
+    int? parseInt(dynamic value) {
+      if (value == null) return null;
+      if (value is int) return value;
+      if (value is double) return value.toInt();
+      if (value is String) return int.tryParse(value);
+      return null;
+    }
     return Media(
       url: json['url'] ?? '',
       type: json['type'],
       id: json['id'],
-      width: json['width'],
-      height: json['height'],
-      aspectRatio: json['aspectRatio'],
+      width: parseDouble(json['width']),
+      height: parseDouble(json['height']),
+      aspectRatio: parseDouble(json['aspectRatio']),
       caption: json['caption'],
       thumbnail: json['thumbnail'],
       isLoading: json['isLoading'] ?? false,
       thumbnailUrl: json['thumbnailUrl'],
-      duration: json['duration'],
+      duration: parseInt(json['duration']),
       metadata: json['metadata'],
     );
   }
 
   factory Media.fromMap(Map<String, dynamic> map) {
+    double? parseDouble(dynamic value) {
+      if (value == null) return null;
+      if (value is double) return value;
+      if (value is int) return value.toDouble();
+      if (value is String) return double.tryParse(value);
+      return null;
+    }
+    int? parseInt(dynamic value) {
+      if (value == null) return null;
+      if (value is int) return value;
+      if (value is double) return value.toInt();
+      if (value is String) return int.tryParse(value);
+      return null;
+    }
     return Media(
       url: map['url'] ?? '',
       type: map['type'],
       id: map['id'],
-      width: map['width'],
-      height: map['height'],
-      aspectRatio: map['aspectRatio'],
+      width: parseDouble(map['width']),
+      height: parseDouble(map['height']),
+      aspectRatio: parseDouble(map['aspectRatio']),
       caption: map['caption'],
       thumbnail: map['thumbnail'],
       isLoading: map['isLoading'] ?? false,
       thumbnailUrl: map['thumbnailUrl'],
-      duration: map['duration'],
+      duration: parseInt(map['duration']),
       metadata: map['metadata'],
     );
   }

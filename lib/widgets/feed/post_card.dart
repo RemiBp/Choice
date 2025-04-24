@@ -13,7 +13,7 @@ import 'comments_sheet.dart';
 import 'media_detail_view.dart';
 import '../../utils/constants.dart';
 import 'animations/double_tap_animation.dart';
-import '../../services/api_service.dart';
+import '../../services/api_service.dart' as api_service;
 import '../../screens/profile_screen.dart';
 import '../../screens/post_detail_screen.dart';
 import '../translatable_content.dart';
@@ -30,6 +30,7 @@ class PostCard extends StatefulWidget {
   final VoidCallback onUserTap;
   final PostCallback onShare;
   final PostCallback onSave;
+  final api_service.ApiService apiService;
 
   const PostCard({
     Key? key,
@@ -41,6 +42,7 @@ class PostCard extends StatefulWidget {
     required this.onUserTap,
     required this.onShare,
     required this.onSave,
+    required this.apiService,
   }) : super(key: key);
 
   @override
@@ -63,7 +65,8 @@ class _PostCardState extends State<PostCard> {
   VideoPlayerController? _videoController;
   bool _isMuted = true;
   bool _hasRecordedView = false;
-  final ApiService _apiService = ApiService();
+  bool _viewRecorded = false;
+  final api_service.ApiService _apiService = api_service.ApiService();
   Post get post => widget.post;
 
   @override
@@ -109,25 +112,38 @@ class _PostCardState extends State<PostCard> {
     // Enregistrer la vue du post
     _recordView();
     
-    return Container(
-      margin: const EdgeInsets.only(bottom: 1),
-      decoration: BoxDecoration(
-        color: (post.isProducerPost ?? false) ? Colors.black : Colors.white,
-        border: Border(
-          bottom: BorderSide(
-            color: (post.isProducerPost ?? false) ? Colors.grey[900]! : Colors.grey[200]!,
-            width: 0.5,
+    return VisibilityDetector(
+      key: Key('post-${post.id}'),
+      onVisibilityChanged: (visibilityInfo) {
+        var visiblePercentage = visibilityInfo.visibleFraction * 100;
+        if (visiblePercentage > 50 && !_viewRecorded) {
+          print('👁️ Recording view for post ${post.id}');
+          widget.apiService.recordPostView(post.id);
+          setState(() {
+            _viewRecorded = true;
+          });
+        }
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 1),
+        decoration: BoxDecoration(
+          color: (post.isProducerPost ?? false) ? Colors.black : Colors.white,
+          border: Border(
+            bottom: BorderSide(
+              color: (post.isProducerPost ?? false) ? Colors.grey[900]! : Colors.grey[200]!,
+              width: 0.5,
+            ),
           ),
         ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildHeader(),
-          if (post.media.isNotEmpty) _buildMedia(),
-          _buildContent(),
-          _buildInteractionBar(),
-        ],
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildHeader(),
+            if (post.media.isNotEmpty) _buildMedia(),
+            _buildContent(),
+            _buildInteractionBar(),
+          ],
+        ),
       ),
     );
   }

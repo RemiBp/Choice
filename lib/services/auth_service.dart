@@ -630,7 +630,7 @@ class AuthService extends ChangeNotifier {
         await prefs.setString('userId', _userId!);
         await prefs.setString('accountType', _accountType!);
         if (_token != null) {
-           await SecureStorageService.saveToken(_token!); // Save securely
+           await _saveToken(_token!);
         }
         
         notifyListeners();

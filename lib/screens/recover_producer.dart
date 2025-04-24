@@ -236,11 +236,36 @@ class _RecoverProducerPageState extends State<RecoverProducerPage> with SingleTi
           });
         } else {
           print('❌ Erreur API: ${response.statusCode} - ${response.body}');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Erreur API (${response.statusCode}): Impossible de récupérer les résultats.'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
         }
       } catch (e) {
         print('❌ Erreur de recherche: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Erreur de recherche: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
       } finally {
-        setState(() => _isSearching = false);
+        if (mounted) {
+           setState(() {
+              if (_searchResults.isNotEmpty && _searchController.text.isNotEmpty) {
+                 // Only clear if there was an error, otherwise keep existing results if query is cleared later
+                 // Check status code again or add a flag if necessary, but for now, assume error if not 200 or caught exception
+                 // Let's clear results specifically in the error cases above instead.
+              }
+             _isSearching = false;
+           });
+        }
       }
     });
   }

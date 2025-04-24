@@ -230,6 +230,7 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
   // State variables for data
   bool _isLoading = true;
   bool _showLegend = false;
+  String? _loadingError; // <<< ADDED: State variable for loading errors
   String _selectedTimeFilter = 'Tous';
   String _selectedDayFilter = 'Tous';
   
@@ -290,8 +291,9 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
     initializeTimeago();
     _clusterManager = _initClusterManager();
     _loadData(); // Loads hotspots, producer location AND insights
-    _startActiveUserPolling(); // Start polling for active users
-    _startNearbySearchPolling(); // <-- Start polling for searches
+    // Remove polling start from initState, move to _loadData on success
+    // _startActiveUserPolling(); 
+    // _startNearbySearchPolling();
     // _initSocket(); // SocketIO not implemented yet
     // Timer.periodic(_searchEventTimeout, (_) => _cleanupSearchEvents()); // Cleanup for future nearby searches
   }
@@ -316,22 +318,38 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
   // --- Data Loading ---
   Future<void> _loadData() async {
     if (!mounted) return;
-    setState(() { _isLoading = true; });
+    setState(() { 
+      _isLoading = true; 
+      _loadingError = null; // Clear previous errors
+      _hotspots = []; // Clear previous data
+      _filteredHotspots = [];
+      _activeUsers = [];
+      _nearbySearches = [];
+      _zoneInsights = [];
+      _places = [];
+      _clusterManager.setItems([]); // Clear cluster items
+    });
     print("🔄 Loading initial data...");
+
+    // Cancel existing timers before loading
+    _activeUserPollTimer?.cancel();
+    _nearbySearchPollTimer?.cancel();
+
     try {
       // Fetch producer location first to center map and get coords for hotspots
-      final locationData = await _fetchProducerLocation();
-      final producerLat = locationData['latitude'] ?? 48.8566;
-      final producerLon = locationData['longitude'] ?? 2.3522;
+      final locationData = await _fetchProducerLocation(); // This now returns LatLng or throws error
+      final LatLng producerLocation = locationData; // Keep as LatLng
+      final producerLat = producerLocation.latitude; // Use dot notation
+      final producerLon = producerLocation.longitude; // Use dot notation
 
       // Animate map immediately to producer location while other data loads
       _mapController?.animateCamera(
-        CameraUpdate.newLatLngZoom(LatLng(producerLat, producerLon), 14),
+        CameraUpdate.newLatLngZoom(LatLng(producerLat, producerLon), 14), // Use lat/lon here
       );
 
-      // Fetch hotspots and insights concurrently
+      // Fetch hotspots and insights concurrently ONLY if location was successful
       final results = await Future.wait([
-         _fetchHotspots(producerLat, producerLon),
+         _fetchHotspots(producerLat, producerLon), // Use lat/lon here
          _loadZoneInsights(), // Fetch insights (already handles own loading state)
       ]);
 
@@ -344,29 +362,39 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
            _hotspots = hotspots;
            _filteredHotspots = List.from(hotspots); // Initialize filtered list
            _generateZoneStats(); // Calculate stats based on initial hotspots
-           _updatePlacesList(); // Update cluster manager with initial zones (+ any existing active users)
+           // _updatePlacesList(); // Update places (called by polling start)
          });
+         // Start polling only after initial data load is successful
+         _startActiveUserPolling();
+         _startNearbySearchPolling();
       } else {
-          // Handle case where hotspots failed to load but insights might have succeeded
+          // Handle case where hotspots failed to load
           setState(() {
              _hotspots = [];
              _filteredHotspots = [];
-        _generateZoneStats();
-             _updatePlacesList();
+             _generateZoneStats();
+             // _updatePlacesList(); // Update places (called by polling start)
+             _loadingError = _loadingError ?? 'Impossible de charger les zones d\'intérêt.'; // Set error if not already set
           });
            if (mounted) {
              ScaffoldMessenger.of(context).showSnackBar(
                const SnackBar(content: Text('Impossible de charger les zones d\'intérêt.'), backgroundColor: Colors.orange),
              );
            }
+           // Start polling even if hotspots fail, maybe active users work?
+           _startActiveUserPolling();
+           _startNearbySearchPolling();
       }
 
     } catch (e) {
       print('❌ Error loading initial data: $e');
       if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur chargement données: $e'), backgroundColor: Colors.red),
-      );
+        setState(() {
+          _loadingError = e.toString(); // Store the error message
+        });
+        // ScaffoldMessenger.of(context).showSnackBar(
+        //   SnackBar(content: Text('Erreur chargement données: $e'), backgroundColor: Colors.red),
+        // );
       }
     } finally {
        if (mounted) { setState(() { _isLoading = false; }); }
@@ -374,24 +402,36 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
     }
   }
   
-  Future<Map<String, dynamic>> _fetchProducerLocation() async {
+  // MODIFIED: Now returns LatLng on success or throws an error
+  Future<LatLng> _fetchProducerLocation() async {
      print(" LFetching producer location...");
     try {
-      final url = Uri.parse('${constants.getBaseUrl()}/api/producers/${widget.userId}/location');
+      // Use the corrected endpoint
+      final url = Uri.parse('${constants.getBaseUrl()}/api/producers/${widget.userId}/location'); 
       final headers = await ApiConfig.getAuthHeaders();
       final response = await http.get(url, headers: headers);
       
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-         print(" Producer location: ${data['latitude']}, ${data['longitude']}");
-         return data;
+        final lat = data['latitude'];
+        final lon = data['longitude'];
+        if (lat != null && lon != null) {
+          print(" Producer location: $lat, $lon");
+          return LatLng(lat.toDouble(), lon.toDouble());
+        } else {
+          print('❌ Invalid location data received: $data');
+          throw Exception('Données de localisation invalides reçues du serveur.');
+        }
       } else {
         print('❌ Error fetching producer location: ${response.statusCode} ${response.body}');
-        return {'latitude': 48.8566, 'longitude': 2.3522}; // Default fallback Paris
+        final errorData = json.decode(response.body);
+        // Throw specific error based on backend message if available
+        throw Exception(errorData['message'] ?? 'Erreur ${response.statusCode} lors de la récupération de la localisation.');
       }
     } catch (e) {
       print('❌ Exception fetching producer location: $e');
-      return {'latitude': 48.8566, 'longitude': 2.3522}; // Default fallback Paris
+      // Rethrow the exception to be caught by _loadData
+      rethrow; 
     }
   }
   
@@ -1223,62 +1263,113 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
           // Scan Offer Button
           IconButton(
             icon: const Icon(Icons.qr_code_scanner_outlined),
-            onPressed: _navigateToOfferScanner,
+            // Disable if loading or error occurred
+            onPressed: _isLoading || _isValidatingOffer || _loadingError != null ? null : _navigateToOfferScanner, 
             tooltip: 'Valider une Offre (QR Code)',
           ),
           // Refresh Button
-          IconButton( icon: const Icon(Icons.refresh), onPressed: _isLoading || _isFetchingActiveUsers || _isValidatingOffer ? null : _loadData, tooltip: 'Rafraîchir Données' ),
+          IconButton( 
+            icon: const Icon(Icons.refresh), 
+            // Allow refresh even if error occurred, disable during loading/validation
+            onPressed: _isLoading || _isFetchingActiveUsers || _isValidatingOffer ? null : _loadData, 
+            tooltip: 'Rafraîchir Données' 
+          ),
            // Send Generic Push Button
-           IconButton( icon: const Icon(Icons.campaign_outlined), onPressed: _isLoading || _isFetchingActiveUsers || _isValidatingOffer ? null : () => _showSendPushDialog(), tooltip: 'Envoyer Offre aux Alentours' ),
+           IconButton( 
+             icon: const Icon(Icons.campaign_outlined), 
+             // Disable if loading, error occurred, or validating
+             onPressed: _isLoading || _isFetchingActiveUsers || _isValidatingOffer || _loadingError != null ? null : () => _showSendPushDialog(), 
+             tooltip: 'Envoyer Offre aux Alentours' 
+           ),
           // Toggle Legend Button
-          IconButton( icon: Icon(_showLegend ? Icons.visibility_off_outlined : Icons.visibility_outlined), onPressed: () => setState(() => _showLegend = !_showLegend), tooltip: 'Afficher/Masquer Légende' ),
+          IconButton( 
+            icon: Icon(_showLegend ? Icons.visibility_off_outlined : Icons.visibility_outlined), 
+            // Always allow toggling legend
+            onPressed: () => setState(() => _showLegend = !_showLegend), 
+            tooltip: 'Afficher/Masquer Légende' 
+          ),
         ],
       ),
       body: Stack(
         children: [
-          // --- Google Map ---
-          GoogleMap(
-            initialCameraPosition: _initialCameraPosition,
-            onMapCreated: (controller) {
-              if (!mounted) return;
-              setState(() { _mapController = controller; });
-              // Optional: Apply custom map style (load from JSON file in assets)
-              // rootBundle.loadString('assets/map_style.json').then((style) { if(mounted) controller.setMapStyle(style); });
-              _clusterManager.setMapId(controller.mapId);
-            },
-            markers: _clusterMarkers, // Markers managed by ClusterManager
-            circles: _createHeatmapCircles(), // Heatmap overlay
-            myLocationButtonEnabled: true, myLocationEnabled: true,
-            mapType: MapType.normal, buildingsEnabled: true, compassEnabled: true,
-            zoomControlsEnabled: false, // Disable default zoom controls
-            trafficEnabled: false,
-            onCameraMove: (position) => _clusterManager.onCameraMove(position),
-            onCameraIdle: () => _clusterManager.updateMap(),
-            padding: EdgeInsets.only(bottom: MediaQuery.of(context).size.height * 0.40, top: 100), // Adjust padding dynamically
-          ),
-          // --- End Google Map ---
+          // --- Google Map --- (Conditionally render or show overlay on error?)
+          // Option 1: Show map but maybe disabled/greyed out on error
+          // Option 2: Don't render map on error (simpler)
+          if (_loadingError == null) // Only render map if no initial loading error
+            GoogleMap(
+              initialCameraPosition: _initialCameraPosition, // Might need adjustment if no producer location
+              onMapCreated: (controller) {
+                if (!mounted) return;
+                setState(() { _mapController = controller; });
+                _clusterManager.setMapId(controller.mapId);
+                // If producer location loaded successfully in _loadData, animate camera
+                // This animation is already handled in _loadData
+              },
+              markers: _clusterMarkers, // Markers managed by ClusterManager
+              circles: _createHeatmapCircles(), // Heatmap overlay
+              myLocationButtonEnabled: true, myLocationEnabled: true,
+              mapType: MapType.normal, buildingsEnabled: true, compassEnabled: true,
+              zoomControlsEnabled: false, // Disable default zoom controls
+              trafficEnabled: false,
+              onCameraMove: (position) => _clusterManager.onCameraMove(position),
+              onCameraIdle: () => _clusterManager.updateMap(),
+              padding: EdgeInsets.only(bottom: MediaQuery.of(context).size.height * 0.40, top: 100), // Adjust padding dynamically
+            )
+          else // Show error overlay instead of map
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.all(30.0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.error_outline, color: Colors.red, size: 60),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Erreur de chargement initial', 
+                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(color: Colors.red),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _loadingError!, // Display the specific error message
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.black54),
+                    ),
+                    const SizedBox(height: 20),
+                    ElevatedButton.icon(
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Réessayer'),
+                      onPressed: _loadData, // Allow retry
+                    )
+                  ],
+                ),
+              ),
+            ),
+          // --- End Google Map --- OR Error Display
 
-          // --- Filter Card ---
-          Positioned( top: 10, left: 10, right: 10, child: Card(
-             elevation: 4, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-             child: Padding( padding: const EdgeInsets.all(12.0),
-               child: Column( mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-                   const Text('Filtres d\'Affluence', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                   const SizedBox(height: 8),
-                   Row( children: [
-                       Expanded( child: DropdownButtonFormField<String>( decoration: InputDecoration( labelText: 'Heure', border: const OutlineInputBorder(), contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), isDense: true, prefixIcon: const Icon(Icons.access_time, size: 18) ), value: _selectedTimeFilter, items: _timeFilterOptions.map((value) => DropdownMenuItem( value: value, child: Text(value == 'Tous' ? 'Toute la journée' : value, style: const TextStyle(fontSize: 13)))).toList(), onChanged: (value) { if (value != null) { setState(() => _selectedTimeFilter = value); _applyFilters(); } } ) ),
-                       const SizedBox(width: 10),
-                       Expanded( child: DropdownButtonFormField<String>( decoration: InputDecoration( labelText: 'Jour', border: const OutlineInputBorder(), contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), isDense: true, prefixIcon: const Icon(Icons.calendar_today, size: 16) ), value: _selectedDayFilter, items: _dayFilterOptions.map((value) => DropdownMenuItem( value: value, child: Text(value == 'Tous' ? 'Tous les jours' : value, style: const TextStyle(fontSize: 13)))).toList(), onChanged: (value) { if (value != null) { setState(() => _selectedDayFilter = value); _applyFilters(); } } ) )
-                   ] )
-               ] )
-             )
-          ) ),
+          // --- Filter Card (Hide if error?) ---
+          if (_loadingError == null) // Hide filters if initial load failed
+            Positioned( top: 10, left: 10, right: 10, child: Card(
+               elevation: 4, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+               child: Padding( padding: const EdgeInsets.all(12.0),
+                 child: Column( mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                     const Text('Filtres d\'Affluence', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                     const SizedBox(height: 8),
+                     Row( children: [
+                         Expanded( child: DropdownButtonFormField<String>( decoration: InputDecoration( labelText: 'Heure', border: const OutlineInputBorder(), contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), isDense: true, prefixIcon: const Icon(Icons.access_time, size: 18) ), value: _selectedTimeFilter, items: _timeFilterOptions.map((value) => DropdownMenuItem( value: value, child: Text(value == 'Tous' ? 'Toute la journée' : value, style: const TextStyle(fontSize: 13)))).toList(), onChanged: (value) { if (value != null) { setState(() => _selectedTimeFilter = value); _applyFilters(); } } ) ),
+                         const SizedBox(width: 10),
+                         Expanded( child: DropdownButtonFormField<String>( decoration: InputDecoration( labelText: 'Jour', border: const OutlineInputBorder(), contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), isDense: true, prefixIcon: const Icon(Icons.calendar_today, size: 16) ), value: _selectedDayFilter, items: _dayFilterOptions.map((value) => DropdownMenuItem( value: value, child: Text(value == 'Tous' ? 'Tous les jours' : value, style: const TextStyle(fontSize: 13)))).toList(), onChanged: (value) { if (value != null) { setState(() => _selectedDayFilter = value); _applyFilters(); } } ) )
+                     ] )
+                 ] )
+               )
+            ) ),
 
-          // --- Legend Card ---
-          if (_showLegend) Positioned( top: 115, right: 10, child: Card(
-             elevation: 4, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-             child: Padding( padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-               child: Column( crossAxisAlignment: CrossAxisAlignment.start, children: [
+          // --- Legend Card (Hide if error?) ---
+          if (_showLegend && _loadingError == null) 
+            Positioned( top: 115, right: 10, child: Card(
+               elevation: 4, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+               child: Padding( padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                 child: Column( crossAxisAlignment: CrossAxisAlignment.start, children: [
                    const Text('Légende', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                    const SizedBox(height: 6),
                    _buildLegendItem(color: Colors.blue, label: 'Très Faible'),
@@ -1305,10 +1396,11 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
                 )
               ),
 
-          // --- Bottom Stats/Insights Card ---
-          Positioned( left: 0, right: 0, bottom: 0, child: Card(
-             margin: EdgeInsets.zero, elevation: 8, shape: const RoundedRectangleBorder(
-                borderRadius: BorderRadius.only(topLeft: Radius.circular(20), topRight: Radius.circular(20))
+          // --- Bottom Stats/Insights Card (Hide if error?) ---
+          if (_loadingError == null) // Hide bottom card if initial load failed
+            Positioned( left: 0, right: 0, bottom: 0, child: Card(
+               margin: EdgeInsets.zero, elevation: 8, shape: const RoundedRectangleBorder(
+                  borderRadius: BorderRadius.only(topLeft: Radius.circular(20), topRight: Radius.circular(20))
              ),
              child: Container( padding: const EdgeInsets.only(top: 8, left: 0, right: 0, bottom: 8),
                 constraints: BoxConstraints( maxHeight: MediaQuery.of(context).size.height * 0.40 ),
@@ -1442,7 +1534,8 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
            )
           ),
           
-          if (_isLoading)
+          // --- Loading Overlay (Show only during initial load) ---
+          if (_isLoading && _loadingError == null) // Show only if loading AND no error yet
             Container( color: Colors.black.withOpacity(0.5), child: const Center(
                child: Column( mainAxisSize: MainAxisSize.min, children: [
                    CircularProgressIndicator(color: Colors.white),
@@ -1584,18 +1677,29 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
    Future<void> _sendPushToCurrentArea(String title, String message) async {
       // Need producer's current location for this, fetch it if not available?
       // Or use a default/estimated center if location fetch fails.
-      // For now, let's assume we have producer's location (fetched in _loadData)
-      final locationData = await _fetchProducerLocation(); // Refetch or use stored?
-      final producerLat = locationData['latitude'];
-      final producerLon = locationData['longitude'];
+      // For now, let's assume we have producer's location (fetched in _loadData or fetched here)
+      
+      // Option 1: Refetch location here (safer if _loadData failed but we allow sending push)
+      LatLng producerLocation;
+      try {
+         producerLocation = await _fetchProducerLocation();
+      } catch (e) {
+         print("❌ Error fetching producer location for push: $e");
+         if (mounted) ScaffoldMessenger.of(context).showSnackBar( SnackBar(content: Text('Localisation producteur inconnue: $e'), backgroundColor: Colors.orange) );
+         return;
+      }
+      
+      // --- CORRECTED Access --- 
+      final producerLat = producerLocation.latitude; // Use dot notation
+      final producerLon = producerLocation.longitude; // Use dot notation
+      // --- END CORRECTION ---
 
-     if (producerLat == null || producerLon == null) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar( const SnackBar(content: Text('Localisation producteur inconnue.'), backgroundColor: Colors.orange) );
-        return;
-     }
+      // Removed the null check here as _fetchProducerLocation throws error now
+     // if (producerLat == null || producerLon == null) { ... }
 
      if (!mounted) return;
-     setState(() => _isLoading = true);
+     // Use a separate loading state for sending push?
+     // setState(() => _isLoading = true); // Using main _isLoading might be confusing
      Navigator.of(context).pop(); // Close dialog
 
      try {
@@ -1631,7 +1735,7 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
          );
        }
      } finally {
-       if (mounted) setState(() => _isLoading = false);
+       // if (mounted) setState(() => _isLoading = false); // Manage push sending state separately if needed
      }
    }
    // +++ END _sendPushToCurrentArea method +++

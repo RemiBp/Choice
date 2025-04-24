@@ -399,10 +399,29 @@ class _MapWellnessScreenState extends State<MapWellnessScreen> with AutomaticKee
   }
 
   // Méthode pour naviguer vers différentes cartes
-  void _navigateToMapScreen(String mapType) {
-    if (mapType == 'wellness') return; // Déjà sur cette carte
-    
-    // Utiliser l'extension NavigationHelper définie dans main.dart
+  void _navigateToMapScreen(dynamic value) {
+    String mapType;
+    if (value is int) {
+      switch (value) {
+        case 0:
+          mapType = 'restaurant';
+          break;
+        case 1:
+          mapType = 'leisure';
+          break;
+        case 2:
+          mapType = 'wellness';
+          break;
+        case 3:
+          mapType = 'friends';
+          break;
+        default:
+          mapType = 'wellness';
+      }
+    } else {
+      mapType = value.toString();
+    }
+    if (mapType == 'wellness') return;
     context.changeMapType(mapType);
   }
 

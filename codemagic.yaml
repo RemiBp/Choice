@@ -13,6 +13,51 @@ workflows:
       vars:
         PACKAGE_NAME: "fr.choiceapp.app"
     scripts:
+      - name: Créer google-services.json à partir de la variable d'environnement
+        script: |
+          echo "Création du fichier google-services.json..."
+          # Vérifier si la variable d'environnement existe
+          if [ -z "$GOOGLE_SERVICES_JSON_CONTENT" ]; then
+            echo "Erreur: La variable d'environnement GOOGLE_SERVICES_JSON_CONTENT n'est pas définie." >&2
+            echo "Veuillez ajouter le contenu de google-services.json comme variable sécurisée dans Codemagic." >&2
+            exit 1
+          fi
+          # Créer le fichier au bon endroit
+          # S'assurer que le chemin existe
+          mkdir -p android/app
+          echo "$GOOGLE_SERVICES_JSON_CONTENT" > android/app/google-services.json
+          # Vérifier si le fichier a été créé
+          if [ -f "android/app/google-services.json" ]; then
+            echo "✅ Fichier google-services.json créé avec succès."
+            # Afficher les premières lignes pour confirmation (sans infos sensibles complètes)
+            head -n 3 android/app/google-services.json
+          else
+            echo "❌ Erreur lors de la création du fichier google-services.json." >&2
+            exit 1
+          fi
+
+      - name: Assurer la désactivation des overrides Firebase
+        script: |
+          echo "Assurer la désactivation des overrides Firebase dans pubspec.yaml..."
+          # Commenter les overrides spécifiques à Firebase
+          sed -i -e '/dependency_overrides:/,/^\S/ s/^\s*firebase_core:/#  firebase_core:/' pubspec.yaml
+          sed -i -e '/dependency_overrides:/,/^\S/ s/^\s*cloud_firestore:/#  cloud_firestore:/' pubspec.yaml
+          sed -i -e '/dependency_overrides:/,/^\S/ s/^\s*firebase_messaging:/#  firebase_messaging:/' pubspec.yaml
+          sed -i -e '/dependency_overrides:/,/^\S/ s/^\s*firebase_analytics:/#  firebase_analytics:/' pubspec.yaml
+          sed -i -e '/dependency_overrides:/,/^\S/ s/^\s*firebase_auth:/#  firebase_auth:/' pubspec.yaml
+
+          # S'assurer que les dépendances standard sont décommentées (supprimer # et espaces devant)
+          sed -i 's/^#\s*firebase_core:/  firebase_core:/g' pubspec.yaml
+          sed -i 's/^#\s*cloud_firestore:/  cloud_firestore:/g' pubspec.yaml
+          sed -i 's/^#\s*firebase_messaging:/  firebase_messaging:/g' pubspec.yaml
+          sed -i 's/^#\s*firebase_analytics:/  firebase_analytics:/g' pubspec.yaml
+          sed -i 's/^#\s*firebase_auth:/  firebase_auth:/g' pubspec.yaml
+
+          echo "✅ Overrides Firebase commentés et dépendances standard activées pour Android."
+          echo "Contenu pertinent de pubspec.yaml après modification:"
+          grep -A 6 "dependencies:" pubspec.yaml | grep "firebase_" || echo "Standard Firebase deps not found"
+          grep -A 10 "dependency_overrides:" pubspec.yaml | grep "firebase_" || echo "Firebase overrides not found or commented"
+
       - name: Configurer le fichier .env pour le build
         script: |
           echo "Génération du fichier .env pour l'environnement de build..."
@@ -946,22 +991,21 @@ EOL
       - name: Assurer la désactivation des overrides Firebase
         script: |
           echo "Assurer la désactivation des overrides Firebase dans pubspec.yaml..."
-          # Utilisation de gsed sur macOS (Codemagic) pour la compatibilité -i ''
           # Commenter les overrides spécifiques à Firebase
-          gsed -i'' -e '/dependency_overrides:/,/^\\S/ s/^\\s*firebase_core:/#  firebase_core:/' pubspec.yaml
-          gsed -i'' -e '/dependency_overrides:/,/^\\S/ s/^\\s*cloud_firestore:/#  cloud_firestore:/' pubspec.yaml
-          gsed -i'' -e '/dependency_overrides:/,/^\\S/ s/^\\s*firebase_messaging:/#  firebase_messaging:/' pubspec.yaml
-          gsed -i'' -e '/dependency_overrides:/,/^\\S/ s/^\\s*firebase_analytics:/#  firebase_analytics:/' pubspec.yaml
-          gsed -i'' -e '/dependency_overrides:/,/^\\S/ s/^\\s*firebase_auth:/#  firebase_auth:/' pubspec.yaml
+          sed -i -e '/dependency_overrides:/,/^\S/ s/^\s*firebase_core:/#  firebase_core:/' pubspec.yaml
+          sed -i -e '/dependency_overrides:/,/^\S/ s/^\s*cloud_firestore:/#  cloud_firestore:/' pubspec.yaml
+          sed -i -e '/dependency_overrides:/,/^\S/ s/^\s*firebase_messaging:/#  firebase_messaging:/' pubspec.yaml
+          sed -i -e '/dependency_overrides:/,/^\S/ s/^\s*firebase_analytics:/#  firebase_analytics:/' pubspec.yaml
+          sed -i -e '/dependency_overrides:/,/^\S/ s/^\s*firebase_auth:/#  firebase_auth:/' pubspec.yaml
 
           # S'assurer que les dépendances standard sont décommentées (supprimer # et espaces devant)
-          gsed -i'' 's/^#\\s*firebase_core:/  firebase_core:/g' pubspec.yaml
-          gsed -i'' 's/^#\\s*cloud_firestore:/  cloud_firestore:/g' pubspec.yaml
-          gsed -i'' 's/^#\\s*firebase_messaging:/  firebase_messaging:/g' pubspec.yaml
-          gsed -i'' 's/^#\\s*firebase_analytics:/  firebase_analytics:/g' pubspec.yaml
-          gsed -i'' 's/^#\\s*firebase_auth:/  firebase_auth:/g' pubspec.yaml
+          sed -i 's/^#\s*firebase_core:/  firebase_core:/g' pubspec.yaml
+          sed -i 's/^#\s*cloud_firestore:/  cloud_firestore:/g' pubspec.yaml
+          sed -i 's/^#\s*firebase_messaging:/  firebase_messaging:/g' pubspec.yaml
+          sed -i 's/^#\s*firebase_analytics:/  firebase_analytics:/g' pubspec.yaml
+          sed -i 's/^#\s*firebase_auth:/  firebase_auth:/g' pubspec.yaml
 
-          echo "✅ Overrides Firebase commentés et dépendances standard activées."
+          echo "✅ Overrides Firebase commentés et dépendances standard activées pour Android."
           echo "Contenu pertinent de pubspec.yaml après modification:"
           grep -A 6 "dependencies:" pubspec.yaml | grep "firebase_" || echo "Standard Firebase deps not found"
           grep -A 10 "dependency_overrides:" pubspec.yaml | grep "firebase_" || echo "Firebase overrides not found or commented"

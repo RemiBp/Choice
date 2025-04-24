@@ -40,14 +40,14 @@ extension AnimateExtension on Widget {
   Widget slideY({double? begin, double? end, Duration? duration, Curve curve = Curves.easeOut}) {
     return SlideTransition(
       position: AlwaysStoppedAnimation(Offset(0, end ?? 0)),
-      child: this,
+        child: this,
     );
   }
   
   Widget slideX({double? begin, double? end, Duration? duration, Curve curve = Curves.easeOut}) {
     return SlideTransition(
       position: AlwaysStoppedAnimation(Offset(end ?? 0, 0)),
-      child: this,
+        child: this,
     );
   }
   
@@ -74,7 +74,7 @@ extension AnimateExtension on Widget {
   Widget move({Offset? begin, Offset? end, Duration? duration, Curve curve = Curves.easeOut}) {
     return SlideTransition(
       position: AlwaysStoppedAnimation(end ?? Offset.zero),
-      child: this,
+        child: this,
     );
   }
 }
@@ -146,8 +146,8 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
   late AnimationController _typingAnimationController;
   
   final AIService _aiService = AIService(); // Instance du service AI
-  List<ProfileData> _extractedProfiles = []; // Pour stocker les profils extraits
-  
+  List<ProfileData> _topExtractedProfiles = []; // Profils affichés en haut
+
   // Attributs pour gérer différents types d'utilisateurs
   String _accountType = 'user'; // Par défaut: utilisateur standard
   bool _isProducer = false; // Flag pour identifier si c'est un producteur
@@ -156,10 +156,9 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
   Map<String, dynamic> _userData = {}; // Données de l'utilisateur
   
   // Nouveaux attributs pour optimisation
-  bool _profilesExpanded = false; // État d'expansion des profils (pour lazy loading)
-  List<ProfileData> _visibleProfiles = []; // Profils actuellement visibles
-  final int _initialProfilesCount = 3; // Nombre initial de profils à afficher
-  bool _hasMoreProfilesToLoad = false; // Indicateur pour "Voir plus"
+  bool _topProfilesExpanded = false; // État d'expansion des profils du haut
+  final int _initialTopProfilesCount = 3; // Nombre initial de profils à afficher en haut
+  bool _hasMoreTopProfilesToLoad = false; // Indicateur pour "Voir plus" en haut
 
   @override
   void initState() {
@@ -181,37 +180,47 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
     super.dispose();
   }
 
-  // Application du lazy loading aux profils
-  void _applyLazyLoading() {
-    if (_extractedProfiles.isEmpty) {
-      _visibleProfiles = [];
-      _hasMoreProfilesToLoad = false;
+  // Application du lazy loading aux profils affichés en haut
+  void _applyLazyLoadingToTopList(List<ProfileData> allProfiles) {
+    if (allProfiles.isEmpty) {
+      _topExtractedProfiles = [];
+      _hasMoreTopProfilesToLoad = false;
       return;
     }
     
-    // Si on a peu de profils, on les montre tous directement
-    if (_extractedProfiles.length <= _initialProfilesCount) {
-      _visibleProfiles = List.from(_extractedProfiles);
-      _hasMoreProfilesToLoad = false;
+    // Si on a peu de profils, on les montre tous directement en haut
+    if (allProfiles.length <= _initialTopProfilesCount) {
+      _topExtractedProfiles = List.from(allProfiles);
+      _hasMoreTopProfilesToLoad = false;
       return;
     }
     
-    // Sinon on applique le lazy loading
-    if (!_profilesExpanded) {
-      _visibleProfiles = _extractedProfiles.take(_initialProfilesCount).toList();
-      _hasMoreProfilesToLoad = true;
+    // Sinon on applique le lazy loading pour la liste du haut
+    if (!_topProfilesExpanded) {
+      _topExtractedProfiles = allProfiles.take(_initialTopProfilesCount).toList();
+      _hasMoreTopProfilesToLoad = true;
     } else {
-      _visibleProfiles = List.from(_extractedProfiles);
-      _hasMoreProfilesToLoad = false;
+      _topExtractedProfiles = List.from(allProfiles);
+      _hasMoreTopProfilesToLoad = false;
     }
   }
   
-  // Charge plus de profils
-  void _loadMoreProfiles() {
-    setState(() {
-      _profilesExpanded = true;
-      _applyLazyLoading();
-    });
+  // Charge plus de profils dans la liste du haut
+  void _loadMoreTopProfiles() {
+    // On doit se souvenir de tous les profils de la dernière réponse pour pouvoir tous les afficher
+    // On suppose que la dernière réponse AI est celle qui a les profils complets
+    final lastAiMessage = _conversations.lastWhere(
+        (msg) => msg['type'] == 'copilot' && msg['profiles'] != null, 
+        orElse: () => {'profiles': <ProfileData>[]} // Fallback
+    );
+    final allProfilesFromLastResponse = List<ProfileData>.from(lastAiMessage['profiles'] ?? []);
+
+    if (allProfilesFromLastResponse.isNotEmpty) {
+      setState(() {
+        _topProfilesExpanded = true;
+        _applyLazyLoadingToTopList(allProfilesFromLastResponse);
+      });
+    }
   }
 
   // Charge les informations du compte pour adapter l'interface
@@ -292,7 +301,7 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
           });
           
           if (analysisResponse.profiles.isNotEmpty) {
-            _extractedProfiles = analysisResponse.profiles;
+            _topExtractedProfiles = analysisResponse.profiles;
           }
         });
       }
@@ -309,10 +318,9 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
     setState(() {
       _isLoading = true;
       _isTyping = true;
-      _extractedProfiles = []; // Réinitialiser les profils extraits
-      _visibleProfiles = []; // Réinitialiser les profils visibles
-      _profilesExpanded = false; // Réinitialiser l'état d'expansion
-      _hasMoreProfilesToLoad = false;
+      _topExtractedProfiles = []; // Réinitialiser les profils du haut
+      _topProfilesExpanded = false; // Réinitialiser l'état d'expansion
+      _hasMoreTopProfilesToLoad = false;
       
       _conversations.add({
         'type': 'user',
@@ -367,9 +375,10 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
           print('🔍 Envoi de requête producteur: "$question" (producerId: $_producerId)');
           aiResponse = await _aiService.producerQuery(_producerId!, question);
         } else {
-          // Requête utilisateur standard
-          print('🔍 Envoi de requête utilisateur: "$question" (userId: ${widget.userId})');
-          aiResponse = await _aiService.userQuery(widget.userId, question);
+          // Requête utilisateur complexe (plus robuste)
+          print('🔍 Envoi de requête utilisateur complexe: "$question" (userId: ${widget.userId})');
+          // *** CHANGED: Call complex query endpoint ***
+          aiResponse = await _aiService.complexUserQuery(widget.userId, question); 
         }
         
         // Debug: afficher la réponse complète
@@ -402,8 +411,8 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
       
       // Enregistrer les profils extraits s'il y en a
       if (aiResponse.profiles.isNotEmpty) {
-        if (!mounted) return;
-        setState(() {
+          if (!mounted) return;
+          setState(() {
           // Normaliser les types de profils pour une meilleure compatibilité
           for (var i = 0; i < aiResponse.profiles.length; i++) {
             var profile = aiResponse.profiles[i];
@@ -475,8 +484,8 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
             }
           }
           
-          _extractedProfiles = aiResponse.profiles;
-          _applyLazyLoading(); // Appliquer le lazy loading
+          _topExtractedProfiles = aiResponse.profiles;
+          _applyLazyLoadingToTopList(_topExtractedProfiles); // Appliquer le lazy loading
         });
       }
 
@@ -485,14 +494,17 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
         // S'assurer que la réponse n'est pas vide
         String responseText = aiResponse.response.trim();
         if (responseText.isEmpty) {
-          responseText = "Je n'ai pas pu générer une réponse textuelle, mais voici quelques suggestions qui pourraient vous intéresser.";
+          responseText = "Je n'ai pas bien compris votre demande. Pouvez-vous reformuler ?";
+        } else if (responseText.isEmpty && _topExtractedProfiles.isNotEmpty) {
+          responseText = "Voici quelques suggestions qui pourraient vous intéresser.";
         }
         
         _conversations.add({
           'type': 'copilot',
           'content': responseText,
           'timestamp': DateTime.now().toIso8601String(),
-          'hasProfiles': aiResponse.profiles.isNotEmpty,
+          'profiles': _topExtractedProfiles, // Store the processed profiles here
+          'hasProfiles': _topExtractedProfiles.isNotEmpty, // Convenience flag
           'intent': aiResponse.intent,
           'resultCount': aiResponse.resultCount,
         });
@@ -522,10 +534,60 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
           'content': 'Une erreur s\'est produite. Veuillez vérifier votre connexion et réessayer.\nErreur: $e',
           'timestamp': DateTime.now().toIso8601String(),
           'error': true,
+          'profiles': <ProfileData>[], // Ensure profiles field exists even on error
         });
         _isLoading = false;
+        _topExtractedProfiles = []; // Clear top profiles on error
+        _hasMoreTopProfilesToLoad = false;
+      });
+      _scrollToBottom(); // Scroll after error message
+    }
+  }
+
+  // Helper to scroll to bottom
+  void _scrollToBottom() {
+    if (mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_scrollController.hasClients) {
+          _scrollController.animateTo(
+            _scrollController.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOut,
+          );
+        }
       });
     }
+  }
+
+  // Normalize profile types (copied logic)
+  List<ProfileData> _normalizeProfileTypes(List<ProfileData> profiles) {
+    List<ProfileData> normalized = [];
+    for (var profile in profiles) {
+      var currentProfile = profile; // Start with the original profile
+      if (profile.type == 'generic' || profile.type == 'unknown') {
+        final String name = profile.name.toLowerCase();
+        final List<String> categories = profile.category.map((c) => c.toLowerCase()).toList();
+        
+        print('🔍 Normalisation du type pour: ${profile.name} (Catégories: ${profile.category.join(', ')})');
+        
+        if (categories.any((cat) => cat.contains('restaurant') || cat.contains('gastronomie') || cat.contains('cuisine') || cat.contains('food'))) {
+          currentProfile = profile.copyWith(type: 'restaurant');
+        } else if (categories.any((cat) => cat.contains('loisir') || cat.contains('thé') || cat.contains('culture') || cat.contains('spectacle') || cat.contains('salle') || cat.contains('musée')) || name.contains('théâtre') || name.contains('theatre') || name.contains('comédie') || name.contains('comedie')) {
+          currentProfile = profile.copyWith(type: 'leisureProducer');
+        } else if (categories.any((cat) => cat.contains('évènement') || cat.contains('evenement') || cat.contains('event'))) {
+          currentProfile = profile.copyWith(type: 'event');
+        } else if (categories.any((cat) => cat.contains('bien-être') || cat.contains('bien être') || cat.contains('spa') || cat.contains('massage') || cat.contains('wellness'))) {
+          currentProfile = profile.copyWith(type: 'wellnessProducer');
+        } else if (categories.any((cat) => cat.contains('beauté') || cat.contains('beauty') || cat.contains('salon') || cat.contains('coiffure'))) {
+          currentProfile = profile.copyWith(type: 'beautyPlace');
+        } else {
+          print('⚠️ Type indéterminé pour: ${profile.name}, conservé comme ${profile.type}');
+        }
+        print('✅ Type normalisé: ${profile.name} => ${currentProfile.type}');
+      }
+      normalized.add(currentProfile);
+    }
+    return normalized;
   }
 
   // Navigue vers le profil d'un restaurant, loisir ou événement
@@ -689,7 +751,7 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
           _fetchAndNavigateToEvent(id);
         } else if (detectedType == 'user') {
           _navigateToUserProfile(id);
-        } else {
+      } else {
           // Type non reconnu, essayer une approche universelle avec l'endpoint unifié
           _fetchAndNavigateWithUnifiedApi(id);
         }
@@ -723,7 +785,7 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
 
   // Récupère les données d'un producteur de loisirs et navigue vers son profil
   Future<void> _fetchAndNavigateToLeisureProducer(String id) async {
-    if (!mounted) return;
+      if (!mounted) return;
     
     try {
       // Afficher un indicateur de chargement
@@ -802,7 +864,7 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
 
   // Récupère les données d'un événement et navigue vers sa page
   Future<void> _fetchAndNavigateToEvent(String id) async {
-    if (!mounted) return;
+     if (!mounted) return;
     
     try {
       // Afficher un indicateur de chargement
@@ -1078,50 +1140,50 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
     
     try {
       // Afficher un indicateur de chargement
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (BuildContext context) {
-          return Dialog(
-            backgroundColor: Colors.white,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return Dialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(20.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
+                ),
+                const SizedBox(height: 20),
+                const Text(
+                  "Chargement des informations...",
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  "Tentative avec l'API unifiée",
+                  style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                ),
+              ],
             ),
-            child: Padding(
-              padding: const EdgeInsets.all(20.0),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const CircularProgressIndicator(
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
-                  ),
-                  const SizedBox(height: 20),
-                  const Text(
-                    "Chargement des informations...",
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    "Tentative avec l'API unifiée",
-                    style: TextStyle(color: Colors.grey[600], fontSize: 14),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-      );
-      
-      final url = Uri.parse('${getBaseUrl()}/api/unified/$id');
-      final response = await http.get(url);
-      
-      // Fermer l'indicateur de chargement
-      if (!mounted) return;
+          ),
+        );
+      },
+    );
+    
+    final url = Uri.parse('${getBaseUrl()}/api/unified/$id');
+    final response = await http.get(url);
+    
+    // Fermer l'indicateur de chargement
+    if (!mounted) return;
       Navigator.of(context).pop();
-      
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        if (!mounted) return;
+
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+      if (!mounted) return;
         
         final String dataType = data['type'] ?? 'unknown';
         
@@ -1184,12 +1246,12 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
             ),
           );
         }
-      } else {
-        throw Exception("Erreur ${response.statusCode}: ${response.body}");
-      }
-    } catch (e) {
+    } else {
+      throw Exception("Erreur ${response.statusCode}: ${response.body}");
+    }
+  } catch (e) {
       // Fermer l'indicateur de chargement s'il est encore ouvert
-      if (!mounted) return;
+    if (!mounted) return;
       
       if (Navigator.canPop(context)) {
         Navigator.of(context).pop();
@@ -1203,8 +1265,8 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
           behavior: SnackBarBehavior.floating,
         ),
       );
-    }
   }
+}
 
   @override
   Widget build(BuildContext context) {
@@ -1328,11 +1390,11 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
             ),
           
           // Welcome card at the top
-          if (_conversations.isEmpty)
+          if (_conversations.isEmpty && !_isLoadingAccountInfo)
             _buildWelcomeCard(),
           
-          // Profils extraits par l'IA (si présents)
-          if (_visibleProfiles.isNotEmpty) ...[
+          // Profils extraits affichés en haut (si présents)
+          if (_topExtractedProfiles.isNotEmpty) ...[
             // Enhanced Profile section header with more visual impact
             Container(
               padding: const EdgeInsets.symmetric(vertical: 12.0, horizontal: 16.0),
@@ -1374,7 +1436,7 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
                         ),
                       ),
                       Text(
-                        '${_extractedProfiles.length} lieux correspondent à votre recherche',
+                        '${_topExtractedProfiles.length} lieux correspondent à votre recherche',
                         style: TextStyle(
                           fontSize: 12,
                           color: Colors.grey[600],
@@ -1383,9 +1445,9 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
                     ],
                   ),
                   const Spacer(),
-                  if (_hasMoreProfilesToLoad)
+                  if (_hasMoreTopProfilesToLoad)
                     TextButton(
-                      onPressed: _loadMoreProfiles,
+                      onPressed: _loadMoreTopProfiles,
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -1417,11 +1479,11 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
                 child: MediaQuery.of(context).size.width < 380
                     // Smaller screens (most iPhones) - show one card at a time with pageView
                     ? PageView.builder(
-                        itemCount: _visibleProfiles.length,
+                        itemCount: _topExtractedProfiles.length,
                         controller: PageController(viewportFraction: 0.9),
                         padEnds: true,
                         itemBuilder: (context, index) {
-                          final profile = _visibleProfiles[index];
+                          final profile = _topExtractedProfiles[index];
                           return Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 6.0),
                             child: _buildProfileCard(profile)
@@ -1434,11 +1496,11 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
                     // Larger screens - regular horizontal list
                     : ListView.builder(
                         scrollDirection: Axis.horizontal,
-                        itemCount: _visibleProfiles.length,
+                        itemCount: _topExtractedProfiles.length,
                         padding: const EdgeInsets.symmetric(horizontal: 16.0),
                         physics: const BouncingScrollPhysics(), // More native iOS feel
                         itemBuilder: (context, index) {
-                          final profile = _visibleProfiles[index];
+                          final profile = _topExtractedProfiles[index];
                           return Padding(
                             padding: const EdgeInsets.only(right: 12.0),
                             child: _buildProfileCard(profile)
@@ -1458,8 +1520,10 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
               controller: _scrollController,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               itemCount: _conversations.length,
+              reverse: true, // Display messages from bottom to top
               itemBuilder: (context, index) {
-                final message = _conversations[index];
+                // Access messages in reverse order for display
+                final message = _conversations[_conversations.length - 1 - index];
                 if (message['type'] == 'typing') {
                   return _buildTypingIndicator();
                 }
@@ -1473,9 +1537,9 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
             Padding(
               padding: const EdgeInsets.all(8.0),
               child: LinearProgressIndicator(
-                backgroundColor: Colors.white,
-                valueColor: AlwaysStoppedAnimation<Color>(Colors.deepPurple),
-                minHeight: 3,
+              backgroundColor: Colors.white,
+              valueColor: AlwaysStoppedAnimation<Color>(Colors.deepPurple),
+              minHeight: 3,
               ),
             ),
           
@@ -1487,7 +1551,7 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
   }
   
   Widget _buildTypingIndicator() {
-    return Align(
+     return Align(
       alignment: Alignment.centerLeft,
       child: Padding(
         padding: const EdgeInsets.only(top: 8.0, bottom: 12.0),
@@ -1536,7 +1600,7 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
   }
   
   Widget _buildDot(int delay) {
-    return AnimatedBuilder(
+     return AnimatedBuilder(
       animation: _typingAnimationController,
       builder: (context, child) {
         final delayedValue = (_typingAnimationController.value * 1000 - delay) / 500;
@@ -1938,48 +2002,39 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
   // Obtenir l'icône correspondant au type
   IconData _getIconForType(String type) {
     switch (type) {
-      case 'restaurant':
-        return Icons.restaurant;
-      case 'leisureProducer':
-        return Icons.local_activity;
-      case 'event':
-        return Icons.event;
-      case 'user':
-        return Icons.person;
-      default:
-        return Icons.place;
+      case 'restaurant': return Icons.restaurant;
+      case 'leisureProducer': return Icons.local_activity;
+      case 'event': return Icons.event;
+      case 'wellnessProducer': return Icons.spa; // Added
+      case 'beautyPlace': return Icons.face_retouching_natural; // Added
+      case 'user': return Icons.person;
+      default: return Icons.place;
     }
   }
   
   // Obtenir la couleur correspondant au type
   Color _getColorForType(String type) {
-    switch (type) {
-      case 'restaurant':
-        return Colors.orange;
-      case 'leisureProducer':
-        return Colors.purple;
-      case 'event':
-        return Colors.green;
-      case 'user':
-        return Colors.blue;
-      default:
-        return Colors.grey;
+     switch (type) {
+      case 'restaurant': return Colors.orange;
+      case 'leisureProducer': return Colors.purple;
+      case 'event': return Colors.green;
+      case 'wellnessProducer': return Colors.teal; // Added
+      case 'beautyPlace': return Colors.pink; // Added
+      case 'user': return Colors.blue;
+      default: return Colors.grey;
     }
   }
   
   // Obtenir le libellé correspondant au type
   String _getTypeLabel(String type) {
     switch (type) {
-      case 'restaurant':
-        return 'Restaurant';
-      case 'leisureProducer':
-        return 'Loisir';
-      case 'event':
-        return 'Évènement';
-      case 'user':
-        return 'Utilisateur';
-      default:
-        return type;
+      case 'restaurant': return 'Restaurant';
+      case 'leisureProducer': return 'Loisir';
+      case 'event': return 'Évènement';
+      case 'wellnessProducer': return 'Bien-être'; // Added
+      case 'beautyPlace': return 'Beauté'; // Added
+      case 'user': return 'Utilisateur';
+      default: return type.isNotEmpty ? type[0].toUpperCase() + type.substring(1) : 'Lieu'; // Default label
     }
   }
 
@@ -2186,9 +2241,16 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
   Widget _buildMessageBubble(Map<String, dynamic> message, int index) {
     final isUser = message['type'] == 'user';
     final hasError = message['error'] == true;
-    final hasProfiles = message['hasProfiles'] == true;
+    // Check for profiles directly in the message map
+    final List<ProfileData> profilesInMessage = List<ProfileData>.from(message['profiles'] ?? []);
+    final hasProfiles = profilesInMessage.isNotEmpty;
+    
     final isIOS = Platform.isIOS;
     
+    // Animation properties
+    final delay = (50 * index).ms; // Delay based on original index (before reverse)
+    final slideBegin = isUser ? 0.2 : -0.2;
+
     return Padding(
       padding: EdgeInsets.symmetric(vertical: isIOS ? 6.0 : 8.0),
       child: Row(
@@ -2232,59 +2294,32 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (isUser)
-                    Text(
-                      message['content'],
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: isIOS ? 15.0 : 16.0,
-                        height: 1.4,
-                        letterSpacing: isIOS ? -0.2 : 0,
+                  // --- Display Text Content ---
+                  _buildTextMessageContent(message, isUser, hasError, isIOS),
+
+                  // --- Display Integrated Profiles (if any) ---
+                  if (!isUser && hasProfiles) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      height: 150, // Fixed height for integrated list
+                      child: ListView.builder(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: profilesInMessage.length,
+                        padding: const EdgeInsets.only(top: 4, bottom: 4),
+                        itemBuilder: (context, profileIndex) {
+                          final profile = profilesInMessage[profileIndex];
+                          return Padding(
+                             padding: const EdgeInsets.only(right: 10.0),
+                             // Use a more compact card for integrated view
+                             child: _buildCompactProfileCard(profile), 
+                          );
+                        },
                       ),
-                    )
-                  else
-                    // Vérifier si le message contient du texte avec des liens ou non
-                    hasProfiles 
-                      ? Container(
-                          width: double.infinity, // Force full width for SelectableText.rich
-                          child: SelectableText.rich(
-                            TextSpan(
-                              style: TextStyle(
-                                color: hasError ? Colors.red.shade800 : Colors.black87,
-                                fontSize: isIOS ? 15.0 : 16.0,
-                                height: 1.4,
-                                letterSpacing: isIOS ? -0.2 : 0,
-                              ),
-                              children: AIService.parseMessageWithLinks(
-                                message['content'],
-                                (type, id) => _navigateToProfile(type, id),
-                              ),
-                            ),
-                            // Enable text selection with iOS-friendly settings
-                            enableInteractiveSelection: true,
-                            showCursor: true,
-                            cursorWidth: 2.0,
-                            cursorColor: Colors.deepPurple,
-                          ),
-                        )
-                      // Message simple sans liens à cliquer
-                      : Container(
-                          width: double.infinity, // Force full width for SelectableText
-                          child: SelectableText(
-                            message['content'],
-                            style: TextStyle(
-                              color: hasError ? Colors.red.shade800 : Colors.black87,
-                              fontSize: isIOS ? 15.0 : 16.0,
-                              height: 1.4,
-                              letterSpacing: isIOS ? -0.2 : 0,
-                            ),
-                            // Enable better selection for iOS
-                            enableInteractiveSelection: true,
-                            showCursor: true,
-                            cursorWidth: 2.0,
-                            cursorColor: Colors.deepPurple,
-                          ),
-                        ),
+                    ),
+                    const SizedBox(height: 4), // Small space after profiles
+                  ],
+                  
+                  // --- Display Timestamp and Metadata ---
                   const SizedBox(height: 8),
                   Row(
                     children: [
@@ -2346,10 +2381,10 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
                 ],
               ),
             ),
-          ).animate(delay: (50 * index).ms)
+          ).animate(delay: delay) // Apply animation
             .fadeIn(duration: 300.ms)
             .slideX(
-              begin: isUser ? 0.2 : -0.2, 
+              begin: slideBegin,
               end: 0, 
               duration: 400.ms, 
               curve: Curves.easeOutCubic
@@ -2362,7 +2397,7 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
       ),
     );
   }
-  
+
   String _getIntentLabel(String intent) {
     // Retourner un label plus convivial pour chaque type d'intention
     switch (intent) {
@@ -2396,7 +2431,7 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
   Widget _buildInputArea() {
     final isIOS = Platform.isIOS;
     
-    return Container(
+        return Container(
       padding: EdgeInsets.symmetric(
         horizontal: 12.0, 
         vertical: isIOS ? 16.0 : 12.0
@@ -2470,8 +2505,8 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
                     tooltip: 'Recherche vocale pour Copilot',
                   ),
                 ),
-                style: TextStyle(
-                  fontSize: isIOS ? 15.0 : 16.0,
+              style: TextStyle(
+                fontSize: isIOS ? 15.0 : 16.0,
                   letterSpacing: isIOS ? -0.2 : 0,
                 ),
                 keyboardType: TextInputType.text,
@@ -2715,11 +2750,11 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
     final itemColor = color ?? Colors.deepPurple;
     
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
+                   crossAxisAlignment: CrossAxisAlignment.start,
+                   children: [
+                     Container(
           padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
+                        decoration: BoxDecoration(
             color: itemColor.withOpacity(0.1),
             borderRadius: BorderRadius.circular(12),
           ),
@@ -2731,29 +2766,29 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
         ),
         const SizedBox(width: 14),
         Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
+                        child: Column(
+                           crossAxisAlignment: CrossAxisAlignment.start,
+                           children: [
+                              Text(
                 title,
                 style: const TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 16,
                 ),
-              ),
-              const SizedBox(height: 4),
-              Text(
+                                ),
+                              const SizedBox(height: 4),
+                                     Text(
                 description,
                 style: TextStyle(
                   fontSize: 14,
                   color: Colors.grey.shade700,
                   height: 1.3,
                 ),
-              ),
-            ],
-          ),
-        ),
-      ],
+                                ),
+                           ],
+                        ),
+                     ),
+                   ],
     );
   }
 
@@ -2860,5 +2895,138 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
     // Aucun format reconnu
     print('Erreur de conversion des coordonnées GPS: $gpsCoordinates');
     return null;
+  }
+
+  // Helper to build text part of the message bubble
+  Widget _buildTextMessageContent(Map<String, dynamic> message, bool isUser, bool hasError, bool isIOS) {
+    final textContent = message['content']?.toString() ?? '';
+    
+    if (isUser) {
+       return Text(
+         textContent,
+         style: TextStyle(color: Colors.white, fontSize: isIOS ? 15.0 : 16.0, height: 1.4),
+       );
+    } else {
+       // Copilot message - use SelectableText.rich for link parsing
+       return Container(
+         width: double.infinity, 
+         child: SelectableText.rich(
+           TextSpan(
+             style: TextStyle(
+               color: hasError ? Colors.red.shade800 : Colors.black87,
+               fontSize: isIOS ? 15.0 : 16.0,
+               height: 1.4,
+             ),
+             children: AIService.parseMessageWithLinks( // Reuse existing parser
+               textContent,
+               (type, id) => _navigateToProfile(type, id),
+             ),
+           ),
+           enableInteractiveSelection: true,
+           showCursor: true,
+           cursorWidth: 2.0,
+           cursorColor: Colors.deepPurple,
+         ),
+       );
+    }
+  }
+
+  // New: Build a more compact card for the integrated view inside the bubble
+  Widget _buildCompactProfileCard(ProfileData profile) {
+    final Color typeColor = _getColorForType(profile.type);
+    final IconData typeIcon = _getIconForType(profile.type);
+    String imageUrl = profile.image ?? '';
+    // Simplified image URL logic for compact view
+    if (imageUrl.isNotEmpty) {
+      if (!imageUrl.startsWith('http') && !imageUrl.startsWith('data:')) {
+        imageUrl = '${getBaseUrl()}$imageUrl'; 
+      }
+    } else {
+      imageUrl = ''; // No placeholder in compact view, just icon
+    }
+
+    return Material(
+        borderRadius: BorderRadius.circular(12),
+        elevation: 2,
+        shadowColor: Colors.black.withOpacity(0.1),
+        child: InkWell(
+           onTap: () => _navigateToProfile(profile.type, profile.id),
+           borderRadius: BorderRadius.circular(12),
+           child: Container(
+              width: 140, // Smaller width
+              decoration: BoxDecoration(
+                 borderRadius: BorderRadius.circular(12),
+                 border: Border.all(color: Colors.grey.withOpacity(0.1), width: 1),
+              ),
+              child: Column(
+                 crossAxisAlignment: CrossAxisAlignment.start,
+                 children: [
+                    // Image or Icon
+                    Container(
+                       height: 80, // Smaller height
+                       width: double.infinity,
+                       decoration: BoxDecoration(
+                          color: typeColor.withOpacity(0.1),
+                          borderRadius: const BorderRadius.only(
+                             topLeft: Radius.circular(12),
+                             topRight: Radius.circular(12),
+                          ),
+                       ),
+                       child: imageUrl.isNotEmpty 
+                           ? ClipRRect(
+                               borderRadius: const BorderRadius.only(
+                                  topLeft: Radius.circular(12),
+                                  topRight: Radius.circular(12),
+                               ),
+                               child: CachedNetworkImage(
+                                  imageUrl: imageUrl,
+                                  fit: BoxFit.cover,
+                                  placeholder: (context, url) => Center(child: Icon(typeIcon, color: typeColor.withOpacity(0.5), size: 24)),
+                                  errorWidget: (context, url, error) => Center(child: Icon(typeIcon, color: typeColor.withOpacity(0.6), size: 30)),
+                               ),
+                             )
+                           : Center(child: Icon(typeIcon, color: typeColor.withOpacity(0.7), size: 30)),
+                    ),
+                    // Details
+                    Padding(
+                       padding: const EdgeInsets.all(8.0),
+                       child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                             Text(
+                                profile.name,
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                             ),
+                             const SizedBox(height: 2),
+                             if (profile.address != null && profile.address!.isNotEmpty)
+                               Text(
+                                  profile.address!,
+                                  style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                               ),
+                             const SizedBox(height: 4),
+                              // Rating
+                             if (profile.rating != null && profile.rating! > 0)
+                               Row(
+                                  children: [
+                                    Icon(Icons.star, color: Colors.amber, size: 14),
+                                    const SizedBox(width: 3),
+                                    Text(
+                                       profile.rating!.toStringAsFixed(1),
+                                       style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                                    ),
+                                  ],
+                               ),
+                          ],
+                       ),
+                    ),
+                 ],
+              ),
+           ),
+        ),
+    );
   }
 }

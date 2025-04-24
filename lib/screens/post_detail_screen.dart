@@ -3,7 +3,7 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:video_player/video_player.dart';
 import '../models/post.dart';
-import '../services/api_service.dart';
+import '../services/api_service.dart' as api_service;
 import '../widgets/choice_carousel.dart';
 import '../models/media.dart' as media_model;
 import '../models/comment.dart';
@@ -32,7 +32,7 @@ class PostDetailScreen extends StatefulWidget {
 }
 
 class _PostDetailScreenState extends State<PostDetailScreen> {
-  final ApiService _apiService = ApiService();
+  final api_service.ApiService _apiService = api_service.ApiService();
   final AnalyticsService _analyticsService = AnalyticsService();
   final TextEditingController _commentController = TextEditingController();
   final FocusNode _focusNode = FocusNode();
@@ -83,43 +83,42 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   
   // Variables ajoutées
   bool _showControls = true;
+  bool _isLiked = false;
+  bool _isInterested = false;
   
   @override
   void initState() {
     super.initState();
-    _fetchPostData();
+    _loadPostDetails();
     _fetchComments();
   }
   
-  Future<void> _fetchPostData() async {
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
-
+  Future<void> _loadPostDetails() async {
+    setState(() { _isLoading = true; _errorMessage = null; });
     try {
-      // Construire l'URL pour récupérer les données du post
-      final postUrl = Uri.parse('${ApiService.getBaseUrl()}/api/posts/${widget.postId}');
-      final response = await http.get(postUrl);
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        setState(() {
-          _postData = Post.fromJson(data);
-          _isPostDataInitialized = true;
-          _isLoading = false;
-        });
+      final postDataMap = await _apiService.getPostDetails(widget.postId);
+      if (postDataMap != null) {
+        // Convert Map to Post object
+        final formattedPost = await _convertDynamicPostToPost(postDataMap); // Pass non-null map
+        if (mounted) {
+          setState(() {
+            _postData = formattedPost;
+            _isPostDataInitialized = true;
+            _isLiked = _postData.isLiked ?? false;
+            _isInterested = _postData.isInterested ?? false; // Initialize interest state
+            _isLoading = false;
+          });
+        }
       } else {
+         throw Exception('Post data not found.');
+      }
+    } catch (e) {
+      if (mounted) {
         setState(() {
-          _error = 'Erreur lors de la récupération du post';
+          _errorMessage = "Erreur: Impossible de charger les détails du post. ($e)";
           _isLoading = false;
         });
       }
-    } catch (e) {
-      setState(() {
-        _error = 'Exception: $e';
-        _isLoading = false;
-      });
     }
   }
   
@@ -131,7 +130,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 
     try {
       // Construire l'URL pour récupérer les commentaires
-      final commentsUrl = Uri.parse('${ApiService.getBaseUrl()}/api/posts/${widget.postId}/comments');
+      final commentsUrl = Uri.parse('${api_service.ApiService.getBaseUrl()}/api/posts/${widget.postId}/comments');
       final response = await http.get(commentsUrl);
 
       if (response.statusCode == 200) {
@@ -151,23 +150,6 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         _commentsError = 'Exception: $e';
         _isLoadingComments = false;
       });
-    }
-  }
-  
-  Future<void> _loadPostData() async {
-    try {
-      final postData = await _apiService.getPostDetails(widget.postId);
-      final formattedPost = await _convertDynamicPostToPost(postData);
-      
-      setState(() {
-        _postData = formattedPost;
-        _isPostDataInitialized = true;
-      });
-      
-      _initializeVideoControllers();
-    } catch (e) {
-      print('❌ Error loading post: $e');
-      // Afficher une erreur à l'utilisateur
     }
   }
   
@@ -862,7 +844,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       });
       
       // Call API
-      await _apiService.markInterested(widget.userId, _postData.id);
+      await _apiService.toggleLike(widget.userId, _postData.id);
     } catch (e) {
       print('❌ Error liking post: $e');
       
@@ -905,6 +887,8 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         widget.userId,
         _postData.id,
         isLeisureProducer: _postData.isLeisureProducer ?? false,
+        interested: !(_postData.isInterested ?? false),
+        source: 'post_detail',
       );
     } catch (e) {
       print('❌ Error marking interested: $e');

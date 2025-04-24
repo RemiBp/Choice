@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../services/wellness_service.dart';
-import '../models/wellness_producer.dart';
-import 'wellness_profile_screen.dart';
+import '../models/wellness_producer.dart' as model;
+import 'wellness_producer_screen.dart' as wellness_screen;
 import '../utils/api_config.dart';
 import '../utils.dart' show getImageProvider;
 
@@ -16,7 +16,7 @@ class WellnessListScreen extends StatefulWidget {
 
 class _WellnessListScreenState extends State<WellnessListScreen> {
   final WellnessService _wellnessService = WellnessService();
-  List<WellnessProducer> _producers = [];
+  List<model.WellnessProducer> _producers = [];
   bool _isLoading = true;
   String? _error;
   String _searchQuery = '';
@@ -32,7 +32,7 @@ class _WellnessListScreenState extends State<WellnessListScreen> {
     try {
       final producers = await _wellnessService.getWellnessProducers();
       setState(() {
-        _producers = producers;
+        _producers = List<model.WellnessProducer>.from(producers);
         _isLoading = false;
       });
     } catch (e) {
@@ -43,19 +43,31 @@ class _WellnessListScreenState extends State<WellnessListScreen> {
     }
   }
 
-  List<WellnessProducer> _filterProducers() {
-    return _producers.where((producer) {
-      if (_searchQuery.isNotEmpty) {
-        return producer.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-               producer.description.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-               producer.category.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-               producer.sousCategory.toLowerCase().contains(_searchQuery.toLowerCase());
-      }
-      if (_selectedCategory != null) {
-        return producer.category == _selectedCategory;
-      }
-      return true;
-    }).toList();
+  List<model.WellnessProducer> _filterProducers() {
+    List<model.WellnessProducer> filteredList = _producers;
+
+    // Apply search query filter
+    if (_searchQuery.isNotEmpty) {
+      filteredList = filteredList.where((producer) {
+        final nameMatch = producer.name.toLowerCase().contains(_searchQuery.toLowerCase());
+        final descriptionMatch = producer.description.toLowerCase().contains(_searchQuery.toLowerCase());
+        // Check if category exists before calling toLowerCase()
+        final categoryMatch = producer.category?.toLowerCase().contains(_searchQuery.toLowerCase()) ?? false;
+        // Check if sousCategory exists before calling toLowerCase()
+        final sousCategoryMatch = producer.sousCategory?.toLowerCase().contains(_searchQuery.toLowerCase()) ?? false;
+        return nameMatch || descriptionMatch || categoryMatch || sousCategoryMatch;
+      }).toList();
+    }
+
+    // Apply category filter (if not 'Tous')
+    if (_selectedCategory != 'Tous') {
+      filteredList = filteredList.where((producer) {
+        // Check if producer.category is not null before comparison
+        return producer.category != null && producer.category == _selectedCategory;
+      }).toList();
+    }
+
+    return filteredList;
   }
 
   @override
@@ -160,7 +172,7 @@ class _WellnessListScreenState extends State<WellnessListScreen> {
     );
   }
 
-  Widget _buildProducerCard(WellnessProducer producer) {
+  Widget _buildProducerCard(model.WellnessProducer producer) {
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: ListTile(
@@ -209,7 +221,7 @@ class _WellnessListScreenState extends State<WellnessListScreen> {
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (context) => WellnessProfileScreen(producerId: producer.id),
+              builder: (context) => wellness_screen.WellnessProducerScreen(producerId: producer.id),
             ),
           );
         },

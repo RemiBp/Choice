@@ -286,127 +286,96 @@ class Post {
 
   // --- Add fromJson Factory Constructor --- 
   factory Post.fromJson(Map<String, dynamic> json) {
-    // Helper to safely parse lists of strings
-    List<String> _parseStringList(dynamic list) {
-      if (list is List) {
-        return list.map((e) => e.toString()).toList();
-      }
-      return [];
+    // Gestion de l'auteur
+    String? authorId;
+    String? authorName;
+    String? authorAvatar;
+    if (json['author'] is Map) {
+      authorId = json['author']['id']?.toString();
+      authorName = json['author']['name'] ?? json['author_name'] ?? json['user_name'];
+      authorAvatar = json['author']['avatar'] ?? json['author_avatar'] ?? json['user_photo_url'];
+    } else {
+      authorId = json['author_id']?.toString() ?? json['user_id']?.toString();
+      authorName = json['author_name'] ?? json['user_name'];
+      authorAvatar = json['author_avatar'] ?? json['user_photo_url'];
     }
 
-    // Helper to safely parse lists of app_media.Media
-    List<app_media.Media> _parseMediaList(dynamic list) {
-       if (list is List) {
-         return list
-           .where((item) => item is Map<String, dynamic>)
-           .map((item) => app_media.Media.fromJson(item as Map<String, dynamic>))
-           .toList();
-       } 
-       return [];
+    // Gestion de la date
+    DateTime? postedAt;
+    if (json['posted_at'] != null) {
+      postedAt = DateTime.tryParse(json['posted_at'].toString());
+    } else if (json['time_posted'] != null) {
+      postedAt = DateTime.tryParse(json['time_posted'].toString());
+    } else if (json['createdAt'] != null) {
+      postedAt = DateTime.tryParse(json['createdAt'].toString());
     }
 
-    // Helper to safely parse lists of Comment
-    List<Comment> _parseCommentList(dynamic list) {
-       if (list is List) {
-         return list
-           .where((item) => item is Map<String, dynamic>)
-           .map((item) => Comment.fromJson(item as Map<String, dynamic>))
-           .toList();
-       } 
-       return [];
+    // Gestion des médias
+    List<app_media.Media> mediaList = [];
+    if (json['media'] is List) {
+      mediaList = (json['media'] as List).map((m) {
+        if (m is Map<String, dynamic>) {
+          return app_media.Media.fromJson(m);
+        } else if (m is String) {
+          return app_media.Media(url: m, type: 'image');
+        } else {
+          return app_media.Media(url: '', type: 'image');
+        }
+      }).toList();
     }
 
-    // Determine author details, preferring specific author fields over producer/user fallbacks
-    String determinedAuthorId = json['author_id']?.toString() 
-                             ?? json['userId']?.toString() 
-                             ?? json['producer_id']?.toString() 
-                             ?? '';
-    String determinedAuthorName = json['author_name']?.toString() 
-                               ?? json['userName']?.toString() 
-                               ?? json['producer_name']?.toString() 
-                               ?? 'Utilisateur Inconnu';
-    String? determinedAuthorAvatar = json['author_avatar']?.toString() 
-                                 ?? json['userPhotoUrl']?.toString() 
-                                 ?? json['producer_photo']?.toString();
-
-    // Safely parse dates
-    DateTime? parsedPostedAt = json['posted_at'] != null 
-                               ? DateTime.tryParse(json['posted_at'].toString()) 
-                               : null;
-    DateTime parsedCreatedAt = json['createdAt'] != null 
-                              ? DateTime.tryParse(json['createdAt'].toString()) ?? DateTime.now() // Fallback to now
-                              : parsedPostedAt ?? DateTime.now(); // Fallback to postedAt or now
-
-    // Safely parse counts, allowing for List lengths as fallback
-    int parsedLikesCount = (json['likes_count'] as num?)?.toInt() 
-                        ?? (json['likes'] as List?)?.length 
-                        ?? 0;
-    int parsedInterestedCount = (json['interested_count'] as num?)?.toInt() 
-                             ?? (json['interestedUsers'] as List?)?.length 
-                             ?? (json['interested'] as List?)?.length 
-                             ?? 0;
-    int parsedChoiceCount = (json['choice_count'] as num?)?.toInt() 
-                         ?? (json['choiceUsers'] as List?)?.length 
-                         ?? (json['choices'] as List?)?.length 
-                         ?? 0;
-    int parsedCommentsCount = (json['comments_count'] as num?)?.toInt() 
-                           ?? (json['comments'] as List?)?.length 
-                           ?? 0;
+    // Champs de type
+    final bool isLeisureProducer = json['isLeisureProducer'] == true || json['is_leisure_producer'] == true || json['type'] == 'event_producer';
+    final bool isBeautyProducer = json['isBeautyProducer'] == true || json['is_beauty_producer'] == true || json['type'] == 'beauty_producer';
+    final bool isRestaurationProducer = json['isRestaurationProducer'] == true || json['is_restauration_producer'] == true || json['type'] == 'restaurant_producer';
+    final bool isProducerPost = json['isProducerPost'] == true || json['is_producer_post'] == true || isLeisureProducer || isBeautyProducer || isRestaurationProducer;
+    final bool isUserPost = json['user_id'] != null && !isProducerPost;
 
     return Post(
-      id: json['_id']?.toString() ?? json['id']?.toString() ?? '', 
-      userId: json['userId']?.toString() ?? determinedAuthorId, // Ensure userId is populated
-      userName: json['userName']?.toString() ?? determinedAuthorName, // Ensure userName is populated
-      userPhotoUrl: json['userPhotoUrl']?.toString() ?? determinedAuthorAvatar, // Ensure userPhotoUrl is populated
-      imageUrl: json['imageUrl']?.toString() ?? (json['media'] as List?)?.firstWhere((m) => m is Map && m['type'] == 'image', orElse: () => {})?['url']?.toString(), // Fallback image from media
-      createdAt: parsedCreatedAt, 
-      location: json['location']?.toString(),
-      locationName: json['location_name']?.toString() ?? json['location']?.toString(),
-      description: json['description']?.toString() ?? json['content']?.toString() ?? '', // Fallback description/content
-      likes: parsedLikesCount, // Use parsed count
-      comments: _parseCommentList(json['comments']), 
-      isLiked: json['isLiked'] as bool? ?? false, // Default to false if null
-      category: json['category']?.toString(),
-      metadata: json['metadata'] as Map<String, dynamic>?,
-      
-      // Additional fields mapping
-      likesCount: parsedLikesCount,
-      interestedCount: parsedInterestedCount,
-      choiceCount: parsedChoiceCount,
-      // isInterested/isChoice might depend on user context, often not in the raw post data
-      isInterested: json['isInterested'] as bool?, 
-      isChoice: json['isChoice'] as bool?,
-      isProducerPost: json['isProducerPost'] as bool? ?? (json['producer_id'] != null),
-      isLeisureProducer: json['isLeisureProducer'] as bool? ?? json['type'] == 'leisure',
-      isBeautyProducer: json['isBeautyProducer'] as bool? ?? json['type'] == 'wellness',
-      isRestaurationProducer: json['isRestaurationProducer'] as bool? ?? json['type'] == 'restaurant',
-      isAutomated: json['isAutomated'] as bool?,
-      targetId: json['target_id']?.toString(),
+      id: json['id']?.toString() ?? json['_id']?.toString() ?? '',
+      userId: json['user_id']?.toString() ?? '',
+      userName: json['user_name'] ?? '',
+      userPhotoUrl: json['user_photo_url'],
+      imageUrl: json['image_url'],
+      createdAt: postedAt ?? DateTime.now(),
+      location: json['location'] is String ? json['location'] : null,
+      locationName: json['location'] is Map && json['location']['name'] != null ? json['location']['name'] : null,
+      description: json['description'] ?? json['content'] ?? '',
+      likes: json['likes'] is int ? json['likes'] : (json['likes_count'] ?? 0),
+      comments: (json['comments'] is List)
+          ? (json['comments'] as List).map((c) => Comment.fromJson(c)).toList()
+          : [],
+      isLiked: json['isLiked'] == true,
+      category: json['category'],
+      metadata: json['metadata'],
+      likesCount: json['likes_count'] ?? json['likesCount'] ?? 0,
+      interestedCount: json['interested_count'] ?? json['interestedCount'] ?? 0,
+      choiceCount: json['choice_count'] ?? json['choiceCount'] ?? 0,
+      isInterested: json['isInterested'] ?? json['interested'],
+      isChoice: json['isChoice'] ?? json['choice'],
+      isProducerPost: isProducerPost,
+      isLeisureProducer: isLeisureProducer,
+      isBeautyProducer: isBeautyProducer,
+      isRestaurationProducer: isRestaurationProducer,
+      isAutomated: json['isAutomated'] ?? json['is_automated'],
+      targetId: json['target_id']?.toString() ?? json['targetId']?.toString(),
       referencedEventId: json['referenced_event_id']?.toString(),
-      title: json['title']?.toString() ?? json['description']?.toString() ?? '', // Fallback title
-      subtitle: json['subtitle']?.toString(),
-      content: json['content']?.toString() ?? json['description']?.toString(), // Fallback content
-      authorId: determinedAuthorId,
-      authorName: determinedAuthorName,
-      authorAvatar: determinedAuthorAvatar,
-      postedAt: parsedPostedAt, 
-      media: _parseMediaList(json['media']), 
-      
-      // New fields mapping
-      tags: _parseStringList(json['tags']), 
-      mediaUrls: _parseStringList((json['media'] as List?)?.map((m) => m is Map ? m['url'] : null).where((url) => url != null)), // Extract URLs if needed
-      commentsCount: parsedCommentsCount,
-      type: json['type']?.toString(),
-      author: json['author'], // Keep raw author if needed
-      
-      relevanceScore: json['relevanceScore'] != null 
-                     ? (json['relevanceScore'] is int) 
-                         ? (json['relevanceScore'] as int).toDouble() 
-                         : (json['relevanceScore'] as num).toDouble()
-                     : null, // Handle both int and double types
-
+      title: json['title'] ?? '',
+      subtitle: json['subtitle'],
+      content: json['content'],
+      authorId: authorId,
+      authorName: authorName,
+      authorAvatar: authorAvatar,
+      postedAt: postedAt,
+      media: mediaList,
+      tags: (json['tags'] as List?)?.map((e) => e.toString()).toList(),
+      mediaUrls: (json['mediaUrls'] as List?)?.map((e) => e.toString()).toList(),
+      commentsCount: json['comments_count'] ?? json['commentsCount'] ?? 0,
+      type: json['type'],
+      author: json['author'],
+      relevanceScore: (json['relevanceScore'] is num) ? (json['relevanceScore'] as num).toDouble() : null,
       producerId: json['producer_id']?.toString(),
-        url: json['url']?.toString(),
+      url: json['url'],
       );
   }
   // --- End fromJson Factory --- 
