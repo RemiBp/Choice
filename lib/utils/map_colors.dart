@@ -40,8 +40,8 @@ class MapColors {
         return Colors.orange;
       case 'leisure':
         return Colors.purple;
-      case 'beautyPlace':
-        return Colors.pink;
+      case 'wellness':
+        return Colors.teal;
       case 'friends':
         return Colors.blue;
       default:

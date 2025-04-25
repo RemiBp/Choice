@@ -5,6 +5,7 @@ import 'package:choice_app/models/post_model.dart';
 import 'package:choice_app/models/choice_model.dart';
 import 'package:choice_app/widgets/profile/choice_form.dart';
 import 'package:choice_app/widgets/comment_tile.dart';
+import 'package:choice_app/utils/validation_utils.dart';
 
 // Placeholder pour PlaceDetails, à remplacer par le vrai modèle si disponible
 class PlaceDetails {
@@ -13,13 +14,6 @@ class PlaceDetails {
   final String photoReference; // ou URL directe selon l'API
 
   PlaceDetails({required this.name, required this.address, required this.photoReference});
-}
-
-// Petite classe utilitaire pour valider ObjectId (à mettre dans un fichier utils séparé idéalement)
-class Mongoose {
-  static bool isValidObjectId(String id) {
-    return RegExp(r'^[0-9a-fA-F]{24}$'').hasMatch(id);
-  }
 }
 
 //==============================================================================
@@ -97,7 +91,7 @@ class _ProfileTabsState extends State<ProfileTabs> with SingleTickerProviderStat
        String? postId;
        try {
           DocumentReference parentRef = doc.reference.parent.parent!; // Remonte de 2 niveaux (comment -> comments -> post)
-          if (parentRef.path.startsWith('posts/') && Mongoose.isValidObjectId(parentRef.id)) {
+          if (parentRef.path.startsWith('posts/') && ValidationUtils.isValidObjectId(parentRef.id)) {
               postId = parentRef.id;
           }
        } catch (e) {
@@ -311,7 +305,7 @@ class _ProfileTabsState extends State<ProfileTabs> with SingleTickerProviderStat
                onLike: () => widget.onLikeComment(commentId),
                onUnlike: () => widget.onUnlikeComment(commentId),
                onTap: () {
-                   if (postId != null && Mongoose.isValidObjectId(postId)) {
+                   if (postId != null && ValidationUtils.isValidObjectId(postId)) {
                       // TODO: Naviguer vers le post spécifique
                       print("Naviguer vers Post ID: $postId");
                    } else {

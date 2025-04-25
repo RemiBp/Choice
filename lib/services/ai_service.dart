@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import '../utils/constants.dart' as constants;
 import '../models/profile_data.dart';
 import '../utils.dart';
+import 'auth_service.dart';
 
 /// Service permettant d'accéder à l'IA avec accès direct aux données MongoDB
 /// Ce service encapsule les appels aux endpoints AI et gère les profils extraits
@@ -14,6 +15,8 @@ class AIService {
   static final AIService _instance = AIService._internal();
   factory AIService() => _instance;
   AIService._internal();
+
+  final String _baseUrl = constants.getBaseUrlSync();
 
   /// Méthode pour obtenir l'URL de base de façon cohérente
   String getBaseUrl() {
@@ -178,6 +181,19 @@ class AIService {
     }
   }
 
+  /// Fonction pour obtenir l'en-tête d'authentification
+  Future<Map<String, String>> _getAuthHeaders() async {
+    String? token = await AuthService().getToken();
+    if (token == null) {
+      print("⚠️ Attention: Token non trouvé pour la requête AI.");
+      return {'Content-Type': 'application/json; charset=UTF-8'};
+    }
+    return {
+      'Content-Type': 'application/json; charset=UTF-8',
+      'Authorization': 'Bearer $token',
+    };
+  }
+
   /// Effectue une requête producteur en langage naturel
   /// 
   /// Exemple: "Aide-moi à améliorer ma carte en comparaison des autres restaurants du quartier"
@@ -187,53 +203,50 @@ class AIService {
     String? producerType,
     Duration timeout = const Duration(seconds: 30),
   }) async {
-    // Déterminer le type de producteur si non fourni
-    final type = producerType ?? await detectProducerType(producerId);
-    
-    // Configurer l'endpoint en fonction du type
-    final endpoint = _getEndpointForType(type);
-    
-    // Construire l'URL
-    final url = Uri.parse('${getBaseUrl()}$endpoint');
-    print('🔍 Requête AI pour $type (ID: $producerId): $query');
-    print('📡 Endpoint utilisé: $endpoint');
+    print("🔍 Requête AI pour ${producerType ?? 'type inconnu'} (ID: $producerId): $query");
+    final url = Uri.parse('$_baseUrl/api/ai/producer-query');
+    print("📡 Endpoint utilisé: /api/ai/producer-query");
     
     try {
+      final headers = await _getAuthHeaders();
+      final body = json.encode({
+        'producerId': producerId,
+        'message': query,
+        if (producerType != null) 'producerType': producerType,
+      });
+
       final response = await http.post(
         url,
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({
-          'producerId': producerId,
-          'query': query,
-          // Ajouter un paramètre pour le type si nécessaire
-          'producerType': type,
-        }),
+        headers: headers,
+        body: body,
       ).timeout(timeout);
       
       if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final textResponse = data['response'] ?? 'Désolé, je n\'ai pas pu obtenir d\'information.';
-        
-        List<ProfileData> extractedProfiles = [];
-        if (data['profiles'] != null && data['profiles'] is List) {
-          extractedProfiles = (data['profiles'] as List)
-              .map((profile) => ProfileData.fromJson(profile))
-              .toList();
-        }
-        
-        return AIQueryResponse(
-          response: textResponse,
-          profiles: extractedProfiles,
-        );
+        final responseData = json.decode(utf8.decode(response.bodyBytes));
+        print("✅ Réponse AI reçue (Statut ${response.statusCode})");
+        return AIQueryResponse.fromJson(responseData);
       } else {
-        throw Exception('Erreur serveur: ${response.statusCode}');
+        print("❌ Erreur serveur AI (${response.statusCode}): ${response.body}");
+        String errorMessage = "Erreur serveur: ${response.statusCode}";
+        if (response.statusCode == 401) errorMessage = "Non autorisé (Token invalide ou manquant ?)";
+        if (response.statusCode == 403) errorMessage = "Accès refusé.";
+        if (response.statusCode == 500) errorMessage = "Erreur interne du serveur AI.";
+        if (response.statusCode == 503) errorMessage = "Service AI indisponible.";
+        
+        try {
+          final errorJson = json.decode(utf8.decode(response.bodyBytes));
+          if (errorJson['response'] is String) {
+             errorMessage = errorJson['response'];
+          } else if (errorJson['error'] is String) {
+             errorMessage = errorJson['error'];
+          }
+        } catch (_) { }
+        
+        throw Exception(errorMessage);
       }
     } catch (e) {
-      print('❌ Erreur lors de la requête AI: $e');
-      return AIQueryResponse(
-        response: 'Je rencontre des difficultés à me connecter. Veuillez réessayer.',
-        hasError: true,
-      );
+      print("❌ Erreur lors de la requête AI: $e");
+      throw Exception(e is Exception ? e.toString() : 'Erreur inconnue lors de la requête AI.');
     }
   }
 
@@ -324,45 +337,42 @@ class AIService {
     String producerId, {
     Duration timeout = const Duration(seconds: 25),
   }) async {
-    _log('Récupération des insights pour le producteur: $producerId');
-    try {
-      // Utiliser l'endpoint GET générique pour les insights producteur
-      final endpoint = '/api/ai/insights/producer/$producerId'; 
-      final url = await _formatUrl(endpoint); // Utiliser _formatUrl pour construire l'URL
-       _log('Appel GET pour les insights: $url');
+    print("📡 Endpoint utilisé pour les insights: /api/ai/producer/insights/$producerId");
 
-      // Changer la méthode de POST à GET
+    try {
+      final headers = await _getAuthHeaders();
+
       final response = await http.get(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        // Plus besoin de body pour un GET
+        await _formatUrl('api/ai/producer/insights/$producerId'),
+        headers: headers,
       ).timeout(timeout);
 
-      _log('Statut de réponse pour insights: ${response.statusCode}');
-
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        List<ProfileData> extractedProfiles = [];
-        
-        if (data['profiles'] != null && data['profiles'] is List) {
-          extractedProfiles = (data['profiles'] as List)
-              .map((profile) => ProfileData.fromJson(profile))
-              .toList();
-        }
-        
-        return AIQueryResponse(
-          response: data['response'] ?? 'Voici vos insights basés sur les données actuelles.',
-          profiles: extractedProfiles,
-        );
+        final responseData = json.decode(utf8.decode(response.bodyBytes));
+        print("✅ Insights reçus (Statut ${response.statusCode})");
+        return AIQueryResponse.fromJson(responseData);
       } else {
-        throw Exception('Erreur: ${response.statusCode}');
+        print("❌ Erreur serveur lors de la récupération des insights (${response.statusCode}): ${response.body}");
+        String errorMessage = "Erreur: ${response.statusCode}";
+         if (response.statusCode == 401) errorMessage = "Non autorisé (Token invalide ou manquant ?)";
+         if (response.statusCode == 403) errorMessage = "Accès refusé.";
+         if (response.statusCode == 500) errorMessage = "Erreur interne du serveur (Insights).";
+         if (response.statusCode == 503) errorMessage = "Service Insights indisponible.";
+
+        try {
+          final errorJson = json.decode(utf8.decode(response.bodyBytes));
+          if (errorJson['response'] is String) {
+             errorMessage = errorJson['response'];
+          } else if (errorJson['error'] is String) {
+             errorMessage = errorJson['error'];
+          }
+        } catch (_) { }
+
+        throw Exception(errorMessage);
       }
     } catch (e) {
-      print('❌ Erreur lors de la récupération des insights: $e');
-      return AIQueryResponse(
-        response: 'Je n\'ai pas pu récupérer vos insights pour le moment.',
-        hasError: true,
-      );
+      print("❌ Erreur lors de la récupération des insights: $e");
+      throw Exception(e is Exception ? e.toString() : 'Erreur inconnue lors de la récupération des insights.');
     }
   }
 
@@ -511,45 +521,29 @@ class AIService {
 
   /// Détecte le type de producteur en interrogeant les différentes API
   Future<String> detectProducerType(String producerId) async {
-    try {
-      // Vérifier d'abord dans les restaurants (Restauration_Officielle)
-      var url = Uri.parse('${getBaseUrl()}/api/producers/$producerId');
-      var response = await http.get(url);
-      
-      if (response.statusCode == 200) {
-        return 'restaurant';
+    final String defaultType = 'restaurant';
+    final Map<String, String> endpoints = {
+      'leisureProducer': '/api/leisureProducers/$producerId',
+      'wellnessProducer': '/api/wellness/$producerId',
+      'restaurant': '/api/producers/$producerId',
+    };
+
+    for (var entry in endpoints.entries) {
+      try {
+        final url = Uri.parse('$_baseUrl${entry.value}');
+        final response = await http.get(url);
+        if (response.statusCode == 200) {
+          print("✅ Type de producteur détecté: ${entry.key}");
+          return entry.key; // Return the type if found
+        }
+      } catch (e) {
+        // Ignore errors and try the next endpoint
+        print("ℹ️ Erreur lors de la vérification du type ${entry.key}: $e");
       }
-      
-      // Vérifier dans les producteurs de loisirs (Loisir&Culture)
-      url = Uri.parse('${getBaseUrl()}/api/leisureProducers/$producerId');
-      response = await http.get(url);
-      
-      if (response.statusCode == 200) {
-        return 'leisureProducer';
-      }
-      
-      // Vérifier dans les établissements de bien-être (Beauty_Wellness)
-      url = Uri.parse('${getBaseUrl()}/api/wellness/$producerId');
-      response = await http.get(url);
-      
-      if (response.statusCode == 200) {
-        return 'wellnessProducer';
-      }
-      
-      // Vérifier dans les lieux de beauté (Beauty_Wellness)
-      url = Uri.parse('${getBaseUrl()}/api/beauty_places/$producerId');
-      response = await http.get(url);
-      
-      if (response.statusCode == 200) {
-        return 'beautyPlace';
-      }
-      
-      // Par défaut
-      return 'restaurant';
-    } catch (e) {
-      print('❌ Erreur lors de la détection du type de producteur: $e');
-      return 'restaurant';
     }
+
+    print("⚠️ Type de producteur non détecté, utilisation de '$defaultType' par défaut.");
+    return defaultType; // Default if none found
   }
   
   /// Retourne l'endpoint d'API AI approprié en fonction du type
@@ -577,8 +571,6 @@ class AIService {
         return '/api/ai/leisure-insights';
       case 'wellnessProducer':
         return '/api/ai/wellness-insights';
-      case 'beautyPlace':
-        return '/api/ai/beauty-insights';
       case 'restaurant':
       default:
         return '/api/ai/producer-insights';

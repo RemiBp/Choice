@@ -2,13 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:choice_app/models/user_model.dart'; // Assurez-vous que le chemin est correct
 import 'package:choice_app/widgets/comment_tile.dart';
-
-// Petite classe utilitaire pour valider ObjectId (à mettre dans un fichier utils séparé idéalement)
-class Mongoose {
-  static bool isValidObjectId(String id) {
-    return RegExp(r'^[0-9a-fA-F]{24}$').hasMatch(id);
-  }
-}
+import 'package:choice_app/utils/validation_utils.dart';
 
 // Type de fonction pour récupérer des informations utilisateur minimales
 typedef FetchMinimalUserInfo = Future<Map<String, String>> Function(String userId);

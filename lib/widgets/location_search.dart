@@ -300,12 +300,18 @@ class _LocationSearchState extends State<LocationSearch> {
     switch (widget.type) {
       case 'restaurant':
         return Icons.restaurant;
+      case 'leisureProducer':
+        return Icons.local_activity;
       case 'event':
         return Icons.event;
+      case 'wellnessProducer':
+        return Icons.spa;
       case 'beautyPlace':
         return Icons.spa;
+      case 'user':
+        return Icons.person;
       default:
-        return Icons.location_on;
+        return Icons.place;
     }
   }
 
@@ -314,10 +320,16 @@ class _LocationSearchState extends State<LocationSearch> {
     switch (widget.type) {
       case 'restaurant':
         return 'Rechercher un restaurant...';
+      case 'leisureProducer':
+        return 'Rechercher un lieu de loisir...';
       case 'event':
         return 'Rechercher un événement...';
-      case 'beautyPlace':
+      case 'wellnessProducer':
         return 'Rechercher un établissement de bien-être...';
+      case 'beautyPlace':
+        return 'Rechercher un établissement de beauté...';
+      case 'user':
+        return 'Rechercher un utilisateur...';
       default:
         return 'Rechercher...';
     }

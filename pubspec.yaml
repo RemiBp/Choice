@@ -151,6 +151,8 @@ dependencies:
   collection: ^1.18.0
   mobile_scanner: ^5.1.1
   qr_flutter: ^4.1.0
+  like_button: ^2.0.5
+  material_design_icons_flutter: ^7.0.7296
 
 dev_dependencies:
   flutter_test:
@@ -167,6 +169,7 @@ flutter:
     - assets/images/google_logo.png
     - assets/translations/
     - assets/env/
+    - assets/map_styles/
 
 flutter_launcher_icons:
   android: true

@@ -1402,4 +1402,29 @@ class MapService {
       return {'success': false, 'message': 'Erreur réseau: ${e.toString()}', 'results': []};
     }
   }
+
+  // *** NOUVELLE MÉTHODE POUR RÉCUPÉRER LES UTILISATEURS INTERACTIFS ***
+  Future<List<Map<String, dynamic>>> getInteractingUsers(String targetId, String targetType) async {
+    final uri = Uri.parse('${constants.getBaseUrl()}/api/interactions/$targetType/$targetId/users');
+    print('📞 Calling Interaction Users API: ${uri.toString()}');
+    
+    try {
+      final response = await http.get(
+        uri,
+        headers: { 'Content-Type': 'application/json' }, // Ajouter des headers d'auth si nécessaire
+      );
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = json.decode(response.body);
+        print('✅ Received ${data.length} interacting users for $targetType $targetId');
+        return List<Map<String, dynamic>>.from(data);
+      } else {
+        print('❌ Failed to load interacting users: ${response.statusCode} ${response.body}');
+        throw Exception('Failed to load interacting users');
+      }
+    } catch (e) {
+      print('❌ Error calling interacting users API: $e');
+      throw Exception('Error fetching interacting users: $e');
+    }
+  }
 } 

@@ -3,9 +3,34 @@ import 'package:flutter/foundation.dart';
 import '../services/api_service.dart' as api_service;
 import '../models/post.dart'; // KEEP: Defines the Post model
 import '../models/dialogic_ai_message.dart'; // KEEP: Defines the AI message model
+import 'dart:math' as math;
 
 // No separate import needed if api_service.dart is imported fully
 // import '../services/api_service.dart' show ProducerFeedLoadState;
+
+// Enum pour les filtres
+enum ProducerFeedFilterType { localTrends, venue, interactions, followers }
+
+// Mapper pour convertir de ProducerFeedContentType vers ProducerFeedFilterType
+extension ProducerFeedContentTypeExtension on api_service.ProducerFeedContentType {
+  ProducerFeedFilterType toFilterType() {
+    switch (this) {
+      case api_service.ProducerFeedContentType.localTrends:
+        return ProducerFeedFilterType.localTrends;
+      case api_service.ProducerFeedContentType.venue:
+        return ProducerFeedFilterType.venue;
+      case api_service.ProducerFeedContentType.interactions:
+        return ProducerFeedFilterType.interactions;
+      case api_service.ProducerFeedContentType.followers:
+        return ProducerFeedFilterType.followers;
+      default:
+        return ProducerFeedFilterType.localTrends;
+    }
+  }
+}
+
+// Enum pour les états de chargement
+enum ProducerFeedLoadState { initial, loading, loaded, loadingMore, error }
 
 // --- Placeholder ProducerFeedController ---
 class ProducerFeedController with ChangeNotifier {
@@ -16,11 +41,11 @@ class ProducerFeedController with ChangeNotifier {
 
   List<dynamic> _feedItems = [];
   // Use prefixed enum
-  api_service.ProducerFeedLoadState _loadState = api_service.ProducerFeedLoadState.initial;
-  api_service.ProducerFeedContentType _currentFilter = api_service.ProducerFeedContentType.venue;
+  ProducerFeedLoadState _loadState = ProducerFeedLoadState.initial;
+  ProducerFeedFilterType _currentFilter = ProducerFeedFilterType.localTrends;
   String _errorMessage = '';
   bool _hasMorePosts = true;
-  int _page = 1;
+  int _currentPage = 1;
   String? _currentCategory; // Add category state
 
   ProducerFeedController({
@@ -31,124 +56,172 @@ class ProducerFeedController with ChangeNotifier {
   // --- Getters ---
   List<dynamic> get feedItems => _feedItems;
   // Use prefixed enum
-  api_service.ProducerFeedLoadState get loadState => _loadState;
+  ProducerFeedLoadState get loadState => _loadState;
   String get errorMessage => _errorMessage;
   bool get hasMorePosts => _hasMorePosts;
   // Use prefixed enum
-  api_service.ProducerFeedContentType get currentFilter => _currentFilter; // Expose current filter
+  ProducerFeedFilterType get currentFilter => _currentFilter; // Expose current filter
   String? get currentCategory => _currentCategory; // Expose current category
 
   // --- Core Methods ---
-  Future<void> loadFeed({String? category}) async {
-    if (_loadState == api_service.ProducerFeedLoadState.loading) return;
-    print("🔄 [Controller] Loading feed for $userId - Filter: $_currentFilter, Category: ${category ?? 'All'} (Page: 1)");
-    _loadState = api_service.ProducerFeedLoadState.loading;
-    _page = 1;
-    _currentCategory = category; // Set the category
+  Future<void> _fetchProducerFeed({bool isRefresh = false}) async {
+    // Prevent concurrent loads
+    if (_loadState == ProducerFeedLoadState.loading || _loadState == ProducerFeedLoadState.loadingMore) return;
+
+    // Set loading state
+    _loadState = isRefresh ? ProducerFeedLoadState.loading : (_currentPage == 1 ? ProducerFeedLoadState.loading : ProducerFeedLoadState.loadingMore);
+    _errorMessage = '';
     notifyListeners();
 
+    print("🔄 [Controller] Fetching page $_currentPage for filter: $_currentFilter, category: ${_currentCategory ?? 'All'}");
+
     try {
-      final response = await _fetchProducerFeed(_page, _currentFilter, _currentCategory);
-      _feedItems = response['items'] ?? [];
+      // Call the updated ApiService method with the correct filter enum
+      final response = await _apiService.getProducerFeed(
+        userId, // This should be the ID of the producer whose feed we are viewing
+        filter: _currentFilter, // Pass the enum directly
+        page: _currentPage,
+        limit: 10, // Or adjust as needed
+        producerType: producerTypeString, // Pass the type of the producer viewing the feed for context
+        category: _currentCategory,
+      );
+
+      final List<dynamic> rawItems = response['items'] ?? [];
+      final List<dynamic> newItems = rawItems.map((item) {
+        try {
+          // Try parsing as Post, ensure all fields needed by the UI are present
+          return Post.fromJson(item as Map<String, dynamic>);
+        } catch (e) {
+          print("⚠️ Could not parse item as Post: $e. Item: $item");
+          // Potentially handle other types like AI messages if necessary
+          // if (item['type'] == 'ai_message') return DialogicAIMessage.fromJson(item);
+          return item; // Keep raw map if parsing fails or it's another type
+        }
+      }).toList();
+
+      // Update pagination state from the response
       _hasMorePosts = response['hasMore'] ?? false;
-      _loadState = api_service.ProducerFeedLoadState.loaded;
-      print("✅ [Controller] Feed loaded: ${_feedItems.length} items, hasMore: $_hasMorePosts");
+      // _currentPage = response['currentPage'] ?? _currentPage; // API now drives current page
+
+      if (isRefresh || _currentPage == 1) {
+        _feedItems = newItems;
+      } else {
+        _feedItems.addAll(newItems); // Append new items
+      }
+
+      print("✅ [Controller] Feed loaded. Total items: ${_feedItems.length}, Has more: $_hasMorePosts, Current Page: $_currentPage");
+      _loadState = ProducerFeedLoadState.loaded;
+
     } catch (e) {
-      _handleError("loading feed", e);
+      _errorMessage = e.toString();
+      _loadState = ProducerFeedLoadState.error; // Set error state
+      print('❌ Error fetching producer feed: $_errorMessage');
+       // If it was a 'loadMore' attempt, revert state but keep existing items
+       if (!isRefresh && _currentPage > 1) {
+           _loadState = ProducerFeedLoadState.loaded;
+           _currentPage--; // Revert page increment if loadMore failed
+           _hasMorePosts = true; // Assume we might still have more
+       }
     } finally {
-      if (notifyListeners != null) notifyListeners(); // Ensure notifyListeners is called even on error
+      // Important: Ensure listeners are notified even after errors
+      // to update UI state (e.g., hide loading indicator, show error)
+      notifyListeners();
     }
   }
 
-  Future<void> loadMore() async {
-    if (_loadState == api_service.ProducerFeedLoadState.loadingMore ||
-        _loadState == api_service.ProducerFeedLoadState.loading ||
-        !_hasMorePosts) {
-      return;
-    }
-    print("🔄 [Controller] Loading more feed items... (Page: ${_page + 1})");
-    _loadState = api_service.ProducerFeedLoadState.loadingMore;
-    notifyListeners();
-
-    try {
-      final response = await _fetchProducerFeed(_page + 1, _currentFilter, _currentCategory);
-      final newItems = response['items'] ?? [];
-      _feedItems.addAll(newItems);
-      _hasMorePosts = response['hasMore'] ?? false;
-      _page++;
-      _loadState = api_service.ProducerFeedLoadState.loaded;
-       print("✅ [Controller] More items loaded: ${newItems.length}, Total: ${_feedItems.length}, hasMore: $_hasMorePosts");
-    } catch (e) {
-       _handleError("loading more items", e);
-       // Keep existing items on load more error
-       _loadState = api_service.ProducerFeedLoadState.loaded; // Revert state but don't clear items
-    } finally {
-       if (notifyListeners != null) notifyListeners();
-    }
-  }
-
+  // Pull-to-refresh or initial load
   Future<void> refreshFeed() async {
     print("🔄 [Controller] Refreshing feed...");
-    await loadFeed(category: _currentCategory);
+    _currentPage = 1;
+    _hasMorePosts = true; // Reset pagination
+    await _fetchProducerFeed(isRefresh: true);
   }
 
-  void filterFeed(api_service.ProducerFeedContentType filter) {
-    if (_currentFilter == filter && _loadState != api_service.ProducerFeedLoadState.initial) return;
-    print("🔄 [Controller] Filtering feed to: $filter");
-    _currentFilter = filter;
-    // Reset feed before loading new filter type, KEEP category for now
-    _feedItems = [];
-    _hasMorePosts = true; // Assume has more initially
-    loadFeed(category: _currentCategory); // Load data for the new filter, keep category
+  // Called by the scroll listener
+  Future<void> loadMore() async {
+    if (_hasMorePosts && _loadState != ProducerFeedLoadState.loadingMore) {
+       print("🔄 [Controller] Loading more posts (Page ${_currentPage + 1})...");
+      _currentPage++; // Increment page number *before* fetching
+      await _fetchProducerFeed();
+    } else {
+       print("ℹ️ [Controller] Cannot load more. HasMore: $_hasMorePosts, State: $_loadState");
+    }
   }
 
-  // New method to change category without changing the main filter type
-  void changeCategory(String? category) {
-    // Treat 'Tous' or null as no specific category
-    final String? newCategory = (category == 'Tous' || category == null) ? null : category;
-    if (_currentCategory == newCategory) return; // No change
-    print("🔄 [Controller] Changing category to: ${newCategory ?? 'All'}");
-    // No need to reset filter type, just load feed with new category
-    loadFeed(category: newCategory);
+  // Called when a tab is changed
+  void filterFeed(ProducerFeedFilterType newFilter) {
+    if (_currentFilter == newFilter) return;
+    print("🔄 [Controller] Filtering feed to: $newFilter");
+    _currentFilter = newFilter;
+    _currentPage = 1; // Reset page
+    _hasMorePosts = true;
+    _feedItems = []; // Clear existing items for new filter
+    _fetchProducerFeed(isRefresh: true); // Fetch page 1 for the new filter
+  }
+
+  // Called when a category chip is selected
+  void changeCategory(String? newCategory) {
+    final categoryToSet = (newCategory == 'Tous') ? null : newCategory;
+    if (_currentCategory == categoryToSet) return;
+    print("🔄 [Controller] Changing category to: ${categoryToSet ?? 'All'}");
+    _currentCategory = categoryToSet;
+    _currentPage = 1; // Reset page
+    _hasMorePosts = true;
+    _feedItems = []; // Clear existing items for new category
+    _fetchProducerFeed(isRefresh: true); // Fetch page 1 for the new category
   }
 
   // --- API Interaction ---
-  Future<Map<String, dynamic>> _fetchProducerFeed(int page, api_service.ProducerFeedContentType filter, String? category) async {
-    try {
-      // Use the actual ApiService method - Update call signature
-      return await _apiService.getProducerFeed(
-        userId,
-        contentType: filter,
-        page: page,
-        limit: 10,
-        producerType: filter == api_service.ProducerFeedContentType.followers ? producerTypeString : null,
-        category: category, // Pass category
-      );
-    } catch (e) {
-      print('❌ [Controller] Error in _fetchProducerFeed: $e');
-      rethrow; // Rethrow the error so the caller can handle state
+  Future<void> likePost(dynamic postData) async {
+    String? postId;
+    bool? currentLikeStatus;
+    int currentLikesCount = 0;
+
+    // Extract ID and current status safely
+    if (postData is Post) {
+      postId = postData.id;
+      currentLikeStatus = postData.isLiked;
+      currentLikesCount = postData.likesCount ?? 0;
+    } else if (postData is Map<String, dynamic>) {
+      postId = postData['_id']?.toString() ?? postData['id']?.toString();
+      currentLikeStatus = postData['isLiked'] as bool?;
+      // Try different keys for likes count
+      currentLikesCount = postData['likesCount'] as int? ??
+                          postData['likes_count'] as int? ??
+                          (postData['likes'] is List ? (postData['likes'] as List).length : 0);
     }
-  }
 
-  // --- Post Actions ---
-  Future<void> likePost(dynamic post) async {
-    String? postId = _getPostId(post);
-    if (postId == null) return;
-
-    final originalLikedStatus = _getPostLikedStatus(post);
-    final originalLikesCount = _getPostLikesCount(post);
+    if (postId == null || currentLikeStatus == null) {
+      print("❌ Cannot like post: Missing ID or like status.");
+      return;
+    }
 
     // Optimistic UI update
-    _updatePostState(postId, isLiked: !originalLikedStatus, likesCountDelta: originalLikedStatus ? -1 : 1);
+    final index = _feedItems.indexWhere((item) => _getPostId(item) == postId);
+    if (index != -1) {
+      final bool newLikeStatus = !currentLikeStatus;
+      final int newLikesCount = newLikeStatus ? currentLikesCount + 1 : math.max(0, currentLikesCount - 1); // Ensure count doesn't go below 0
+      _updatePostState(postId, isLiked: newLikeStatus, likesCount: newLikesCount); // Update UI immediately
+    } else {
+       print("⚠️ Could not find post $postId in local feed items for optimistic update.");
+    }
 
+
+    // API call
     try {
-      await _apiService.toggleLike(userId, postId); // Use actual user ID for liking
-      print("✅ [Controller] Post $postId like toggled successfully.");
-      // API call successful, UI is already updated
+      // Use the ID of the user *performing* the like action (loggedInUserId from AuthService or similar)
+      // For the producer feed, this is likely the producer's own ID
+      await _apiService.toggleLike(userId, postId);
+      print("✅ [Controller] Post $postId like toggled successfully via API.");
+      // Optional: You could re-fetch the specific post here to confirm server state,
+      // but optimistic update is usually sufficient for UX.
     } catch (e) {
-       _handleError("liking post $postId", e);
-       // Revert UI on error
-       _updatePostState(postId, isLiked: originalLikedStatus, likesCount: originalLikesCount);
+      print("❌ Error toggling like for post $postId: $e");
+      // Revert optimistic update on error
+      if (index != -1) {
+        _updatePostState(postId, isLiked: currentLikeStatus, likesCount: currentLikesCount);
+      }
+      // Optionally show an error message to the user
     }
   }
 
@@ -167,14 +240,14 @@ class ProducerFeedController with ChangeNotifier {
   void _handleError(String action, Object e) {
      print('❌ [Controller] Error $action: $e');
      // Use prefixed enum
-     _loadState = api_service.ProducerFeedLoadState.error;
+     _loadState = ProducerFeedLoadState.error;
      _errorMessage = "Erreur lors de l\'action: $action. Détails: ${e.toString()}";
      // Don't notify here, let the calling method handle it
   }
 
-   String? _getPostId(dynamic post) {
-     if (post is Post) return post.id;
-     if (post is Map<String, dynamic>) return post['_id'];
+   String? _getPostId(dynamic item) {
+     if (item is Post) return item.id;
+     if (item is Map<String, dynamic>) return item['_id']?.toString() ?? item['id']?.toString();
      return null;
    }
 
@@ -193,36 +266,83 @@ class ProducerFeedController with ChangeNotifier {
    }
 
    // Updates the state of a post within the _feedItems list
-   void _updatePostState(String postId, {bool? isLiked, int? likesCountDelta, int? likesCount}) {
+   void _updatePostState(String postId, {required bool isLiked, required int likesCount}) {
      final index = _feedItems.indexWhere((item) => _getPostId(item) == postId);
      if (index != -1) {
        final item = _feedItems[index];
+           dynamic updatedItem;
        if (item is Post) {
-         // Create a new Post object with updated values
-         final currentLikes = item.likesCount ?? 0;
-         final currentLiked = item.isLiked ?? false;
-         _feedItems[index] = item.copyWith(
-           isLiked: isLiked ?? currentLiked,
-           likesCount: likesCount ?? (currentLikes + (likesCountDelta ?? 0)),
-         );
+               updatedItem = item.copyWith(isLiked: isLiked, likesCount: likesCount);
        } else if (item is Map<String, dynamic>) {
-         // Update the map directly (create a new map to ensure change notification)
-         final newItem = Map<String, dynamic>.from(item);
-         final currentLikes = _getPostLikesCount(newItem);
-         final currentLiked = _getPostLikedStatus(newItem);
-
-         if (isLiked != null) newItem['isLiked'] = isLiked;
-         if (likesCount != null) {
-            newItem['likes_count'] = likesCount;
-            if (newItem['stats'] is Map) newItem['stats']['likes_count'] = likesCount;
-         } else if (likesCountDelta != null) {
-            final newCount = currentLikes + likesCountDelta;
-            newItem['likes_count'] = newCount;
-             if (newItem['stats'] is Map) newItem['stats']['likes_count'] = newCount;
-         }
-         _feedItems[index] = newItem;
+               updatedItem = Map<String, dynamic>.from(item); // Create a mutable copy
+               updatedItem['isLiked'] = isLiked;
+               updatedItem['likesCount'] = likesCount; // Ensure this key is used by the UI
+               // Also update nested stats if they exist and are used
+               if (updatedItem['stats'] is Map) {
+                  updatedItem['stats'] = Map<String, dynamic>.from(updatedItem['stats']);
+                  updatedItem['stats']['likes_count'] = likesCount;
+               }
+           }
+           if (updatedItem != null) {
+              _feedItems[index] = updatedItem;
+              notifyListeners();
+           }
        }
-       notifyListeners(); // Notify after update
-     }
    }
+}
+
+// Helper extension for Post model if needed for copyWith
+extension PostCopyWith on Post {
+  Post copyWith({
+    bool? isLiked,
+    int? likesCount,
+    // Add other fields you might need to update optimistically
+  }) {
+    return Post(
+      // Copy all existing fields
+      id: this.id,
+      userId: this.userId,
+      userName: this.userName,
+      userPhotoUrl: this.userPhotoUrl,
+      imageUrl: this.imageUrl,
+      createdAt: this.createdAt,
+      location: this.location,
+      locationName: this.locationName,
+      description: this.description,
+      likes: this.likes,
+      comments: this.comments,
+      category: this.category,
+      metadata: this.metadata,
+      targetId: this.targetId,
+      title: this.title,
+      subtitle: this.subtitle,
+      content: this.content,
+      authorId: this.authorId,
+      authorName: this.authorName,
+      authorAvatar: this.authorAvatar,
+      postedAt: this.postedAt,
+      media: this.media,
+      tags: this.tags,
+      mediaUrls: this.mediaUrls,
+      type: this.type,
+      author: this.author,
+      relevanceScore: this.relevanceScore,
+      producerId: this.producerId,
+      url: this.url,
+      choiceCount: this.choiceCount,
+      interestedCount: this.interestedCount,
+      isChoice: this.isChoice,
+      isInterested: this.isInterested,
+      isProducerPost: this.isProducerPost,
+      isLeisureProducer: this.isLeisureProducer,
+      isWellnessProducer: this.isWellnessProducer,
+      isRestaurationProducer: this.isRestaurationProducer,
+      isAutomated: this.isAutomated,
+      referencedEventId: this.referencedEventId,
+
+      // Apply updates
+      isLiked: isLiked ?? this.isLiked,
+      likesCount: likesCount ?? this.likesCount,
+    );
+  }
 } 

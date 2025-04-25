@@ -19,12 +19,14 @@ class PostDetailScreen extends StatefulWidget {
   final String postId;
   final String userId;
   final String? referringScreen;
+  final bool initialFocusCommentField;
   
   const PostDetailScreen({
     Key? key,
     required this.postId,
     required this.userId,
     this.referringScreen,
+    this.initialFocusCommentField = false,
   }) : super(key: key);
 
   @override
@@ -91,6 +93,14 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     super.initState();
     _loadPostDetails();
     _fetchComments();
+
+    if (widget.initialFocusCommentField) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          FocusScope.of(context).requestFocus(_focusNode);
+        }
+      });
+    }
   }
   
   Future<void> _loadPostDetails() async {

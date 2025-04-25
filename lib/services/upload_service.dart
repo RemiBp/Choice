@@ -13,7 +13,7 @@ class UploadService {
   // Méthode pour obtenir le token (simulée si non disponible)
   Future<String> _getToken() async {
     try {
-      final token = await AuthService.getToken();
+      final token = await AuthService.getTokenStatic();
       if (token != null) {
         return token;
       }

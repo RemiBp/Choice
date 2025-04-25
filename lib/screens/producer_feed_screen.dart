@@ -23,13 +23,13 @@ import 'producerLeisure_screen.dart';
 import 'wellness_producer_screen.dart';
 import 'producer_messaging_screen.dart';
 import 'profile_screen.dart';
-import '../widgets/comments_widget.dart';
 import '../widgets/producer_feed/producer_post_card.dart';
 import '../widgets/producer_feed/ai_message_card.dart';
 import '../widgets/producer_feed/producer_empty_view.dart';
 import '../widgets/producer_feed/create_post_modal.dart';
 import '../widgets/producer_feed/post_stats_modal.dart';
 import '../utils.dart';
+import '../widgets/likers_list_dialog.dart'; // Import the new dialog widget
 
 // --- Category Lists ---
 const List<String> _restaurantCategories = [
@@ -57,18 +57,19 @@ class ProducerFeedScreen extends StatefulWidget {
 class _ProducerFeedScreenState extends State<ProducerFeedScreen> with SingleTickerProviderStateMixin {
   late ProducerFeedController _controller;
   final ScrollController _scrollController = ScrollController();
+  bool _isLoadingMore = false;
   late TabController _tabController;
   final Map<String, VideoPlayerController> _videoControllers = {};
   String? _currentlyPlayingVideoId;
-
+  
   late bool _isLeisureProducer;
   late String _producerTypeString;
   late String _producerAccountId;
   late Color _primaryColor;
-
+  
   late List<String> _categories;
   late String _selectedCategory;
-
+  
   @override
   void initState() {
     super.initState();
@@ -86,14 +87,14 @@ class _ProducerFeedScreenState extends State<ProducerFeedScreen> with SingleTick
       userId: _producerAccountId, // Use the stored producer account ID
       producerTypeString: _producerTypeString,
     );
-
+    
     _tabController = TabController(length: 4, vsync: this);
     _tabController.addListener(_handleTabChange);
-
+    
     _setupCategories();
     _selectedCategory = _categories.isNotEmpty ? _categories[0] : 'Tous';
-
-    _controller.filterFeed(api_service.ProducerFeedContentType.localTrends);
+    
+    _controller.filterFeed(api_service.ProducerFeedContentType.localTrends.toFilterType());
     _scrollController.addListener(_handleScroll);
   }
 
@@ -118,49 +119,67 @@ class _ProducerFeedScreenState extends State<ProducerFeedScreen> with SingleTick
   void _handleTabChange() {
     if (!_tabController.indexIsChanging && _tabController.previousIndex == _tabController.index) return;
     if (!mounted) return;
-    api_service.ProducerFeedContentType newFilter;
+    api_service.ProducerFeedContentType contentType;
     switch (_tabController.index) {
-      case 0: newFilter = api_service.ProducerFeedContentType.localTrends; break;
-      case 1: newFilter = api_service.ProducerFeedContentType.venue; break;
-      case 2: newFilter = api_service.ProducerFeedContentType.interactions; break;
-      case 3: newFilter = api_service.ProducerFeedContentType.followers; break;
-      default: newFilter = api_service.ProducerFeedContentType.localTrends;
+      case 0: contentType = api_service.ProducerFeedContentType.localTrends; break;
+      case 1: contentType = api_service.ProducerFeedContentType.venue; break;
+      case 2: contentType = api_service.ProducerFeedContentType.interactions; break;
+      case 3: contentType = api_service.ProducerFeedContentType.followers; break;
+      default: contentType = api_service.ProducerFeedContentType.localTrends;
     }
-    print("🔄 Tab changed to: ${_tabController.index}, Filter: $newFilter");
-    _controller.filterFeed(newFilter);
+    print("🔄 Tab changed to: ${_tabController.index}, Filter: $contentType");
+    _controller.filterFeed(contentType.toFilterType());
   }
-
-  void _handleScroll() {
+  
+  void _handleScroll() async {
     if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 300 &&
         _controller.hasMorePosts &&
-        _controller.loadState != api_service.ProducerFeedLoadState.loadingMore) {
-      _controller.loadMore();
+        !_isLoadingMore) {
+      print("🔄 Loading more posts...");
+      setState(() {
+        _isLoadingMore = true;
+      });
+      
+      try {
+          await _controller.loadMore();
+      } catch (e) {
+          print("❌ Error during loadMore: $e");
+      } finally {
+          if (mounted) { 
+              setState(() {
+                _isLoadingMore = false;
+              });
+          } else {
+              print("ℹ️ State not set for _isLoadingMore=false because widget was unmounted.");
+          }
+      }
     }
   }
-
+  
   @override
   void dispose() {
     for (var controller in _videoControllers.values) { controller.dispose(); }
     _videoControllers.clear();
     _tabController.removeListener(_handleTabChange);
     _tabController.dispose();
+    _scrollController.removeListener(_handleScroll);
     _scrollController.dispose();
     _controller.dispose();
     super.dispose();
   }
-
+  
   // --- Video Handling Methods ---
-   Future<void> _initializeVideoController(String postId, String videoUrl) async {
+  Future<void> _initializeVideoController(String postId, String videoUrl) async {
        if (_videoControllers.containsKey(postId) && _videoControllers[postId]!.value.isInitialized) return;
-       if (_videoControllers.containsKey(postId)) {
+    if (_videoControllers.containsKey(postId)) {
           print("📹 Re-init controller: $postId");
           await _videoControllers[postId]?.dispose();
-       }
+    }
        print("📹 Init video: $postId");
-       try {
-          final controller = VideoPlayerController.networkUrl(Uri.parse(videoUrl));
-          _videoControllers[postId] = controller;
-          await controller.initialize();
+    try {
+      final controller = VideoPlayerController.networkUrl(Uri.parse(videoUrl));
+      _videoControllers[postId] = controller;
+      await controller.initialize();
           await controller.setLooping(true);
           await controller.setVolume(0.0);
           if (mounted && _currentlyPlayingVideoId == postId) await controller.play();
@@ -172,15 +191,15 @@ class _ProducerFeedScreenState extends State<ProducerFeedScreen> with SingleTick
        }
    }
 
-   void _handlePostVisibilityChanged(String postId, double visibleFraction, String? videoUrl) {
+  void _handlePostVisibilityChanged(String postId, double visibleFraction, String? videoUrl) {
         if (videoUrl == null || !mounted) return;
         final controller = _videoControllers[postId];
-        if (visibleFraction > 0.7) {
-          if (_currentlyPlayingVideoId != postId) {
+    if (visibleFraction > 0.7) {
+      if (_currentlyPlayingVideoId != postId) {
             if (_currentlyPlayingVideoId != null && _videoControllers.containsKey(_currentlyPlayingVideoId)) {
               _videoControllers[_currentlyPlayingVideoId]?.pause();
             }
-            _currentlyPlayingVideoId = postId;
+        _currentlyPlayingVideoId = postId;
             print("▶️ Play: $postId");
             if (controller != null && controller.value.isInitialized) {
                controller.play();
@@ -191,10 +210,10 @@ class _ProducerFeedScreenState extends State<ProducerFeedScreen> with SingleTick
         } else if (visibleFraction < 0.2 && _currentlyPlayingVideoId == postId) {
           print("⏸️ Pause: $postId");
           controller?.pause();
-          _currentlyPlayingVideoId = null;
-        }
-   }
-
+      _currentlyPlayingVideoId = null;
+    }
+  }
+  
   // --- Navigation Methods ---
   void _navigateToMessaging() {
      print("Navigating to Producer Messaging...");
@@ -202,21 +221,50 @@ class _ProducerFeedScreenState extends State<ProducerFeedScreen> with SingleTick
         ProducerMessagingScreen(producerId: _producerAccountId, producerType: _producerTypeString)));
   }
 
- void _openComments(dynamic postData) {
-    // ... (Extraction logic)
-    String postId; Map<String, dynamic> postMap;
-    if (postData is Post) { postId = postData.id; postMap = {'_id': postId, /*...*/ 'comments': postData.comments }; }
-    else if (postData is Map<String, dynamic>) { postId = postData['_id'] ?? ''; postMap = postData; }
-    else { /* Error handling */ return; }
-    // ... (Video pausing)
-    print("Navigating to Comments: $postId");
-    Navigator.push(context, MaterialPageRoute(builder: (context) =>
-        CommentsWidget(
+ // REVISED: Navigation to Post Detail Screen
+ void _openPostDetail(dynamic postData, {bool focusCommentField = false}) {
+    String postId;
+    if (postData is Post) {
+      postId = postData.id;
+    } else if (postData is Map<String, dynamic>) {
+      postId = postData['_id'] ?? '';
+    } else {
+      print("❌ Cannot open post detail: Invalid post data type");
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Erreur: Impossible d\'ouvrir ce post.')),
+      );
+      return;
+    }
+
+    if (postId.isEmpty) {
+      print("❌ Cannot open post detail: Post ID is empty");
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Erreur: Impossible d\'ouvrir ce post (ID manquant).')),
+      );
+      return;
+    }
+
+    // Pause video if playing (optional)
+    // ... (you might want to pause _currentlyPlayingVideoId here) ...
+
+    print("Navigating to Post Detail: $postId, Focus Comment: $focusCommentField");
+
+    // Get ApiService instance HERE using the correct context
+    final apiService = Provider.of<api_service.ApiService>(context, listen: false);
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (ctx) => Provider<api_service.ApiService>.value(
+          value: apiService, // Provide the ApiService instance
+          child: PostDetailScreen(
             postId: postId,
-            postData: postMap,
-            userId: _producerAccountId, // Use the correct producer account ID for comments
-            onNewComment: (c) { _controller.refreshFeed(); },
-        ), fullscreenDialog: true));
+            userId: _producerAccountId, // Use producer's ID here
+            initialFocusCommentField: focusCommentField, // Pass the focus flag
+          ),
+        ),
+      ),
+    );
   }
 
  void _openReelsView(dynamic post, String mediaUrl) {
@@ -295,11 +343,46 @@ class _ProducerFeedScreenState extends State<ProducerFeedScreen> with SingleTick
        await Provider.of<api_service.ApiService>(context, listen: false).deletePost(_producerAccountId, postId);
        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Post supprimé'), backgroundColor: Colors.green,));
        _controller.refreshFeed();
-    } catch (e) {
+      } catch (e) {
        print("❌ Error deleting post $postId: $e");
        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur suppression: ${e.toString()}'), backgroundColor: Colors.red,));
     }
  }
+
+  // === Show Likers Dialog ===
+  Future<void> _showLikers(String postId) async {
+    print("Showing likers for post $postId");
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+    try {
+      final apiService = Provider.of<api_service.ApiService>(context, listen: false);
+      final likers = await apiService.getPostLikers(postId);
+      Navigator.pop(context); // Dismiss loading indicator
+
+      if (mounted) {
+        showModalBottomSheet(
+          context: context,
+          isScrollControlled: true, // Allows the modal to take up more height
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          builder: (context) => LikersListDialog(likers: likers), // Ensure this widget exists
+        );
+      }
+    } catch (e) {
+       if(mounted) Navigator.pop(context); // Dismiss loading indicator on error too
+       print("❌ Error fetching likers: $e");
+       if(mounted) {
+           ScaffoldMessenger.of(context).showSnackBar(
+             SnackBar(content: Text('Erreur lors du chargement des likes: ${e.toString()}'), backgroundColor: Colors.red)
+           );
+       }
+    }
+  }
+  // === Show Likers Dialog ===
 
   // --- UI Building Methods ---
   @override
@@ -321,9 +404,9 @@ class _ProducerFeedScreenState extends State<ProducerFeedScreen> with SingleTick
                           _producerTypeString == 'wellness' ? Icons.spa_outlined :
                           Icons.restaurant_menu_outlined,
                           color: _primaryColor,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
+                            ),
+                            const SizedBox(width: 8),
+                                  Text(
                           _producerTypeString == 'leisure' ? 'Feed Loisirs' :
                           _producerTypeString == 'wellness' ? 'Feed Bien-être' :
                           'Feed Restaurant',
@@ -355,11 +438,11 @@ class _ProducerFeedScreenState extends State<ProducerFeedScreen> with SingleTick
             onPressed: () => CreatePostModal.show(context, _producerTypeString),
             backgroundColor: _primaryColor, foregroundColor: Colors.white, tooltip: 'Créer une publication',
             child: const Icon(Icons.add),
-          ),
         ),
+      ),
     );
   }
-
+  
   // Builds the main content area using imported widgets
   Widget _buildFeedContent(ProducerFeedController controller) {
      if (controller.loadState == api_service.ProducerFeedLoadState.initial || controller.loadState == api_service.ProducerFeedLoadState.loading) {
@@ -368,7 +451,7 @@ class _ProducerFeedScreenState extends State<ProducerFeedScreen> with SingleTick
      if (controller.loadState == api_service.ProducerFeedLoadState.error) {
        return _buildErrorView(controller.errorMessage);
      }
-     if (controller.feedItems.isEmpty) {
+     if (controller.feedItems.isEmpty && !_isLoadingMore) {
        return ProducerEmptyView(
           tabIndex: _tabController.index, isLeisureProducer: _isLeisureProducer,
           onCreatePost: () => CreatePostModal.show(context, _producerTypeString),
@@ -377,7 +460,7 @@ class _ProducerFeedScreenState extends State<ProducerFeedScreen> with SingleTick
      // Main feed list
      return ListView.builder(
        padding: const EdgeInsets.only(top: 8, bottom: 80),
-       itemCount: controller.feedItems.length + (controller.loadState == api_service.ProducerFeedLoadState.loadingMore ? 1 : 0),
+       itemCount: controller.feedItems.length + (_isLoadingMore ? 1 : 0),
        itemBuilder: (context, index) {
          if (index >= controller.feedItems.length) {
            return const Center(child: Padding(padding: EdgeInsets.all(16.0), child: CircularProgressIndicator(strokeWidth: 2)));
@@ -385,22 +468,24 @@ class _ProducerFeedScreenState extends State<ProducerFeedScreen> with SingleTick
          final item = controller.feedItems[index];
          if (item is DialogicAIMessage) { return AIMessageCard(message: item); }
          else if (item is Post || item is Map<String, dynamic>) {
+           final String postId = (item is Post) ? item.id : (item as Map<String, dynamic>)['_id'] ?? item['id'] ?? '';
            return ProducerPostCard(
               post: item,
-              currentUserId: _producerAccountId, // Pass the correct ID for like status etc.
+              currentUserId: _producerAccountId,
               onLike: (post) => controller.likePost(post),
-              onComment: (post) => _openComments(post),
-              onShare: (post) => print("Share..."), // Placeholder
+              onComment: (post) => _openPostDetail(post, focusCommentField: true), // MODIFIED: Use _openPostDetail
+              onTap: (post) => _openPostDetail(post), // MODIFIED: Use _openPostDetail for card tap
+              onShare: (post) => print("Share..."),
               onShowStats: (post) => PostStatsModal.show(context, post),
               onShowOptions: (post) => _showSimplePostOptions(post),
+              onShowLikers: postId.isNotEmpty ? () => _showLikers(postId) : null,
               onVisibilityChanged: _handlePostVisibilityChanged,
               videoControllers: _videoControllers,
               initializeVideoController: _initializeVideoController,
               openReelsView: _openReelsView,
-              openDetails: _openComments,
               onNavigateToProfile: (id, type) => _navigateToProfile(id, type),
            );
-         } else {
+    } else {
            print('⚠️ Unhandled item type: ${item.runtimeType}');
            return const SizedBox.shrink();
          }
@@ -420,9 +505,9 @@ class _ProducerFeedScreenState extends State<ProducerFeedScreen> with SingleTick
   Widget _buildErrorView(String errorMessage) {
     return Center(child: Padding(padding: const EdgeInsets.all(24.0), child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
         Icon(Icons.error_outline, color: Colors.red[400], size: 48),
-        const SizedBox(height: 16),
+                      const SizedBox(height: 16),
         Text('Oups! Une erreur', style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.red[800])),
-        const SizedBox(height: 8),
+                                      const SizedBox(height: 8),
         Text(errorMessage, textAlign: TextAlign.center, style: GoogleFonts.poppins(color: Colors.grey[700])),
         const SizedBox(height: 24),
         ElevatedButton.icon(onPressed: () => _controller.refreshFeed(), icon: const Icon(Icons.refresh), label: const Text('Réessayer'), style: ElevatedButton.styleFrom(backgroundColor: _primaryColor, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)))),
@@ -430,10 +515,10 @@ class _ProducerFeedScreenState extends State<ProducerFeedScreen> with SingleTick
   }
 
   // Category filter row - Kept in State
-   Widget _buildCategoryFilterRow() {
+  Widget _buildCategoryFilterRow() {
     return SliverToBoxAdapter(child: Container(height: 50, padding: const EdgeInsets.symmetric(vertical: 8.0), child: ListView.builder(
         scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 12.0), itemCount: _categories.length,
-        itemBuilder: (context, index) {
+            itemBuilder: (context, index) {
           final category = _categories[index]; final isSelected = _selectedCategory == category;
           return Padding(padding: const EdgeInsets.symmetric(horizontal: 4.0), child: ChoiceChip(
               label: Text(category), selected: isSelected, onSelected: (_) => _changeCategory(category),
@@ -444,7 +529,7 @@ class _ProducerFeedScreenState extends State<ProducerFeedScreen> with SingleTick
           ));
         },
     )));
-   }
+  }
 
   void _changeCategory(String category) {
     setState(() {

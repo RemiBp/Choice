@@ -18,7 +18,7 @@ class GrowthAnalyticsService {
   /// Requires producerType to correctly fetch data (e.g., choices).
   Future<GrowthOverview?> getOverview(String producerId, {required ProducerType producerType, String period = '30d'}) async {
     try {
-      final token = await AuthService.getToken();
+      final token = await AuthService.getTokenStatic();
       if (token == null || token.isEmpty) {
         throw Exception('Authentication token is missing');
       }
@@ -48,7 +48,7 @@ class GrowthAnalyticsService {
   /// Requires producerType if 'choices' metric is included.
   Future<GrowthTrends?> getTrends(String producerId, {required ProducerType producerType, List<String> metrics = const ['followers', 'profileViews', 'choices'], String period = '30d'}) async {
     try {
-      final token = await AuthService.getToken();
+      final token = await AuthService.getTokenStatic();
       if (token == null || token.isEmpty) {
         throw Exception('Authentication token is missing');
       }
@@ -78,7 +78,7 @@ class GrowthAnalyticsService {
   /// Returns GrowthRecommendations on success, null on failure.
   Future<GrowthRecommendations?> getRecommendations(String producerId) async {
     try {
-      final token = await AuthService.getToken();
+      final token = await AuthService.getTokenStatic();
       if (token == null || token.isEmpty) {
         throw Exception('Authentication token is missing');
       }
@@ -106,7 +106,7 @@ class GrowthAnalyticsService {
   /// Returns DemographicsData on success, null on failure.
   Future<DemographicsData?> getDemographics(String producerId, {required ProducerType producerType, String period = '30d'}) async {
     try {
-      final token = await AuthService.getToken();
+      final token = await AuthService.getTokenStatic();
       if (token == null || token.isEmpty) {
         throw Exception('Authentication token is missing');
       }
@@ -139,7 +139,7 @@ class GrowthAnalyticsService {
   /// Returns GrowthPredictions on success, null on failure.
   Future<GrowthPredictions?> getPredictions(String producerId, {required ProducerType producerType, String horizon = '30d'}) async {
     try {
-      final token = await AuthService.getToken();
+      final token = await AuthService.getTokenStatic();
       if (token == null || token.isEmpty) {
         throw Exception('Authentication token is missing');
       }
@@ -171,7 +171,7 @@ class GrowthAnalyticsService {
   /// Returns CompetitorAnalysis on success, null on failure.
   Future<CompetitorAnalysis?> getCompetitorAnalysis(String producerId, {required ProducerType producerType, String period = '30d'}) async {
     try {
-      final token = await AuthService.getToken();
+      final token = await AuthService.getTokenStatic();
       if (token == null || token.isEmpty) {
         throw Exception('Authentication token is missing');
       }

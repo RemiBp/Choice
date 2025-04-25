@@ -92,7 +92,8 @@ class ProducerTypeService {
     }
     
     if (data['services'] != null || data['treatments'] != null || 
-        data['bien_être'] != null || data['beauté'] != null || data['spa'] != null) {
+        data['bien_être'] != null || data['spa'] != null || 
+        data['category']?.toString().contains('wellness') == true) {
       return ProducerType.wellnessProducer;
     }
     

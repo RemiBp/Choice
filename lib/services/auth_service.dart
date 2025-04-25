@@ -200,22 +200,18 @@ class AuthService extends ChangeNotifier {
         return null;
       }
       
-      // Vérifier la validité du token (optionnel)
-      if (_checkTokenExpiration(token)) {
-        print('⚠️ Token expiré dans getTokenInstance');
-        // Tentative de rafraîchissement
-        await refreshToken();
-        // Retourner le nouveau token ou null
-        return prefs.getString(TOKEN_KEY);
-      }
-      
       return token;
     } catch (e) {
-      print('❌ Erreur dans getTokenInstance: $e');
+      print('❌ Erreur lors de la récupération du token: $e');
       return null;
     }
   }
   
+  /// Méthode publique pour récupérer le token
+  Future<String?> getToken() async {
+    return await _getToken();
+  }
+
   // Check if token is expired
   bool _checkTokenExpiration(String token) {
     try {
@@ -265,7 +261,7 @@ class AuthService extends ChangeNotifier {
   }
   
   // Static method to get the token from anywhere in the app
-  static Future<String> getToken() async {
+  static Future<String> getTokenStatic() async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString(TOKEN_KEY);
     if (token == null || token.isEmpty) {

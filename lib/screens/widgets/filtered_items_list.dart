@@ -127,19 +127,13 @@ class FilteredItemsList extends StatelessWidget {
     }
 
     int catIndex = 0;
-    // Use ListView.builder for potentially many categories/items
-    return ListView.separated(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: filteredItems.length,
-      separatorBuilder: (context, index) => const Divider(height: 16, indent: 16, endIndent: 16),
-      itemBuilder: (context, catIndex) {
-        final entry = filteredItems.entries.elementAt(catIndex);
-        final categoryName = entry.key;
-        final categoryItems = entry.value;
-        final isFirst = catIndex == 0;
-
-        return Theme(
+    // --- FIX: Changed from ListView.separated to Column --- 
+    // The outer CustomScrollView handles scrolling.
+    final categoryWidgets = <Widget>[];
+    filteredItems.forEach((categoryName, categoryItemsList) {
+      final isFirst = catIndex == 0;
+      categoryWidgets.add(
+        Theme(
           data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
           child: ExpansionTile(
             initiallyExpanded: isFirst, // Expand the first category by default
@@ -165,7 +159,7 @@ class FilteredItemsList extends StatelessWidget {
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
-                    '${categoryItems.length}',
+                    '${categoryItemsList.length}',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
@@ -176,7 +170,7 @@ class FilteredItemsList extends StatelessWidget {
               ],
             ),
             childrenPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8), // Padding for the children ListTiles
-            children: categoryItems.map<Widget>((item) {
+            children: categoryItemsList.map<Widget>((item) {
               // Ensure item is a Map
               final itemData = item as Map<String, dynamic>; 
               final originalPrice = double.tryParse(itemData['prix']?.toString() ?? '0') ?? 0;
@@ -248,38 +242,43 @@ class FilteredItemsList extends StatelessWidget {
                           hasActivePromotion && discountedPrice != null
                               ? '${discountedPrice.toStringAsFixed(2)} €'
                               : '${originalPrice.toStringAsFixed(2)} €',
-                          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
                                 fontWeight: FontWeight.bold,
                                 color: hasActivePromotion ? Colors.redAccent : Theme.of(context).colorScheme.onSurface,
                               ),
                         ),
                         if (hasActivePromotion)
-                           Container(
-                              margin: const EdgeInsets.only(top: 2), // Space above badge
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: Colors.redAccent,
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Text(
-                                'PROMO -${promotionDiscount.toStringAsFixed(0)}%',
-                                style: const TextStyle(
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                ),
-                              ),
+                          Container(
+                            margin: const EdgeInsets.only(top: 4),
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.redAccent,
+                              borderRadius: BorderRadius.circular(8),
                             ),
+                            child: Text(
+                              '-${promotionDiscount.toStringAsFixed(0)}%',
+                              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white),
+                            ),
+                          ),
                       ],
                     )
                   : null,
-                isThreeLine: (itemDesc != null && itemDesc.isNotEmpty), // Adjust height if description exists
               );
             }).toList(),
           ),
-        );
-      },
+        ),
+      );
+      // Add a divider between categories if not the last one
+      if (catIndex < filteredItems.length - 1) {
+        categoryWidgets.add(const Divider(height: 16, indent: 16, endIndent: 16));
+      }
+      catIndex++;
+    });
+
+    return Column(
+      children: categoryWidgets,
     );
+    // --- END FIX ---
   }
 
   // Helper widget for nutritional info chips

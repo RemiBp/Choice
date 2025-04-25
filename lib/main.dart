@@ -66,6 +66,7 @@ import 'package:contacts_service/contacts_service.dart' as contacts;
 import 'services/badge_service.dart';  // Importer notre nouveau service de badges
 import 'services/analytics_service.dart';
 import 'services/voice_recognition_service.dart';
+import 'services/api_service.dart'; // <-- Importer ApiService
 
 // Importer les bibliothèques Flutter standard avec leurs noms originaux
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -193,6 +194,7 @@ Future<void> main() async {
   BadgeService? badgeService;
   AnalyticsService? analyticsService;
   VoiceRecognitionService? voiceRecognitionService;
+  ApiService? apiService;
   
   try {
     // Initialize AuthService
@@ -234,6 +236,8 @@ Future<void> main() async {
     voiceRecognitionService = VoiceRecognitionService();
     await voiceRecognitionService.initialize();
 
+    apiService = ApiService();
+
     // Initialize notifications en utilisant la syntaxe adaptée à la version de flutter_local_notifications
     final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = 
         FlutterLocalNotificationsPlugin();
@@ -264,6 +268,7 @@ Future<void> main() async {
     if (badgeService == null) badgeService = BadgeService();
     if (analyticsService == null) analyticsService = AnalyticsService();
     if (voiceRecognitionService == null) voiceRecognitionService = VoiceRecognitionService();
+    if (apiService == null) apiService = ApiService();
   }
 
   // Navigation automatique vers l'écran d'appel lors d'une notification d'appel
@@ -284,41 +289,28 @@ Future<void> main() async {
     }
   };
 
+  // Récupérer la locale sauvegardée ou utiliser celle du système
+  final prefs = await SharedPreferences.getInstance();
+  final String savedLocale = prefs.getString('user_locale') ?? WidgetsBinding.instance.platformDispatcher.locale.toString();
+  final Locale startLocale = Locale(savedLocale.split('_')[0], savedLocale.split('_').length > 1 ? savedLocale.split('_')[1] : null);
+
   runApp(
     EasyLocalization(
-      supportedLocales: const [
-        Locale('fr'),
-        Locale('en'),
-        Locale('es')
-      ],
-      path: 'assets/translations',
-      fallbackLocale: const Locale('fr'),
-      child: Builder(
-        builder: (context) {
-          try {
-            return MultiProvider(
-              providers: [
-                ChangeNotifierProvider<UserModel>(create: (_) => UserModel()),
-                ChangeNotifierProvider<AuthService>(create: (_) => authService!),
-                Provider<NotificationService>(create: (_) => notificationService!),
-                ChangeNotifierProvider(create: (_) => badgeService!),
-                ChangeNotifierProvider(create: (context) => analyticsService!),
-                ChangeNotifierProvider(create: (_) => voiceRecognitionService!),
-              ],
-              child: const ChoiceApp(),
-            );
-          } catch (e) {
-            print("⚠️ Erreur lors de la création de l'application: $e");
-            // Retourner une version simplifiée de l'application en cas d'erreur
-            return MaterialApp(
-              home: Scaffold(
-                body: Center(
-                  child: Text("Une erreur est survenue: $e"),
-                ),
-              ),
-            );
-          }
-        }
+      supportedLocales: const [Locale('en'), Locale('fr'), Locale('es'), Locale('de'), Locale('it'), Locale('pt')], // Langues supportées
+      path: 'assets/translations', // Chemin vers les fichiers de traduction
+      fallbackLocale: const Locale('fr'), // Locale par défaut si la locale système n'est pas supportée
+      startLocale: startLocale, // Utiliser la locale sauvegardée ou système
+      child: MultiProvider(
+        providers: [
+          ChangeNotifierProvider<AuthService>.value(value: authService!),
+          Provider<NotificationService>.value(value: notificationService!),
+          ChangeNotifierProvider<BadgeService>.value(value: badgeService!),
+          ChangeNotifierProvider<AnalyticsService>.value(value: analyticsService!),
+          ChangeNotifierProvider<VoiceRecognitionService>.value(value: voiceRecognitionService!),
+          Provider<ApiService>.value(value: apiService!),
+          ChangeNotifierProvider<UserModel>(create: (_) => UserModel()),
+        ],
+        child: const ChoiceApp(),
       ),
     ),
   );
@@ -545,6 +537,16 @@ class _ChoiceAppState extends State<ChoiceApp> {
           final placeId = uri.pathSegments[2];
           return MaterialPageRoute(
             builder: (context) => WellnessProducerScreen(producerId: placeId),
+          );
+        }
+        
+        // *** NOUVELLE ROUTE POUR LES DÉTAILS D'UN ÉVÉNEMENT LOISIR ***
+        if (uri.pathSegments.length == 3 && 
+            uri.pathSegments[0] == 'leisure' && 
+            uri.pathSegments[1] == 'event') {
+          final eventId = uri.pathSegments[2];
+          return MaterialPageRoute(
+            builder: (context) => EventLeisureScreen(id: eventId),
           );
         }
         

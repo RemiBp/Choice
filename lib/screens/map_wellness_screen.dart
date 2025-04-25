@@ -167,8 +167,9 @@ class _MapWellnessScreenState extends State<MapWellnessScreen> with AutomaticKee
       final double latitude = _currentPosition?.latitude ?? _initialPosition.latitude;
       final double longitude = _currentPosition?.longitude ?? _initialPosition.longitude;
       
-      // Utiliser l'API beauty_places au lieu de producers/advanced-search
-      final uri = Uri.parse('${getBaseUrl()}/api/beauty_places/nearby');
+      // Utiliser l'API générique de proximité si pas de type spécifique ou erreur
+      print('📍 Using generic nearby search for wellness/beauty...');
+      final uri = Uri.parse('${getBaseUrl()}/api/wellness/nearby'); // Utiliser l'endpoint wellness
       
       // Construire les paramètres de requête
       final Map<String, String> queryParams = {
@@ -207,16 +208,22 @@ class _MapWellnessScreenState extends State<MapWellnessScreen> with AutomaticKee
       final data = json.decode(response.body);
       List<Map<String, dynamic>> places = [];
       
-      // Vérifier le format de la réponse
-      if (data is List) {
-        // Format liste simple
-        places = List<Map<String, dynamic>>.from(data);
-      } else if (data['results'] is List) {
-        // Format avec wrapper "results"
-        places = List<Map<String, dynamic>>.from(data['results']);
+      // Décomposer les données selon leur format
+      if (data['places'] is List) {
+        // Format standard 
+        places = List<Map<String, dynamic>>.from(data['places']);
+      } else if (data['wellnessPlaces'] is List) {
+        // Format avec wrapper "wellnessPlaces"
+        places = List<Map<String, dynamic>>.from(data['wellnessPlaces']);
       } else if (data['beautyPlaces'] is List) {
-        // Format avec wrapper "beautyPlaces"
+        // Les beautyPlaces sont maintenant traités comme des wellnessPlaces
         places = List<Map<String, dynamic>>.from(data['beautyPlaces']);
+        // Ajouter un type explicite si nécessaire
+        for (var place in places) {
+          if (place['type'] == null || place['type'] == 'beautyPlace') {
+            place['type'] = 'wellnessProducer';
+          }
+        }
       } else {
         throw Exception('Format de réponse non reconnu');
       }

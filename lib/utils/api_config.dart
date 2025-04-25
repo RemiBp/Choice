@@ -18,12 +18,10 @@ class ApiConfig {
   static const int retryDelay = 2;
   
   // Constants for endpoints
-  static const String RESTAURANTS_ENDPOINT = '/api/restaurants';
+  static const String RESTAURANTS_ENDPOINT = '/api/producers';
   static const String LEISURE_ENDPOINT = '/api/leisure';
-  static const String LEISURE_PRODUCERS_ENDPOINT = '/api/leisureProducers';
-  // static const String WELLNESS_ENDPOINT = '/api/wellness'; // REMOVED - Merged into beauty
-  static const String BEAUTY_PLACES_ENDPOINT = '/api/beauty_places';
-  static const String BEAUTY_PRODUCERS_ENDPOINT = '/api/beauty';
+  static const String LEISURE_PRODUCERS_ENDPOINT = '/api/leisure-producers';
+  static const String WELLNESS_ENDPOINT = '/api/wellness';
   static const String UNIFIED_ENDPOINT = '/api/unified';
 
   // Map for easy access - ensure keys match expected types
@@ -31,9 +29,7 @@ class ApiConfig {
     'restaurant': RESTAURANTS_ENDPOINT,
     'leisure': LEISURE_ENDPOINT,
     'leisureProducer': LEISURE_PRODUCERS_ENDPOINT,
-    // 'wellness': WELLNESS_ENDPOINT, // REMOVED
-    'beautyPlace': BEAUTY_PLACES_ENDPOINT,
-    'beautyProducer': BEAUTY_PRODUCERS_ENDPOINT,
+    'wellness': WELLNESS_ENDPOINT,
     'unified': UNIFIED_ENDPOINT,
   };
   
@@ -72,7 +68,7 @@ class ApiConfig {
     
     try {
       // Get token directly from AuthService static method
-      final token = await AuthService.getToken();
+      final token = await AuthService.getTokenStatic();
       
       if (token.isNotEmpty) {
         headers['Authorization'] = 'Bearer $token';
@@ -97,4 +93,29 @@ class ApiConfig {
   static const String WELLNESS_AUTH_ENDPOINT = '/api/wellness/auth';
   static const String WELLNESS_BOOKINGS_ENDPOINT = '/api/wellness/bookings';
   static const String WELLNESS_SERVICES_ENDPOINT = '/api/wellness/services';
+
+  // --- Endpoints --- (Exemple, adapter à votre structure)
+  static const String BASE_URL_ENV_KEY = 'BASE_URL';
+  static const String USERS_ENDPOINT = '/api/users';
+  static const String EVENTS_ENDPOINT = '/api/events';
+  static const String CHOICES_ENDPOINT = '/api/choices';
+  static const String INTERESTS_ENDPOINT = '/api/interests';
+  static const String FRIENDS_ENDPOINT = '/api/friends';
+  static const String AUTH_ENDPOINT = '/api/auth';
+  static const String POSTS_ENDPOINT = '/api/posts';
+  static const String CONVERSATIONS_ENDPOINT = '/api/conversations';
+  static const String AI_ENDPOINT = '/api/ai'; // Endpoint de base pour l'IA
+
+  // --- Mapping Type -> Endpoint ---
+  static String getEndpointForType(String type) {
+    switch (type.toLowerCase()) {
+      case 'restaurant': return RESTAURANTS_ENDPOINT;
+      case 'leisureproducer': return LEISURE_PRODUCERS_ENDPOINT;
+      case 'event': return EVENTS_ENDPOINT;
+      case 'wellnessproducer':
+         return WELLNESS_ENDPOINT;
+      case 'user': return USERS_ENDPOINT;
+      default: throw ArgumentError('Type de producteur inconnu: $type');
+    }
+  }
 } 

@@ -36,12 +36,9 @@ class GlobalMenusList extends StatelessWidget {
         ),
       );
     }
-    return ListView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: menus.length,
-      itemBuilder: (context, index) {
-        final menu = menus[index] as Map<String, dynamic>;
+    return Column(
+      children: menus.map((menuData) {
+        final menu = menuData as Map<String, dynamic>;
         final inclus = (menu['inclus'] as List<dynamic>?)?.cast<Map<String, dynamic>>() ?? [];
         final originalPrice = double.tryParse(menu['prix']?.toString() ?? '0') ?? 0;
         final discountedPrice = hasActivePromotion
@@ -190,7 +187,7 @@ class GlobalMenusList extends StatelessWidget {
             ],
           ),
         );
-      },
+      }).toList(),
     );
   }
 

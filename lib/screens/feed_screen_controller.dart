@@ -1407,7 +1407,7 @@ void _setErrorState(String message) {
       
       // Traitement de la réponse uniformisé
       if (response is List) {
-        for (var item in response) {
+        for (var item in _safeIterateResponse(response)) {
           if (item is Post) {
             newItems.add(item);
           } else if (item is Map<String, dynamic>) {
@@ -1480,6 +1480,60 @@ void _setErrorState(String message) {
                 }
               }
             }
+          }
+        }
+      } else if (response is Map<String, dynamic>) {
+        // Si la map contient une clé 'posts' qui est une liste, on l'itère
+        if (response.containsKey('posts') && response['posts'] is List) {
+          for (var item in _safeIterateResponse(response['posts'])) {
+            if (item is Post) {
+              newItems.add(item);
+            } else if (item is Map<String, dynamic>) {
+              try {
+                newItems.add(Post(
+                  id: item['id'] ?? item['_id'] ?? DateTime.now().millisecondsSinceEpoch.toString(),
+                  userId: item['userId'] ?? item['user_id'] ?? '',
+                  userName: item['userName'] ?? item['user_name'] ?? '',
+                  authorId: item['authorId'] ?? item['author_id'] ?? '',
+                  authorName: item['authorName'] ?? item['author_name'] ?? '',
+                  authorAvatar: item['authorAvatar'] ?? item['author_avatar'] ?? '',
+                  title: item['title'] ?? '',
+                  description: item['description'] ?? item['content'] ?? '',
+                  content: item['content'] ?? '',
+                  createdAt: DateTime.now(),
+                  postedAt: DateTime.now(),
+                  mediaUrls: [],
+                  likes: 0,
+                  comments: [],
+                  tags: [],
+                ));
+              } catch (e) {
+                print('❌ Erreur conversion de Map to Post: $e');
+              }
+            }
+          }
+        } else {
+          // Sinon, traiter la map comme un post unique
+          try {
+            newItems.add(Post(
+              id: response['id'] ?? response['_id'] ?? DateTime.now().millisecondsSinceEpoch.toString(),
+              userId: response['userId'] ?? response['user_id'] ?? '',
+              userName: response['userName'] ?? response['user_name'] ?? '',
+              authorId: response['authorId'] ?? response['author_id'] ?? '',
+              authorName: response['authorName'] ?? response['author_name'] ?? '',
+              authorAvatar: response['authorAvatar'] ?? response['author_avatar'] ?? '',
+              title: response['title'] ?? '',
+              description: response['description'] ?? response['content'] ?? '',
+              content: response['content'] ?? '',
+              createdAt: DateTime.now(),
+              postedAt: DateTime.now(),
+              mediaUrls: [],
+              likes: 0,
+              comments: [],
+              tags: [],
+            ));
+          } catch (e) {
+            print('❌ Erreur conversion de Map to Post: $e');
           }
         }
       }
@@ -1681,7 +1735,7 @@ void _setErrorState(String message) {
       // Traiter la réponse en fonction de son format
       if (response is List) {
         // Convertir chaque élément en Post
-        for (var item in response) {
+        for (var item in _safeIterateResponse(response)) {
           if (item is Map<String, dynamic>) {
             // Création du post avec les données requises
             final post = Post(
@@ -1714,33 +1768,68 @@ void _setErrorState(String message) {
           }
         }
       } else if (response is Map<String, dynamic>) {
-        // Handle single item response
-        final item = response;
-        final post = Post(
-          id: item['_id'] ?? '',
-          userId: item['userId'] ?? item['user_id'] ?? 'system',
-          userName: item['userName'] ?? item['user_name'] ?? item['authorName'] ?? 'Utilisateur',
-          authorId: item['authorId'] ?? '',
-          authorName: item['authorName'] ?? '',
-          authorAvatar: item['authorAvatar'] ?? '',
-          title: item['title'] ?? '',
-          description: item['description'] ?? '',
-          createdAt: DateTime.now(),
-          postedAt: item['createdAt'] != null 
-              ? DateTime.parse(item['createdAt'])
-              : DateTime.now(),
-          likesCount: item['likes'] is List ? (item['likes'] as List).length : (item['likesCount'] as int? ?? 0),
-          commentsCount: item['comments'] is List ? (item['comments'] as List).length : (item['commentsCount'] as int? ?? 0),
-          isLiked: item['isLiked'] ?? false,
-          location: item['location'] ?? '',
-          isProducerPost: item['isProducerPost'] ?? false,
-          isLeisureProducer: item['isLeisureProducer'] ?? false,
-          tags: item['tags'] is List<String> 
-              ? item['tags'] 
-              : (item['tags'] is List ? (item['tags'] as List).map((t) => t.toString()).toList() : []),
-        );
-        
-        posts.add(post);
+        // Si la map contient une clé 'posts' qui est une liste, on l'itère
+        if (response.containsKey('posts') && response['posts'] is List) {
+          final postsList = response['posts'] as List;
+          for (var item in postsList) {
+            if (item is Map<String, dynamic>) {
+              final post = Post(
+                id: item['_id'] ?? '',
+                userId: item['userId'] ?? item['user_id'] ?? 'system',
+                userName: item['userName'] ?? item['user_name'] ?? item['authorName'] ?? 'Utilisateur',
+                authorId: item['authorId'] ?? '',
+                authorName: item['authorName'] ?? '',
+                authorAvatar: item['authorAvatar'] ?? '',
+                title: item['title'] ?? '',
+                description: item['description'] ?? '',
+                createdAt: DateTime.now(),
+                postedAt: item['createdAt'] != null 
+                    ? DateTime.parse(item['createdAt'])
+                    : DateTime.now(),
+                likesCount: item['likes'] is List ? (item['likes'] as List).length : (item['likesCount'] as int? ?? 0),
+                commentsCount: item['comments'] is List ? (item['comments'] as List).length : (item['commentsCount'] as int? ?? 0),
+                isLiked: item['isLiked'] ?? false,
+                location: item['location'] ?? '',
+                isProducerPost: item['isProducerPost'] ?? false,
+                isLeisureProducer: item['isLeisureProducer'] ?? false,
+                tags: item['tags'] is List<String> 
+                    ? item['tags'] 
+                    : (item['tags'] is List ? (item['tags'] as List).map((t) => t.toString()).toList() : []),
+              );
+              posts.add(post);
+            }
+          }
+        } else {
+          // Handle single item response (traiter la map comme un post unique)
+          final item = response;
+          final post = Post(
+            id: item['_id'] ?? '',
+            userId: item['userId'] ?? item['user_id'] ?? 'system',
+            userName: item['userName'] ?? item['user_name'] ?? item['authorName'] ?? 'Utilisateur',
+            authorId: item['authorId'] ?? '',
+            authorName: item['authorName'] ?? '',
+            authorAvatar: item['authorAvatar'] ?? '',
+            title: item['title'] ?? '',
+            description: item['description'] ?? '',
+            createdAt: DateTime.now(),
+            postedAt: item['createdAt'] != null 
+                ? DateTime.parse(item['createdAt'])
+                : DateTime.now(),
+            likesCount: item['likes'] is List ? (item['likes'] as List).length : (item['likesCount'] as int? ?? 0),
+            commentsCount: item['comments'] is List ? (item['comments'] as List).length : (item['commentsCount'] as int? ?? 0),
+            isLiked: item['isLiked'] ?? false,
+            location: item['location'] ?? '',
+            isProducerPost: item['isProducerPost'] ?? false,
+            isLeisureProducer: item['isLeisureProducer'] ?? false,
+            tags: item['tags'] is List<String> 
+                ? item['tags'] 
+                : (item['tags'] is List ? (item['tags'] as List).map((t) => t.toString()).toList() : []),
+          );
+          posts.add(post);
+        }
+      } else {
+        // Handle any other response type
+        print('❌ Type de réponse non pris en charge: ${response.runtimeType}');
       }
       
       return posts;
@@ -2173,5 +2262,30 @@ void _setErrorState(String message) {
   void setLoading(bool value) {
     _isLoading = value;
     notifyListeners();
+  }
+
+  // Cette fonction convertit toute réponse (liste ou map) en liste itérable
+  // Cela résout le problème de 'for (var item in response)' quand response est une Map
+  List<dynamic> _safeIterateResponse(dynamic response) {
+    if (response == null) {
+      return [];
+    }
+    
+    if (response is List) {
+      // Si c'est déjà une liste, retourner directement
+      return response;
+    } else if (response is Map<String, dynamic>) {
+      // Si c'est une Map qui contient une clé 'posts' qui est une liste
+      if (response.containsKey('posts') && response['posts'] is List) {
+        return response['posts'] as List;
+      } else {
+        // Sinon, retourner un singleton contenant la Map
+        return [response];
+      }
+    } else {
+      // Pour tout autre type, retourner une liste vide
+      print('❌ Type de réponse non pris en charge pour itération: ${response.runtimeType}');
+      return [];
+    }
   }
 }

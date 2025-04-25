@@ -113,40 +113,72 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
   }
   
   Future<void> _loadInitialData() async {
-    if (mounted) {
-      setState(() {
-        _isLoading = true;
-        _checkingPremiumAccess = true;
-        _error = null;
-      });
-    }
+    if (!mounted) return;
+    setState(() {
+      _isLoading = true;
+      _checkingPremiumAccess = true;
+      _error = null;
+    });
     
     try {
       await _loadProducerDetails();
-      await _loadSubscriptionLevel();
-      await _checkPremiumFeatureAccess();
+      
+      bool premiumChecksSuccessful = true;
+      try {
+        await _loadSubscriptionLevel();
+        await _checkPremiumFeatureAccess();
+      } catch (premiumError) {
+        print("⚠️ Erreur lors des vérifications premium (abonnement/accès): $premiumError");
+        premiumChecksSuccessful = false;
+        if (mounted) {
+           setState(() {
+             _premiumFeaturesAccess = {
+               'advanced_analytics': false,
+               'growth_predictions': false,
+               'audience_demographics': false,
+               'simple_campaigns': false,
+               'advanced_targeting': false,
+               'campaign_automation': false,
+             };
+             _currentSubscriptionLevel = _currentSubscriptionLevel;
+           });
+        }
+      } finally {
+         if (mounted) {
+             setState(() => _checkingPremiumAccess = false);
+         }
+      }
 
       final overviewFuture = _analyticsService.getOverview(widget.producerId, producerType: _producerType, period: _selectedPeriod);
       final trendsFuture = _analyticsService.getTrends(widget.producerId, producerType: _producerType, metrics: _trendMetrics, period: _selectedPeriod);
       final recommendationsFuture = _analyticsService.getRecommendations(widget.producerId);
 
-      Future<DemographicsData?> demographicsFuture = (_premiumFeaturesAccess['audience_demographics'] ?? false)
-          ? _analyticsService.getDemographics(widget.producerId, producerType: _producerType, period: _selectedPeriod)
+      Future<DemographicsData?> demographicsFuture = (_premiumFeaturesAccess['audience_demographics'] ?? false || !premiumChecksSuccessful) 
+          ? _analyticsService.getDemographics(widget.producerId, producerType: _producerType, period: _selectedPeriod).catchError((e) {
+              print("📊 Error fetching demographics (likely due to access/502): $e"); 
+              return null;
+            }) 
           : Future.value(null);
 
-      Future<GrowthPredictions?> predictionsFuture = (_premiumFeaturesAccess['growth_predictions'] ?? false)
-          ? _analyticsService.getPredictions(widget.producerId, producerType: _producerType)
+      Future<GrowthPredictions?> predictionsFuture = (_premiumFeaturesAccess['growth_predictions'] ?? false || !premiumChecksSuccessful)
+          ? _analyticsService.getPredictions(widget.producerId, producerType: _producerType).catchError((e) {
+              print("📈 Error fetching predictions (likely due to access/502): $e"); 
+              return null;
+            })
           : Future.value(null);
 
-      Future<CompetitorAnalysis?> competitorAnalysisFuture = (_premiumFeaturesAccess['advanced_analytics'] ?? false)
-          ? _analyticsService.getCompetitorAnalysis(widget.producerId, producerType: _producerType, period: _selectedPeriod)
+      Future<CompetitorAnalysis?> competitorAnalysisFuture = (_premiumFeaturesAccess['advanced_analytics'] ?? false || !premiumChecksSuccessful)
+          ? _analyticsService.getCompetitorAnalysis(widget.producerId, producerType: _producerType, period: _selectedPeriod).catchError((e) {
+              print("📉 Error fetching competitor analysis (likely due to access/502): $e"); 
+              return null;
+            })
           : Future.value(null);
 
-      Future<void> campaignsFuture = (_premiumFeaturesAccess['simple_campaigns'] ?? false)
-          ? _loadCampaigns()
+      Future<void> campaignsFuture = (_premiumFeaturesAccess['simple_campaigns'] ?? false || !premiumChecksSuccessful)
+          ? _loadCampaigns().catchError((e) { print("📢 Error loading campaigns: $e"); })
           : Future.value();
-      Future<void> audiencesFuture = (_premiumFeaturesAccess['advanced_targeting'] ?? false)
-          ? _loadAudiences()
+      Future<void> audiencesFuture = (_premiumFeaturesAccess['advanced_targeting'] ?? false || !premiumChecksSuccessful)
+          ? _loadAudiences().catchError((e) { print("🎯 Error loading audiences: $e"); })
           : Future.value();
 
       final results = await Future.wait([
@@ -168,18 +200,24 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
           _demographics = results[3] as DemographicsData?;
           _predictions = results[4] as GrowthPredictions?;
           _competitorAnalysis = results[5] as CompetitorAnalysis?;
-
+          
+          if (_overview == null || _trends == null || _recommendations == null) {
+             _error = 'Impossible de charger les données analytiques principales. Veuillez réessayer.';
+           } else if (!premiumChecksSuccessful) {
+           }
           _isLoading = false;
         });
       }
     } catch (e) {
-      print('❌ Erreur lors du chargement initial des données: $e');
+      print('❌ Erreur majeure lors du chargement initial des données: $e');
       if (mounted) {
         setState(() {
            if (e.toString().contains("Authentication token is missing") || e.toString().contains("No token available") || e.toString().contains("Invalid token") || e.toString().contains("Unauthorized")) {
              _error = "Session invalide ou expirée. Veuillez vous reconnecter.";
            } else if (e.toString().contains('400') && e.toString().contains('Missing required query parameter: producerType')) {
              _error = 'Erreur: Type de producteur manquant pour la requête.';
+           } else if (e.toString().contains('Failed host lookup') || e.toString().contains('SocketException')) {
+              _error = 'Erreur de connexion réseau. Vérifiez votre connexion Internet.';
            } else {
               _error = 'Impossible de charger les données analytiques. Veuillez réessayer.\n$e';
            }
@@ -187,12 +225,6 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
           _checkingPremiumAccess = false;
         });
       }
-    } finally {
-       if (mounted) {
-        setState(() {
-           _checkingPremiumAccess = false;
-        });
-       }
     }
   }
   
@@ -640,29 +672,37 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
 
           _buildSectionHeader("growth_reach.demographics_header".tr()),
           SizedBox(height: 12),
-          canAccessDemographics
-              ? _buildDemographicsContent(_demographics)
+          _premiumFeaturesAccess['audience_demographics'] ?? false
+              ? (_demographics != null 
+                  ? _buildDemographicsContent(_demographics)
+                  : _buildDataLoadingError("growth_reach.error_loading_demographics".tr()) 
+                )
               : _buildPremiumFeatureTeaser(
                   title: "growth_reach.demographics_title".tr(),
                   description: "growth_reach.demographics_desc".tr(),
                   featureId: 'audience_demographics',
                   icon: Icons.people_alt_outlined,
-                   color: Colors.indigo,
-                   child: Container(height: 150, child: Center(child: Icon(Icons.bar_chart, size: 50, color: Colors.grey.shade400))),
+                  color: Colors.indigo,
+                  producerId: widget.producerId,
+                  child: Container(height: 150, child: Center(child: Icon(Icons.bar_chart, size: 50, color: Colors.grey.shade400))),
                 ),
           SizedBox(height: 24),
 
           _buildSectionHeader("growth_reach.predictions_header".tr()),
           SizedBox(height: 12),
-          canAccessPredictions
-              ? _buildPredictionsContent(_predictions)
+          _premiumFeaturesAccess['growth_predictions'] ?? false
+              ? (_predictions != null
+                  ? _buildPredictionsContent(_predictions)
+                  : _buildDataLoadingError("growth_reach.error_loading_predictions".tr())
+                )
               : _buildPremiumFeatureTeaser(
                   title: "growth_reach.predictions_title".tr(),
                   description: "growth_reach.predictions_desc".tr(),
                   featureId: 'growth_predictions',
                   icon: Icons.online_prediction_outlined,
-                   color: Colors.purple,
-                   child: Container(height: 150, child: Center(child: Icon(Icons.trending_up, size: 50, color: Colors.grey.shade400))),
+                  color: Colors.purple,
+                  producerId: widget.producerId,
+                  child: Container(height: 150, child: Center(child: Icon(Icons.trending_up, size: 50, color: Colors.grey.shade400))),
                 ),
         ],
       ),
@@ -674,7 +714,8 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
       return _buildNoDataAvailable("growth_reach.no_trends_data".tr());
     }
 
-    bool canAccessCompetitors = _premiumFeaturesAccess['advanced_analytics'] ?? false;
+    bool hasAnalyticsAccess = _premiumFeaturesAccess['advanced_analytics'] ?? false;
+    bool competitorCheckFailed = !_checkingPremiumAccess && _competitorAnalysis == null;
 
     return SingleChildScrollView(
       padding: EdgeInsets.all(16),
@@ -688,15 +729,19 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
 
           _buildSectionHeader("growth_reach.competitors_header".tr()),
           SizedBox(height: 12),
-          canAccessCompetitors
-              ? _buildCompetitorAnalysisContent(context)
+          hasAnalyticsAccess
+              ? (_competitorAnalysis != null 
+                  ? _buildCompetitorAnalysisContent(context)
+                  : _buildDataLoadingError("growth_reach.error_loading_competitors".tr())
+                ) 
               : _buildPremiumFeatureTeaser(
                   title: "growth_reach.competitors_title".tr(),
                   description: "growth_reach.competitors_desc".tr(),
                   featureId: 'advanced_analytics',
                   icon: Icons.analytics_outlined,
                   color: Colors.teal,
-                   child: Container(height: 150, child: Center(child: Icon(Icons.compare_arrows, size: 50, color: Colors.grey.shade400))),
+                  producerId: widget.producerId,
+                  child: Container(height: 150, child: Center(child: Icon(Icons.compare_arrows, size: 50, color: Colors.grey.shade400))),
                 ),
           SizedBox(height: 24),
         ],
@@ -709,7 +754,8 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
       return _buildNoDataAvailable("growth_reach.no_recommendations_data".tr());
     }
 
-    bool canAccessCampaigns = _premiumFeaturesAccess['simple_campaigns'] ?? false;
+    bool hasCampaignAccess = _premiumFeaturesAccess['simple_campaigns'] ?? false;
+    bool campaignCheckFailed = !_checkingPremiumAccess && _campaigns.isEmpty && !_loadingCampaigns;
 
     return SingleChildScrollView(
       padding: EdgeInsets.all(16),
@@ -723,15 +769,19 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
 
           _buildSectionHeader("growth_reach.campaigns_header".tr()),
           SizedBox(height: 12),
-          canAccessCampaigns
-              ? _buildCampaignsContent()
+          hasCampaignAccess
+              ? (_loadingCampaigns 
+                  ? Center(child: CircularProgressIndicator()) 
+                  : _buildCampaignsContent()
+                )
               : _buildPremiumFeatureTeaser(
                   title: "growth_reach.campaigns_title".tr(),
                   description: "growth_reach.campaigns_desc".tr(),
                   featureId: 'simple_campaigns',
                   icon: Icons.campaign_outlined,
                   color: Colors.green,
-                   child: Container(height: 150, child: Center(child: Icon(Icons.volume_up_outlined, size: 50, color: Colors.grey.shade400))),
+                  producerId: widget.producerId,
+                  child: Container(height: 150, child: Center(child: Icon(Icons.volume_up_outlined, size: 50, color: Colors.grey.shade400))),
                 ),
           SizedBox(height: 24),
         ],
@@ -819,21 +869,27 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
                 children: [
                    Icon(changeIcon, size: 16, color: changeColor),
                    SizedBox(width: 4),
-                   Text(
-                      _formatNumber(kpi.change.abs()),
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                        color: changeColor,
-                      ),
+                   Flexible(
+                     child: Text(
+                        _formatNumber(kpi.change.abs()),
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: changeColor,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                     ),
                    ),
                    SizedBox(width: 4),
-                   Text(
-                     "(${_formatPercent(kpi.changePercent, includeSign: true)})",
-                     style: TextStyle(
-                        fontSize: 13,
-                        color: changeColor.withOpacity(0.9),
-                      ),
+                   Flexible(
+                     child: Text(
+                       "(${_formatPercent(kpi.changePercent, includeSign: true)})",
+                       style: TextStyle(
+                          fontSize: 13,
+                          color: changeColor.withOpacity(0.9),
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                     ),
                    ),
                 ],
              )
@@ -960,8 +1016,13 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
                           getTitlesWidget: (value, meta) {
                             return SideTitleWidget(
                               meta: meta,
-                              space: 8.0,
-                              child: Text(NumberFormat.compact().format(value)),
+                              space: 0,
+                              child: Text(
+                                NumberFormat.compact().format(value),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(fontSize: 10),
+                              ),
                             );
                           },
                         ),
@@ -976,8 +1037,13 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
                             if (index >= 0 && index < dataPoints.length) {
                                 return SideTitleWidget(
                                   meta: meta,
-                                  space: 8.0,
-                                  child: Text('P${index + 1}'),
+                                  space: 0,
+                                  child: Text(
+                                    'P${index + 1}',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(fontSize: 10),
+                                  ),
                                 );
                             }
                             return const Text('');
@@ -1058,10 +1124,11 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
                  SizedBox(height: 16),
                  Row(
                     mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                       _buildSummaryItem(Icons.post_add, summary.posts, "growth_reach.engagement_posts".tr()),
-                       _buildSummaryItem(Icons.favorite_border, summary.likes, "growth_reach.engagement_likes".tr()),
-                       _buildSummaryItem(Icons.comment_outlined, summary.comments, "growth_reach.engagement_comments".tr()),
+                       Flexible(child: _buildSummaryItem(Icons.post_add, summary.posts, "growth_reach.engagement_posts".tr())),
+                       Flexible(child: _buildSummaryItem(Icons.favorite_border, summary.likes, "growth_reach.engagement_likes".tr())),
+                       Flexible(child: _buildSummaryItem(Icons.comment_outlined, summary.comments, "growth_reach.engagement_comments".tr())),
                     ],
                  ),
               ],
@@ -1069,7 +1136,6 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
         ),
      );
   }
-  
   Widget _buildSummaryItem(IconData icon, int value, String label) {
      return Column(
         children: [
@@ -1083,6 +1149,7 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
            Text(
               label,
               style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+              textAlign: TextAlign.center,
            ),
         ],
      );
@@ -1149,6 +1216,7 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
                            entry.key,
                            style: TextStyle(fontSize: 13),
                            overflow: TextOverflow.ellipsis,
+                           maxLines: 2,
                         ),
                      ),
                      Expanded(
@@ -1220,29 +1288,35 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                        children: [
                           Expanded(
+                             flex: 2,
                              child: Text(
                                label,
                                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
+                               overflow: TextOverflow.ellipsis,
+                               maxLines: 2,
                              ),
                           ),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                             children: [
-                               Text(
-                                  _formatNumber(prediction.value),
-                                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                               ),
-                                Row(
-                                   children: [
-                                     Icon(Icons.shield_outlined, size: 12, color: confidenceColor),
-                                     SizedBox(width: 4),
-                                     Text(
-                                        'growth_reach.prediction_confidence'.tr(args: [prediction.confidence]),
-                                        style: TextStyle(fontSize: 11, color: confidenceColor),
-                                     ),
-                                   ],
-                                ),
-                             ],
+                          Flexible(
+                            flex: 1,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                               children: [
+                                 Text(
+                                    _formatNumber(prediction.value),
+                                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                                 ),
+                                  Row(
+                                     children: [
+                                       Icon(Icons.shield_outlined, size: 12, color: confidenceColor),
+                                       SizedBox(width: 4),
+                                       Text(
+                                          'growth_reach.prediction_confidence'.tr(args: [prediction.confidence]),
+                                          style: TextStyle(fontSize: 11, color: confidenceColor),
+                                       ),
+                                     ],
+                                  ),
+                               ],
+                            ),
                           ),
                        ],
                     ),
@@ -1264,7 +1338,8 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
     final analysis = _competitorAnalysis!;
 
     return ListView(
-      padding: const EdgeInsets.all(16.0),
+      shrinkWrap: true,
+      physics: NeverScrollableScrollPhysics(),
       children: [
         Text("growth_reach.competitor_analysis_title".tr(), style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 16),
@@ -1276,11 +1351,15 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
               children: [
                 Text("growth_reach.your_performance".tr(), style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 8),
-                _buildCompetitorRow("Followers", analysis.yourMetrics.followers?.toDouble() ?? 0, analysis.averageCompetitorMetrics.followers?.toDouble() ?? 0),
                 _buildCompetitorRow(
-                   "Taux d\'engagement",
-                    analysis.yourMetrics.engagementRate?.toDouble() ?? 0,
+                  "Followers", 
+                  analysis.averageCompetitorMetrics.followers?.toDouble() ?? 0,
+                  analysis.yourMetrics.followers?.toDouble() ?? 0
+                ),
+                _buildCompetitorRow(
+                   "Taux d'engagement",
                     analysis.averageCompetitorMetrics.engagementRate?.toDouble() ?? 0,
+                    analysis.yourMetrics.engagementRate?.toDouble() ?? 0,
                     isPercent: true
                 ),
               ],
@@ -1296,7 +1375,9 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
            padding: const EdgeInsets.only(bottom: 8.0),
            child: Row(
               children: [
-                 Expanded(child: Text(comp.name, overflow: TextOverflow.ellipsis)),
+                 Expanded(
+                    child: Text(comp.name, overflow: TextOverflow.ellipsis)
+                 ),
                  SizedBox(width: 8),
                  Text("(${_formatNumber(comp.followers)} followers)", style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
               ],
@@ -1313,12 +1394,12 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
     if (yourValue != null) {
        double diff = value - yourValue;
        Color color = diff > 0 ? Colors.red.shade700 : (diff < 0 ? Colors.green.shade700 : Colors.grey);
-       IconData icon = diff > 0 ? Icons.arrow_upward : (diff < 0 ? Icons.arrow_downward : Icons.remove);
-       String diffText = isPercent ? _formatPercent(diff.abs(), includeSign: true) : _formatNumber(diff.abs());
+       IconData icon = diff > 0 ? Icons.arrow_downward : (diff < 0 ? Icons.arrow_upward : Icons.remove);
+       String diffText = isPercent ? _formatPercent(diff.abs(), includeSign: diff != 0) : _formatNumber(diff.abs()); 
        comparisonWidget = Row(
          mainAxisSize: MainAxisSize.min,
          children: [
-           Text("(", style: TextStyle(fontSize: 12, color: color)),
+           Text(" (", style: TextStyle(fontSize: 12, color: color)),
            Icon(icon, size: 12, color: color),
            Text(diffText, style: TextStyle(fontSize: 12, color: color)),
            Text(" vs vous)", style: TextStyle(fontSize: 12, color: color)),
@@ -1331,13 +1412,20 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(" • $label", style: TextStyle(fontSize: 14)),
-           Row(
-             children: [
-                Text(formattedValue, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-                SizedBox(width: 8),
-                comparisonWidget,
-             ],
+          Expanded(
+            flex: 3,
+            child: Text(" • $label", style: TextStyle(fontSize: 14), overflow: TextOverflow.ellipsis)
+          ),
+           Expanded(
+             flex: 4,
+             child: Row(
+               mainAxisAlignment: MainAxisAlignment.end,
+               children: [
+                  Text(formattedValue, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                  SizedBox(width: 4),
+                  Flexible(child: comparisonWidget),
+               ],
+             ),
            ),
         ],
       ),
@@ -1461,23 +1549,11 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
                Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                     Text(
-                        "growth_reach.campaigns_my_campaigns".tr(),
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                     ),
-                     ElevatedButton.icon(
-                        icon: Icon(Icons.add_circle_outline, size: 18),
-                        label: Text("growth_reach.campaigns_create".tr()),
-                        onPressed: () {
-                            if (!canUseAdvancedTargeting) {
-                               // Maybe show limited options or prompt upgrade
-                            }
-                            _showCampaignCreatorDialog();
-                        },
-                        style: ElevatedButton.styleFrom(
-                           padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                           textStyle: TextStyle(fontSize: 13),
-                        ),
+                     Expanded(
+                       child: Text(
+                          "growth_reach.campaigns_my_campaigns".tr(),
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                       ),
                      ),
                   ],
                ),
@@ -1499,7 +1575,7 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
                             final campaign = _campaigns[index];
                             return ListTile(
                                leading: Icon(_getCampaignIcon(campaign['type']), color: Theme.of(context).primaryColor),
-                               title: Text(campaign['name'] ?? 'Campagne sans nom'),
+                               title: Text(campaign['name'] ?? 'Campagne sans nom', overflow: TextOverflow.ellipsis),
                                subtitle: Text(_formatCampaignStatus(campaign['status'])),
                                trailing: Text(_formatCampaignDates(campaign['startDate'], campaign['endDate'])),
                             );
@@ -1729,16 +1805,17 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
     required String title,
     required String description,
     required String featureId,
-    required IconData icon,
+    required Widget child,
+    required String producerId,
     Color? color,
-    Widget? child,
+    IconData? icon,
   }) {
     return PremiumFeatureTeaser(
        title: title,
        description: description,
        featureId: featureId,
-       child: child ?? Container(height: 150, color: Colors.grey.shade100),
-       producerId: widget.producerId,
+       child: child,
+       producerId: producerId,
        color: color,
        icon: icon,
     );
@@ -1788,6 +1865,32 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
   void _showSnackbar(String message) {
      ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message), duration: Duration(seconds: 2)),
+     );
+  }
+
+  Widget _buildDataLoadingError(String message) {
+     return Card(
+        elevation: 1,
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: Colors.orange.shade200)
+        ),
+        color: Colors.orange.shade50,
+        child: Padding(
+           padding: const EdgeInsets.all(16.0),
+           child: Row(
+             children: [
+               Icon(Icons.warning_amber_rounded, color: Colors.orange.shade700, size: 20),
+               SizedBox(width: 12),
+               Expanded(
+                 child: Text(
+                   message, 
+                   style: TextStyle(color: Colors.orange.shade900, fontWeight: FontWeight.w500),
+                 ),
+               ),
+             ],
+           ),
+        ),
      );
   }
 }

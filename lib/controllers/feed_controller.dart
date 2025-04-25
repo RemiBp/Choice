@@ -751,7 +751,7 @@ class FeedController extends ChangeNotifier {
 
   Future<List<Post>> getUserPosts(String userId, {int page = 1, int limit = 20}) async {
     try {
-      final token = await AuthService.getToken();
+      final token = await AuthService.getTokenStatic();
       final response = await http.get(
         Uri.parse('${_apiService.getApiBaseUrl()}/api/users/$userId/posts?page=$page&limit=$limit'),
         headers: {
@@ -831,7 +831,7 @@ class FeedController extends ChangeNotifier {
     }
   }
 
-  Future<List<Map<String, dynamic>>> getProducerFollowers() async {
+  Future<List<Map<String, dynamic>>> getRestaurantFollowers() async {
     try {
       final followers = await _apiService.getProducerFollowers(userId);
       // Convert List<dynamic> to List<Map<String, dynamic>>
@@ -839,8 +839,8 @@ class FeedController extends ChangeNotifier {
           .whereType<Map<String, dynamic>>()
           .toList();
     } catch (e) {
-      print('Error fetching producer followers: $e');
-      return <Map<String, dynamic>>[];
+      print('❌ Erreur lors de la récupération des followers: $e');
+      return [];
     }
   }
 
@@ -1064,7 +1064,11 @@ class RestaurantFeedController extends ChangeNotifier {
   // Obtenir les followers du restaurant
   Future<List<Map<String, dynamic>>> getRestaurantFollowers() async {
     try {
-      return await _apiService.getProducerFollowers(userId);
+      final followers = await _apiService.getProducerFollowers(userId);
+      // Convert List<dynamic> to List<Map<String, dynamic>>
+      return followers
+          .whereType<Map<String, dynamic>>()
+          .toList();
     } catch (e) {
       print('❌ Erreur lors de la récupération des followers: $e');
       return [];

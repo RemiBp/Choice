@@ -172,5 +172,8 @@
     "retry": "Réessayer",
     "no_offers": "Vous n'avez aucune offre pour le moment.",
     "expired_status": "Expirée"
-  }
+  },
+  "growth_reach.app_bar_title": "Croissance & Portée",
+  "growth_reach.premium_tooltip": "Gérer l'abonnement Premium",
+  "growth_reach.refresh_tooltip": "Actualiser les données"
 } 

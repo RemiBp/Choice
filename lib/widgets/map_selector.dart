@@ -5,7 +5,7 @@ class MapSelector extends StatelessWidget {
   final int currentIndex;
   final int mapCount;
   final Function(String) onMapSelected;
-  final List<String> mapTypes = ['restaurant', 'leisure', 'beautyPlace', 'friends'];
+  final List<String> mapTypes = ['restaurant', 'leisure', 'wellness', 'friends'];
   final List<IconData> mapIcons = [
     Icons.restaurant,
     Icons.theater_comedy,
@@ -99,5 +99,20 @@ class MapSelector extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  String getMapTypeLabel(String type) {
+    switch (type) {
+      case 'restaurant':
+        return 'Restaurants';
+      case 'leisure':
+        return 'Loisirs';
+      case 'wellness':
+        return 'Bien-être';
+      case 'friends':
+        return 'Amis';
+      default:
+        return 'Inconnu';
+    }
   }
 } 

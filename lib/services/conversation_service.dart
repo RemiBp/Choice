@@ -747,10 +747,6 @@ class ConversationService {
         case 'wellnessProducer':
           type = 'wellnessProducer';
           break;
-        case 'beauty':
-        case 'beautyPlace':
-          type = 'beautyPlace';
-          break;
         default:
           type = producerType;
           break;

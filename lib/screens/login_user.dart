@@ -65,8 +65,12 @@ class _LoginUserPageState extends State<LoginUserPage> {
   }
 
   Future<void> loginUser() async {
+    // Capture le ScaffoldMessengerState au début de la méthode
+    // pour éviter de l'appeler après que le widget est démonté
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+    
     if (email.isEmpty || password.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      scaffoldMessenger.showSnackBar(
         const SnackBar(content: Text('Veuillez remplir tous les champs')),
       );
       return;
@@ -82,7 +86,10 @@ class _LoginUserPageState extends State<LoginUserPage> {
         // La navigation sera gérée automatiquement par le Provider dans main.dart
         // Mais nous ajoutons une navigation explicite pour assurer la compatibilité iOS
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
+        
+        // Show SnackBar BEFORE scheduling navigation
+        // On utilise la variable capturée au lieu de ScaffoldMessenger.of(context)
+        scaffoldMessenger.showSnackBar(
           const SnackBar(content: Text('Connexion réussie !')),
         );
         
@@ -118,13 +125,15 @@ class _LoginUserPageState extends State<LoginUserPage> {
         });
       } else {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
+        // On utilise la variable capturée au lieu de ScaffoldMessenger.of(context)
+        scaffoldMessenger.showSnackBar(
           const SnackBar(content: Text('Email ou mot de passe incorrect')),
         );
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      // On utilise la variable capturée au lieu de ScaffoldMessenger.of(context)
+      scaffoldMessenger.showSnackBar(
         SnackBar(content: Text('Erreur de connexion : ${e.toString()}')),
       );
     } finally {
@@ -135,6 +144,9 @@ class _LoginUserPageState extends State<LoginUserPage> {
   }
 
   Future<void> _signInWithGoogle(BuildContext context) async {
+    // Capture le ScaffoldMessengerState au début de la méthode
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+    
     try {
       // Afficher un indicateur de chargement
       setState(() => _isLoading = true);
@@ -144,7 +156,7 @@ class _LoginUserPageState extends State<LoginUserPage> {
       if (!servicesAvailable) {
         setState(() => _isLoading = false);
         // Montrer une option de connexion alternative
-        ScaffoldMessenger.of(context).showSnackBar(
+        scaffoldMessenger.showSnackBar(
           const SnackBar(
             content: Text('Les services Google Play ne sont pas disponibles. Veuillez utiliser l\'email et mot de passe.'),
             duration: Duration(seconds: 6),
@@ -187,7 +199,7 @@ class _LoginUserPageState extends State<LoginUserPage> {
         // Vérifier si le token est valide
         if (googleAuth.idToken == null) {
           if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
+          scaffoldMessenger.showSnackBar(
             const SnackBar(content: Text('Erreur: Impossible de récupérer le token d\'authentification'))
           );
           setState(() => _isLoading = false);
@@ -233,7 +245,7 @@ class _LoginUserPageState extends State<LoginUserPage> {
           
           // Rediriger vers l'écran principal
           if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
+          scaffoldMessenger.showSnackBar(
             const SnackBar(content: Text('Connexion réussie !'))
           );
           
@@ -268,14 +280,14 @@ class _LoginUserPageState extends State<LoginUserPage> {
           });
         } else {
           if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
+          scaffoldMessenger.showSnackBar(
             SnackBar(content: Text('Erreur d\'authentification: ${response.body}'))
           );
         }
       } catch (authError) {
         print('Erreur d\'authentification Google: $authError');
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
+        scaffoldMessenger.showSnackBar(
           SnackBar(content: Text('Erreur d\'authentification: $authError'))
         );
       }
@@ -306,7 +318,7 @@ class _LoginUserPageState extends State<LoginUserPage> {
       }
       
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      scaffoldMessenger.showSnackBar(
         SnackBar(content: Text(errorMessage))
       );
     } finally {
@@ -476,9 +488,12 @@ class _LoginUserPageState extends State<LoginUserPage> {
                                 );
                                 
                                 if (result == true && emailController.text.isNotEmpty) {
+                                  // Capturer le ScaffoldMessengerState pour éviter les erreurs après démontage
+                                  final scaffoldMessenger = ScaffoldMessenger.of(context);
+                                  
                                   try {
                                     // Afficher un indicateur de chargement
-                                    ScaffoldMessenger.of(context).showSnackBar(
+                                    scaffoldMessenger.showSnackBar(
                                       const SnackBar(content: Text('Envoi en cours...')),
                                     );
                                     
@@ -491,17 +506,17 @@ class _LoginUserPageState extends State<LoginUserPage> {
                                       }),
                                     );
                                     
+                                    if (!mounted) return;
+                                    
                                     if (response.statusCode == 200) {
-                                      if (!mounted) return;
-                                      ScaffoldMessenger.of(context).showSnackBar(
+                                      scaffoldMessenger.showSnackBar(
                                         const SnackBar(
                                           content: Text('Si cet email existe dans notre base de données, un message de récupération a été envoyé.'),
                                           duration: Duration(seconds: 5),
                                         ),
                                       );
                                     } else {
-                                      if (!mounted) return;
-                                      ScaffoldMessenger.of(context).showSnackBar(
+                                      scaffoldMessenger.showSnackBar(
                                         const SnackBar(
                                           content: Text('Une erreur est survenue. Veuillez réessayer plus tard.'),
                                           backgroundColor: Colors.red,
@@ -510,7 +525,8 @@ class _LoginUserPageState extends State<LoginUserPage> {
                                     }
                                   } catch (e) {
                                     if (!mounted) return;
-                                    ScaffoldMessenger.of(context).showSnackBar(
+                                    
+                                    scaffoldMessenger.showSnackBar(
                                       SnackBar(
                                         content: Text('Erreur de connexion: ${e.toString()}'),
                                         backgroundColor: Colors.red,

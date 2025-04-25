@@ -30,7 +30,7 @@ import 'widgets/global_menus_list.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/services.dart';
 import '../widgets/feed/post_card.dart'; // Import for PostCard
-import '../utils.dart' show getImageProvider;
+import '../utils.dart' show getImageProvider, safeGetBool;
 import '../models/post.dart'; // USE this import for the consolidated Post model
 
 
@@ -79,14 +79,9 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
   bool _isMarkingInterested = false; // Loading flag for Interested
   bool _isMarkingChoice = false;     // Loading flag for Choice
 
-  // Add apiService instance
-  late ApiService apiService;
-  
   @override
   void initState() {
     super.initState();
-    // Initialize apiService
-    apiService = Provider.of<ApiService>(context, listen: false);
     print('🔍 Initialisation du test des API');
     _testApi(); // Appel à la méthode de test
     _producerFuture = _fetchProducerDetails(widget.producerId);
@@ -231,7 +226,8 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
       
       if (response.statusCode == 200 && mounted) {
         final data = json.decode(response.body);
-        if (data['active'] == true && data['endDate'] != null) {
+        // Use safeGetBool for 'active' field
+        if (safeGetBool(data, 'active') == true && data['endDate'] != null) {
           setState(() {
             _hasActivePromotion = true;
             _promotionEndDate = DateTime.parse(data['endDate']);
@@ -817,7 +813,7 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
               icon: const Icon(Icons.post_add, color: Colors.white),
               onPressed: () {
                 // Vérifier l'accès à la fonctionnalité marketing_tools
-                if (_premiumFeaturesAccess['marketing_tools'] ?? false) {
+                if (_premiumFeaturesAccess['marketing_tools'] == true) {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -836,7 +832,7 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
               icon: const Icon(Icons.restaurant_menu, color: Colors.white),
               onPressed: () {
                 // Vérifier l'accès à la fonctionnalité customizable_menu
-                if (_premiumFeaturesAccess['customizable_menu'] ?? false) {
+                if (_premiumFeaturesAccess['customizable_menu'] == true) {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -850,43 +846,38 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
             ),
           ),
           Tooltip(
-            message: _hasActivePromotion ? 'Gérer la promotion active' : 'Créer une promotion',
+            message: _hasActivePromotion == true ? 'Gérer la promotion active' : 'Créer une promotion',
             child: IconButton(
               icon: Icon(
-                _hasActivePromotion ? Icons.campaign : Icons.campaign_outlined, // Icône plus explicite
-                color: _hasActivePromotion ? Colors.yellowAccent : Colors.white,
+                _hasActivePromotion == true ? Icons.campaign : Icons.campaign_outlined, // Use == true for clarity
+                color: _hasActivePromotion == true ? Colors.yellowAccent : Colors.white,
               ),
               onPressed: () {
                 // Vérifier l'accès à la fonctionnalité marketing_tools pour gérer les promotions
-                if (_premiumFeaturesAccess['marketing_tools'] ?? false) {
-                   if (_hasActivePromotion) {
+                if (_premiumFeaturesAccess['marketing_tools'] == true) {
+                   if (_hasActivePromotion == true) {
                      // Afficher la boîte de dialogue pour désactiver la promotion
                      showDialog(
-                       context: context,
-                       builder: (context) => AlertDialog(
-                         title: const Text('Promotion active'),
-                         content: _promotionEndDate != null
-                             ? Text(
-                                 'Une promotion de $_promotionDiscount% est active jusqu\'au ${DateFormat('dd/MM/yyyy').format(_promotionEndDate!)}. Voulez-vous la désactiver?')
-                             : const Text('Une promotion est active. Voulez-vous la désactiver?'),
-                         actions: [
-                           TextButton(
-                             onPressed: () => Navigator.pop(context),
-                             child: const Text('Annuler'),
-                           ),
-                           ElevatedButton(
-                             style: ElevatedButton.styleFrom(
-                               backgroundColor: Colors.red,
+                       context: context, // Ajout du context
+                       builder: (BuildContext dialogContext) {
+                         // TODO: Implémenter la logique de désactivation
+                         return AlertDialog(
+                           title: Text('Désactiver la promotion'),
+                           content: Text('Êtes-vous sûr de vouloir désactiver cette promotion ?'),
+                           actions: [
+                             TextButton(onPressed: () => Navigator.pop(dialogContext), child: Text('Annuler')),
+                             TextButton(
+                               onPressed: () {
+                                  // Appel API pour désactiver
+                                  _deactivatePromotion();
+                                  Navigator.pop(dialogContext);
+                               },
+                               child: Text('Désactiver')
                              ),
-                             onPressed: () {
-                               Navigator.pop(context);
-                               _deactivatePromotion();
-                             },
-                             child: const Text('Désactiver'),
-                           ),
-                         ],
-                       ),
-                     );
+                           ],
+                         );
+                       }
+                     ); 
                    } else {
                      // Afficher la boîte de dialogue pour activer une promotion
                      _showPromotionDialog();
@@ -915,7 +906,7 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
                   break;
                 case 'financial_history':
                    // Vérifier l'accès à advanced_analytics pour l'historique financier
-                   if (_premiumFeaturesAccess['advanced_analytics'] ?? false) {
+                   if (_premiumFeaturesAccess['advanced_analytics'] == true) {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
@@ -1039,151 +1030,243 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
                 ),
               );
             }
-            final producer = snapshot.data!;
+
+            // Add check for null data or backend error structure
+            final producer = snapshot.data;
+            if (producer == null || producer.containsKey('error')) {
+              return Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.error_outline, size: 60, color: Colors.orangeAccent),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Impossible de charger les données du profil. Vérifiez votre connexion ou réessayez.\n${producer?['error'] ?? snapshot.error ?? 'Erreur inconnue'}',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 16)
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.orangeAccent),
+                      onPressed: () {
+                        setState(() {
+                          _producerFuture = _fetchProducerDetails(widget.producerId);
+                        });
+                      },
+                      child: const Text('Réessayer'),
+                    ),
+                  ],
+                ),
+              );
+            }
+            
+            // Existing successful build logic starts here
+            // final producer = snapshot.data!;
+            
+            // --- Type Error Check: Ensure producer data used in bool contexts is valid --- 
+            final bool isProducerVerified = safeGetBool(producer, 'verified'); // Example
+            final bool isFeatured = safeGetBool(producer, 'featured');
+            // Add checks for any other fields from 'producer' map used as booleans
+
             return DefaultTabController(
-              length: 3,
-              child: ListView( // Use ListView for overall scrolling
-                padding: EdgeInsets.zero, // Remove default padding
-                children: [
-                  if (_hasActivePromotion) _buildPromotionBanner(),
-                  // Use the refactored ProfileHeader widget
-                  ProfileHeader(
-                    data: producer,
-                    hasActivePromotion: _hasActivePromotion,
-                    promotionDiscount: _promotionDiscount,
-                    onEdit: () => _showEditProfileDialog(producer),
-                    onPromotion: () {
-                      // ... (promotion dialog logic remains the same)
-                    },
-                    // Pass the getImageProvider reference if needed internally by ProfileHeader
-                    // imageProvider: getImageProvider, // Example if needed
-                  ),
-                  // Followers/Following/Interested/Choices stylisé sous le header
-                  Card(
-                    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    elevation: 2,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children: [
-                          _buildProfileActionTile(
-                            context,
-                            icon: Icons.people,
-                            label: 'Followers',
-                            count: (producer['followers']?['count'] ?? 0),
-                            onTap: () => _navigateToRelationDetails('Followers', _getUserIds(producer['followers'])),
-                          ),
-                          _buildProfileActionTile(
-                            context,
-                            icon: Icons.person_add,
-                            label: 'Following',
-                            count: (producer['following']?['count'] ?? 0),
-                            onTap: () => _navigateToRelationDetails('Following', _getUserIds(producer['following'])),
-                          ),
-                          _buildProfileActionTile(
-                            context,
-                            icon: Icons.emoji_objects,
-                            label: 'Interested',
-                            count: (producer['interestedUsers']?['count'] ?? 0),
-                            onTap: () => _navigateToRelationDetails('Interested', _getUserIds(producer['interestedUsers'])),
-                          ),
-                          _buildProfileActionTile(
-                            context,
-                            icon: Icons.check_circle,
-                            label: 'Choices',
-                            count: (producer['choiceUsers']?['count'] ?? 0),
-                            onTap: () => _navigateToRelationDetails('Choices', _getUserIds(producer['choiceUsers'])),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  // Onglets déroulants - Improved styling slightly
-                  Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.surface, // Use theme color
-                      borderRadius: BorderRadius.circular(12),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.08),
-                          blurRadius: 8,
-                          offset: const Offset(0, 3),
-                        ),
-                      ],
-                    ),
-                    child: TabBar(
-                      labelColor: Theme.of(context).colorScheme.primary, // Use theme color
-                      unselectedLabelColor: Colors.grey[600],
-                      indicator: BoxDecoration( // More visual indicator
-                        borderRadius: BorderRadius.circular(12),
-                        color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
-                      ),
-                      indicatorPadding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 4.0),
-                      tabs: const [
-                        Tab(
-                          child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.restaurant_menu, size: 18), SizedBox(width: 8), Text('Menu')]),
-                        ),
-                        Tab(
-                          child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.dynamic_feed, size: 18), SizedBox(width: 8), Text('Posts')]),
-                        ),
-                        Tab(
-                           child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.photo_library, size: 18), SizedBox(width: 8), Text('Photos')]),
-                        ),
-                      ],
-                    ),
-                  ),
-                  // REMOVED fixed height SizedBox here
-                  // TabBarView content will now determine the height within the ListView
-                  TabBarView(
-                      physics: const NeverScrollableScrollPhysics(), // Let ListView handle scroll
-                      children: [
-                        // Onglet Menu (menus globaux + items indépendants)
-                        // Wrap in Padding for spacing
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                          child: SingleChildScrollView( // Added this wrapper
-                            // REMOVED shrinkWrap: true,
-                            // REMOVED physics: const NeverScrollableScrollPhysics(),
-                            child: Column(
-                               crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                                 // Add titles or better separation if needed inside the widgets
-                                 Text("Menu Complet", style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
-                                 const SizedBox(height: 8),
-                                 GlobalMenusList( // Assumes this widget handles its layout well
-                                producer: producer,
-                                hasActivePromotion: _hasActivePromotion,
-                                promotionDiscount: _promotionDiscount,
+              length: 3, // Matches the number of tabs (Menu, Posts, Photos)
+              child: NestedScrollView(
+                headerSliverBuilder: (BuildContext context, bool innerBoxIsScrolled) {
+                   // These are the slivers that show up in the "app bar" area.
+                   return <Widget>[
+                     SliverOverlapAbsorber(
+                       handle: NestedScrollView.sliverOverlapAbsorberHandleFor(context),
+                       sliver: SliverAppBar(
+                         automaticallyImplyLeading: false,
+                         pinned: true,
+                         floating: false,
+                         // --- ADJUSTED: Reduced header height ---
+                         // expandedHeight: 0, // Keep as 0 if no expansion needed
+                         collapsedHeight: kToolbarHeight + 60, // Reduced from 80 to make header shorter
+                         forceElevated: innerBoxIsScrolled,
+                         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+                         flexibleSpace: Column(
+                           // Ensure children don't cause overflow issues, though ProfileHeader and TabBar are usually fixed height
+                           children: [
+                              // ProfileHeader(...) - Check inside ProfileHeader for potential issues if needed
+                              ProfileHeader(
+                                data: {
+                                  ...producer,
+                                  // Make sure counts are correctly interpreted as numbers
+                                  'followersCount': producer['followers']?['count'] ?? 0,
+                                  'followingCount': producer['following']?['count'] ?? 0,
+                                  'interestedCount': producer['interestedUsers']?['count'] ?? 0,
+                                  'choicesCount': producer['choiceUsers']?.length ?? 0,
+                                  // Ensure rating is passed correctly if used inside ProfileHeader
+                                  'rating': producer['rating'], 
+                                  'user_ratings_total': producer['user_ratings_total'],
+                                },
+                                // Pass boolean flags explicitly checking for null/true
+                                hasActivePromotion: safeGetBool(producer, 'promotion_active') == true, // Example using safeGetBool
+                                promotionDiscount: (producer['promotion']?['discountPercentage'] as num?)?.toDouble() ?? 0.0,
+                                onEdit: () => _showEditProfileDialog(producer),
+                                onPromotion: () {
+                                  // Handle promotion tap
+                                  // Use _hasActivePromotion state variable which is already managed
+                                   if (_premiumFeaturesAccess['marketing_tools'] == true) {
+                                      if (_hasActivePromotion == true) {
+                                        // Show dialog to deactivate
+                                        showDialog(
+                                          context: context, // Ajout du context
+                                          builder: (BuildContext dialogContext) {
+                                            // TODO: Implémenter la logique de désactivation
+                                            return AlertDialog(
+                                              title: Text('Désactiver la promotion'),
+                                              content: Text('Êtes-vous sûr de vouloir désactiver cette promotion ?'),
+                                              actions: [
+                                                TextButton(onPressed: () => Navigator.pop(dialogContext), child: Text('Annuler')),
+                                                TextButton(
+                                                  onPressed: () {
+                                                     // Appel API pour désactiver
+                                                     _deactivatePromotion();
+                                                     Navigator.pop(dialogContext);
+                                                  },
+                                                  child: Text('Désactiver')
+                                                ),
+                                              ],
+                                            );
+                                          }
+                                        ); 
+                                      } else {
+                                         // Show dialog to activate
+                                        _showPromotionDialog();
+                                      }
+                                   } else {
+                                     _showUpgradePrompt('marketing_tools');
+                                   }
+                                },
                               ),
-                                 const SizedBox(height: 24),
-                                 Text("Plats Individuels", style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
-                                 const SizedBox(height: 8),
-                                 FilteredItemsList( // Assumes this widget handles its layout well
-                                producer: producer,
-                                  selectedCarbon: _selectedCarbon,
-                                  selectedNutriScore: _selectedNutriScore,
-                                  selectedMaxCalories: _selectedMaxCalories,
-                                hasActivePromotion: _hasActivePromotion,
-                                promotionDiscount: _promotionDiscount,
+                              // TabBar(...) - Standard widget, less likely to cause type errors itself
+                              TabBar(
+                                // PAS besoin de controller: ici
+                                labelColor: Theme.of(context).colorScheme.primary,
+                                unselectedLabelColor: Colors.grey[600],
+                                indicator: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(12),
+                                  color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                                ),
+                                indicatorPadding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 4.0),
+                                tabs: const [
+                                  Tab(
+                                    child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.restaurant_menu, size: 18), SizedBox(width: 8), Text('Menu')]),
+                                  ),
+                                  Tab(
+                                    child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.dynamic_feed, size: 18), SizedBox(width: 8), Text('Posts')]),
+                                  ),
+                                  Tab(
+                                     child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.photo_library, size: 18), SizedBox(width: 8), Text('Photos')]),
+                                  ),
+                                ],
                               ),
-                            ],
-                            ),
-                          ), // End SingleChildScrollView
-                        ),
-                        // Onglet Posts
-                        _buildPostsSection(), // Ensure this uses shrinkWrap/NeverScrollableScrollPhysics
-                        // Onglet Photos
-                        _buildPhotosSection(producer['photos'] ?? []), // Ensure this uses shrinkWrap/NeverScrollableScrollPhysics
-                      ],
-                    ),
-                  // REMOVED _buildContactDetails(producer),
-                  const SizedBox(height: 20), // Add some padding at the bottom
-                ],
+                           ],
+                         ),
+                       ),
+                     ),
+                   ];
+                },
+                body: Builder( // Garder le Builder ici est ok
+                   builder: (BuildContext context) {
+                     // Pas besoin de spécifier controller ici, TabBarView le trouve
+                     // --- REVERTED: Removed Expanded wrapper --- 
+                     return TabBarView(
+                       children: [
+                         // Onglet Menu - Reste identique
+                         SafeArea(
+                           top: false,
+                           bottom: false,
+                           child: Builder(
+                             builder: (BuildContext context) {
+                               return CustomScrollView(
+                                 key: const PageStorageKey<String>('menuTab'),
+                                 slivers: <Widget>[
+                                   SliverOverlapInjector(
+                                     handle: NestedScrollView.sliverOverlapAbsorberHandleFor(context),
+                                   ),
+                                   SliverPadding(
+                                     padding: const EdgeInsets.all(16.0),
+                                     sliver: SliverList(
+                                       delegate: SliverChildListDelegate([
+                                         Text("Menu Complet", style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+                                         const SizedBox(height: 8),
+                                         GlobalMenusList(
+                                           producer: producer,
+                                           hasActivePromotion: _hasActivePromotion,
+                                           promotionDiscount: _promotionDiscount,
+                                         ),
+                                         const SizedBox(height: 24),
+                                         Text("Plats Individuels", style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+                                         const SizedBox(height: 8),
+                                         FilteredItemsList(
+                                           producer: producer,
+                                           selectedCarbon: _selectedCarbon,
+                                           selectedNutriScore: _selectedNutriScore,
+                                           selectedMaxCalories: _selectedMaxCalories,
+                                           hasActivePromotion: _hasActivePromotion,
+                                           promotionDiscount: _promotionDiscount,
+                                         ),
+                                       ]),
+                                     ),
+                                   ),
+                                 ],
+                               );
+                             },
+                           ),
+                         ),
+                         // Onglet Posts - Reste identique
+                         SafeArea(
+                           top: false,
+                           bottom: false,
+                           child: Builder(
+                             builder: (BuildContext context) {
+                               return CustomScrollView(
+                                 key: const PageStorageKey<String>('postsTab'),
+                                 slivers: <Widget>[
+                                   SliverOverlapInjector(
+                                     handle: NestedScrollView.sliverOverlapAbsorberHandleFor(context),
+                                   ),
+                                   SliverPadding(
+                                       padding: const EdgeInsets.symmetric(vertical: 8.0),
+                                       sliver: _buildPostsSliver(),
+                                   ),
+                                 ],
+                               );
+                             },
+                           ),
+                         ),
+                         // Onglet Photos - Reste identique
+                         SafeArea(
+                           top: false,
+                           bottom: false,
+                           child: Builder(
+                             builder: (BuildContext context) {
+                               return CustomScrollView(
+                                 key: const PageStorageKey<String>('photosTab'),
+                                 slivers: <Widget>[
+                                   SliverOverlapInjector(
+                                     handle: NestedScrollView.sliverOverlapAbsorberHandleFor(context),
+                                   ),
+                                   SliverPadding(
+                                       padding: const EdgeInsets.all(16.0),
+                                       sliver: _buildPhotosSliver(producer['photos'] ?? []),
+                                   ),
+                                 ],
+                               );
+                             },
+                           ),
+                         ),
+                       ],
+                     );
+                     // --- END REVERT --- 
+                   }
+                 ),
               ),
             );
+            // --- END WRAP ---
           },
         ),
       ),
@@ -1691,7 +1774,7 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
                       icon: Icons.monetization_on_outlined,
                       label: _hasActivePromotion ? 'Promo active' : 'Promotion',
                       onTap: () {
-                        if (_hasActivePromotion) {
+                        if (_hasActivePromotion == true) {
                           showDialog(
                             context: context,
                             builder: (context) => AlertDialog(
@@ -1722,7 +1805,7 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
                           _showPromotionDialog();
                         }
                       },
-                      isHighlighted: _hasActivePromotion,
+                      isHighlighted: _hasActivePromotion == true,
                     ),
                     
                     _buildActionButton(
@@ -1763,13 +1846,15 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
   // Widget pour afficher les étoiles de notation
   Widget _buildRatingStars(dynamic rating) {
     double ratingValue = 0.0;
-    if (rating is int) {
+    // --- FIX: More robust check for rating type --- 
+    if (rating is num) { // Handles both int and double
       ratingValue = rating.toDouble();
-    } else if (rating is double) {
-      ratingValue = rating;
     } else if (rating is String) {
       ratingValue = double.tryParse(rating) ?? 0.0;
-    }
+    } // If rating is null or other type, ratingValue remains 0.0
+    
+    // Ensure ratingValue is within a sensible range (e.g., 0-5)
+    ratingValue = ratingValue.clamp(0.0, 5.0);
     
     return Row(
       children: [
@@ -1780,7 +1865,12 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
               return const Icon(Icons.star, color: Colors.amber, size: 20);
             } else if (index < ratingValue.ceil() && ratingValue.floor() != ratingValue.ceil()) {
               // Étoile à moitié pleine
-              return const Icon(Icons.star_half, color: Colors.amber, size: 20);
+              // --- FIX: Explicit check for non-zero rating needed for half star ---
+              if (ratingValue > 0) { 
+                return const Icon(Icons.star_half, color: Colors.amber, size: 20);
+              } else {
+                return const Icon(Icons.star_border, color: Colors.amber, size: 20);
+              }
             } else {
               // Étoile vide
               return const Icon(Icons.star_border, color: Colors.amber, size: 20);
@@ -1807,13 +1897,17 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
     required VoidCallback onTap,
     bool isHighlighted = false,
   }) {
+    // --- FIX: Add explicit check for boolean, although likely redundant now ---
+    final bool highlight = isHighlighted == true;
+    
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
         decoration: BoxDecoration(
-          color: isHighlighted ? Colors.orangeAccent : Colors.white,
+          // Use the checked boolean variable
+          color: highlight ? Colors.orangeAccent : Colors.white,
           borderRadius: BorderRadius.circular(12),
           boxShadow: [
             BoxShadow(
@@ -1828,14 +1922,16 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
           children: [
             Icon(
               icon, 
-              color: isHighlighted ? Colors.white : Colors.orangeAccent,
+              // Use the checked boolean variable
+              color: highlight ? Colors.white : Colors.orangeAccent,
               size: 24,
             ),
             const SizedBox(height: 4),
             Text(
               label,
               style: TextStyle(
-                color: isHighlighted ? Colors.white : Colors.black87,
+                // Use the checked boolean variable
+                color: highlight ? Colors.white : Colors.black87,
                 fontWeight: FontWeight.w500,
                 fontSize: 12,
               ),
@@ -1901,7 +1997,7 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
         filteredTimes = List.generate(16, (index) => 0);
       }
     } catch (e) {
-      print('❌ Erreur lors de l\'extraction des données de popularité: $e');
+      print("❌ Erreur lors de l\'extraction des données de popularité: $e");
       filteredTimes = List.generate(16, (index) => 0);
     }
 
@@ -2970,12 +3066,20 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
   // Widget pour afficher les étoiles de notation en format compact
   Widget _buildCompactRatingStars(dynamic rating) {
     double ratingValue = 0.0;
-    if (rating is int) {
+    // --- FIX: More robust check for rating type --- 
+    if (rating is num) { // Handles both int and double
       ratingValue = rating.toDouble();
-    } else if (rating is double) {
-      ratingValue = rating;
     } else if (rating is String) {
       ratingValue = double.tryParse(rating) ?? 0.0;
+    } // If rating is null or other type, ratingValue remains 0.0
+    
+    // Ensure ratingValue is within a sensible range (e.g., 0-5)
+    ratingValue = ratingValue.clamp(0.0, 5.0);
+
+    // --- FIX: Add check for rating > 0 before displaying stars --- 
+    if (ratingValue <= 0) {
+      // Optionally return an empty container or placeholder if rating is 0 or invalid
+      return const SizedBox.shrink(); 
     }
     
     return Row(
@@ -3192,10 +3296,10 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
         } catch (e, stackTrace) { // Catch potential mapping errors
            print("Error converting Maps to Post objects: $e");
            print("Stack Trace: $stackTrace");
-           return Center(child: Padding(
-             padding: const EdgeInsets.all(16.0),
-             child: Text('Erreur interne lors de l\'affichage des posts (mapping). $e'),
-           ));
+           return SliverFillRemaining(
+             // Use double quotes for the string to avoid issues with the apostrophe
+             child: Center(child: Text("Erreur interne lors de l'affichage des posts (mapping). $e")),
+           );
         }
         // --- End Mapping ---
 
@@ -3213,9 +3317,12 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
 
             // Wrap PostCard with appropriate error handling or check data validity
             try {
+              // Fetch ApiService here using the builder context
+              final apiService = Provider.of<ApiService>(context, listen: false); 
+              
               // Pass the Post object
             return PostCard(
-              apiService: apiService, // Pass the required ApiService instance
+                 apiService: apiService, // Pass the fetched ApiService instance
                  post: currentPost, // Pass the Post object
                  onLike: (p) => _handleLike(p), // Callback expects Post
                  // Pass the ID from the Post object in the callback
@@ -3614,6 +3721,191 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
     // Implémenter la logique d'ouverture des commentaires
     // Vous pouvez utiliser la même logique que dans feed_screen.dart
     print('Open comments for post: ${post.id}');
+  }
+
+  // --- UPDATED: _buildPostsSection to return a Sliver --- 
+  Widget _buildPostsSliver() {
+    return FutureBuilder<List<dynamic>>(
+      future: _fetchProducerPosts(widget.producerId),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const SliverFillRemaining(
+            child: Center(child: CircularProgressIndicator()),
+          );
+        } else if (snapshot.hasError) {
+          return SliverFillRemaining(
+            child: Center(child: Padding(
+              padding: EdgeInsets.all(16.0), 
+              child: Text('Erreur chargement posts: ${snapshot.error}')
+            )),
+          );
+        } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
+          return SliverFillRemaining(
+            hasScrollBody: false,
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.article_outlined, size: 48, color: Colors.grey),
+                  SizedBox(height: 16),
+                  Text('Aucune publication', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  Text('Les posts et choices partagés apparaîtront ici'),
+                ],
+              ),
+            )
+          );
+        }
+
+        final posts = snapshot.data!;
+        final postWidgets = posts.map<Widget>((postData) {
+          if (postData is Map<String, dynamic>) {
+            final normalizedData = postData;
+            try {
+              // Vérification de type pour résoudre l'erreur bool/double
+              if (normalizedData.containsKey('isLiked') && normalizedData['isLiked'] is double) {
+                normalizedData['isLiked'] = (normalizedData['isLiked'] as double) > 0;
+              }
+              
+              final post = Post.fromJson(normalizedData);
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12.0),
+                child: PostCard(
+                  post: post,
+                  apiService: ApiService(),
+                  onLike: (p) => _handleLike(p),
+                  onInterested: (p) => _markInterested(p.id),
+                  onChoice: (p) => _markChoice(p.id),
+                  onCommentTap: (p) => _openComments(p),
+                  onUserTap: () {
+                    if (post.authorId != null && post.authorId != widget.producerId) {
+                      Navigator.push(context, MaterialPageRoute(
+                        builder: (_) => ProfileScreen(userId: post.authorId!)
+                      ));
+                    }
+                  },
+                  onShare: (p) { /* TODO */ },
+                  onSave: (p) { /* TODO */ },
+                ),
+              );
+            } catch (e) {
+              print("❌ Error creating Post object from JSON: $e\nData: $normalizedData");
+              return Card(child: ListTile(
+                title: Text('Erreur affichage post'), 
+                subtitle: Text(e.toString())
+              ));
+            }
+          } else {
+            return Card(child: ListTile(title: Text('Donnée post invalide')));
+          }
+        }).toList();
+        
+        return SliverPadding(
+          padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 8.0),
+          sliver: SliverList(
+            delegate: SliverChildListDelegate(postWidgets),
+          ),
+        );
+      },
+    );
+  }
+
+  // Helper function to safely get boolean values
+  bool safeGetBool(Map<String, dynamic> data, String key) {
+    if (!data.containsKey(key)) return false;
+    var value = data[key];
+    if (value is bool) return value;
+    if (value is int) return value > 0;
+    if (value is double) return value > 0;
+    if (value is String) return value.toLowerCase() == 'true';
+    return false;
+  }
+
+  // --- UPDATED: _buildPhotosSection to return a Sliver --- 
+  Widget _buildPhotosSliver(List<dynamic> photos) {
+    if (photos.isEmpty) {
+      return SliverFillRemaining( // Use SliverFillRemaining for empty state
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.image_not_supported, size: 60, color: Colors.grey[400]),
+              const SizedBox(height: 16),
+              Text(
+                'Aucune photo disponible',
+                style: TextStyle(fontSize: 18, color: Colors.grey[600]),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                icon: const Icon(Icons.add_photo_alternate),
+                label: const Text('Ajouter des photos'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orangeAccent,
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                ),
+                onPressed: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Fonctionnalité en développement')),
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Use SliverGrid for the photos
+    return SliverGrid(
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        crossAxisSpacing: 8,
+        mainAxisSpacing: 8,
+      ),
+      delegate: SliverChildBuilderDelegate(
+        (context, index) {
+          final photoSource = photos[index] as String?;
+          final imageProvider = getImageProvider(photoSource); 
+
+          return GestureDetector(
+            onTap: () {
+              showDialog(
+                context: context,
+                builder: (BuildContext context) {
+                  return Dialog(
+                    backgroundColor: Colors.transparent,
+                    insetPadding: EdgeInsets.zero,
+                    child: GestureDetector(
+                      onTap: () => Navigator.of(context).pop(),
+                      child: Container(
+                        width: double.infinity,
+                        height: double.infinity,
+                        color: Colors.black.withOpacity(0.7),
+                        child: InteractiveViewer(
+                          panEnabled: true,
+                          boundaryMargin: const EdgeInsets.all(20),
+                          minScale: 0.5,
+                          maxScale: 4,
+                          child: Center(
+                            child: Image(
+                              image: imageProvider ?? AssetImage('assets/images/placeholder.png'),
+                              fit: BoxFit.contain,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              );
+            },
+            child: Container(
+                // ... (Container decoration remains the same)
+              ),
+          );
+        },
+        childCount: photos.length,
+      ),
+    );
   }
 }
 

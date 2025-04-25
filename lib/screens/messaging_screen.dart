@@ -14,6 +14,9 @@ import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import 'conversation_detail_screen.dart';
 import '../services/conversation_service.dart';
 import '../services/notification_service.dart';
+import '../services/call_service.dart';
+import '../screens/video_call_screen.dart';
+import '../widgets/incoming_call_overlay.dart';
 import 'group_creation_screen.dart';
 import '../models/contact.dart';
 import 'package:choice_app/screens/profile_screen.dart';
@@ -27,6 +30,7 @@ import '../widgets/messaging_search_widget.dart';
 import '../widgets/contact_list_tile.dart';
 import '../widgets/empty_state_widget.dart';
 import '../utils.dart' show getImageProvider, getColorForType, getIconForType, getTextForType;
+import 'package:flutter/gestures.dart';
 
 class MessagingScreen extends StatefulWidget {
   final String userId;
@@ -44,6 +48,7 @@ class _MessagingScreenState extends State<MessagingScreen>
   final TextEditingController _searchController = TextEditingController();
   final ConversationService _conversationService = ConversationService();
   final NotificationService _notificationService = NotificationService();
+  final CallService _callService = CallService();
   final FocusNode _searchFocusNode = FocusNode();
   
   List<Map<String, dynamic>> _conversations = [];
@@ -74,6 +79,13 @@ class _MessagingScreenState extends State<MessagingScreen>
   String _apiSearchError = '';
   Timer? _debounce;
   
+  // --- Incoming Call State ---
+  Map<String, dynamic>? _incomingCall;
+  OverlayEntry? _incomingCallOverlay;
+  
+  // Add hashtagRegExp
+  final RegExp hashtagRegExp = RegExp(r'\B#([a-zA-Z0-9_]+\b)(?!;)');
+  
   @override
   void initState() {
     super.initState();
@@ -89,6 +101,7 @@ class _MessagingScreenState extends State<MessagingScreen>
     }
     _initWebSocket();
     _searchController.addListener(_onSearchChanged);
+    _initCallService();
   }
 
   void _handleTabChange() {
@@ -278,6 +291,8 @@ class _MessagingScreenState extends State<MessagingScreen>
 
   @override
   void dispose() {
+    _hideIncomingCallOverlay();
+    _callService.disconnectSocket();
     _debounce?.cancel();
     _searchController.removeListener(_onSearchChanged);
     _tabController.removeListener(_handleTabChange);
@@ -726,6 +741,9 @@ class _MessagingScreenState extends State<MessagingScreen>
     final String heroTag = 'avatar_$conversationId';
     final Key dismissibleKey = Key('conversation_$conversationId');
 
+    // Process hashtags
+    Widget messagePreview = _buildMessagePreviewWithHashtags(lastMessage, textColor.withOpacity(hasUnread ? 0.9 : 0.7), primaryColor, hasUnread);
+
     final Color cardBgColor = _isDarkMode ? const Color(0xFF1E1E1E) : Colors.white;
     final Color tileHighlightColor = primaryColor.withOpacity(0.08); // More subtle highlight
 
@@ -891,15 +909,7 @@ class _MessagingScreenState extends State<MessagingScreen>
                                       const SizedBox(width: 4),
                                       _buildTypingIndicator(primaryColor),
                                     ])
-                                  : Text(
-                                      lastMessage,
-                                      style: GoogleFonts.poppins(
-                                        color: textColor.withOpacity(hasUnread ? 0.9 : 0.7), // Slightly darker if unread
-                                        fontWeight: hasUnread ? FontWeight.w500 : FontWeight.normal,
-                                        fontSize: 14,
-                                      ),
-                                      maxLines: 1, overflow: TextOverflow.ellipsis,
-                                    ),
+                                  : messagePreview,
                             ),
                             const SizedBox(width: 4), // Add spacing before icons
                             if (isMuted) Icon(Icons.volume_off_outlined, size: 16, color: textColor.withOpacity(0.5)), // Use outlined
@@ -919,6 +929,40 @@ class _MessagingScreenState extends State<MessagingScreen>
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
+                              ),
+                            // Add call buttons if this is a 1:1 conversation
+                            if (!isGroup && otherParticipantId.isNotEmpty)
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  // Audio call button
+                                  IconButton(
+                                    icon: Icon(Icons.call, size: 18, color: primaryColor),
+                                    padding: EdgeInsets.zero,
+                                    constraints: BoxConstraints(),
+                                    onPressed: () => _startCall(
+                                      otherParticipantId, 
+                                      'audio',
+                                      conversationId: conversationId,
+                                      isProducer: isRestaurant || isLeisure
+                                    ),
+                                    tooltip: 'Audio Call',
+                                  ),
+                                  SizedBox(width: 8),
+                                  // Video call button
+                                  IconButton(
+                                    icon: Icon(Icons.videocam, size: 18, color: primaryColor),
+                                    padding: EdgeInsets.zero,
+                                    constraints: BoxConstraints(),
+                                    onPressed: () => _startCall(
+                                      otherParticipantId, 
+                                      'video',
+                                      conversationId: conversationId,
+                                      isProducer: isRestaurant || isLeisure
+                                    ),
+                                    tooltip: 'Video Call',
+                                  ),
+                                ],
                               ),
                           ],
                         ),
@@ -1440,6 +1484,392 @@ class _MessagingScreenState extends State<MessagingScreen>
   }
 
   Color get primaryColor => _isDarkMode ? Colors.purple[200]! : Colors.deepPurple;
+
+  // Initialize call service and listeners
+  void _initCallService() async {
+    // Call initialize without parameters
+    await _callService.initializeSocket();
+    
+    // Listen for incoming calls
+    _callService.incomingCallStream.listen((callData) {
+      print('📞 Incoming call received: $callData');
+      setState(() {
+        _incomingCall = callData;
+      });
+      _showIncomingCallOverlay(callData);
+    });
+    
+    // Listen for call ended events
+    _callService.callEndedStream.listen((data) {
+      print('📞 Call ended: $data');
+      _hideIncomingCallOverlay();
+      // Could show a snackbar or other notification that the call ended
+    });
+    
+    // Listen for call rejected events
+    _callService.callRejectedStream.listen((data) {
+      print('📞 Call rejected: $data');
+      // Could show a snackbar that the call was rejected
+    });
+  }
+  
+  // Show incoming call overlay
+  void _showIncomingCallOverlay(Map<String, dynamic> callData) {
+    final callId = callData['callId'];
+    final initiator = callData['initiator'];
+    final callerName = initiator['name'] ?? 'Unknown Caller';
+    final callerAvatar = initiator['profilePicture'];
+    final callType = callData['type'] ?? 'video';
+    
+    // Remove existing overlay if any
+    _hideIncomingCallOverlay();
+    
+    _incomingCallOverlay = OverlayEntry(
+      builder: (context) => IncomingCallOverlay(
+        callId: callId,
+        callerName: callerName,
+        callerAvatar: callerAvatar,
+        callType: callType,
+        onAccept: () {
+          _acceptCall(callData);
+        },
+        onDecline: () {
+          _declineCall(callData);
+        },
+      ),
+    );
+    
+    Overlay.of(context)?.insert(_incomingCallOverlay!);
+  }
+  
+  // Hide incoming call overlay
+  void _hideIncomingCallOverlay() {
+    _incomingCallOverlay?.remove();
+    _incomingCallOverlay = null;
+    setState(() {
+      _incomingCall = null;
+    });
+  }
+  
+  // Accept incoming call
+  void _acceptCall(Map<String, dynamic> callData) {
+    final callId = callData['callId'];
+    final initiator = callData['initiator'];
+    final callType = callData['type'] ?? 'video';
+    
+    _hideIncomingCallOverlay();
+    
+    _callService.joinCall(callId).then((response) {
+      // Navigate to call screen
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => VideoCallScreen(
+            conversationId: callId,
+            userId: widget.userId,
+            recipientName: initiator['name'] ?? 'Caller',
+            recipientAvatar: initiator['profilePicture'] ?? '',
+            isGroup: false, // Update if group calls are supported
+          ),
+        ),
+      );
+    }).catchError((error) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to join call: $error')),
+      );
+    });
+  }
+  
+  // Decline incoming call
+  void _declineCall(Map<String, dynamic> callData) {
+    final callId = callData['callId'];
+    
+    _hideIncomingCallOverlay();
+    
+    _callService.declineCall(callId).then((_) {
+      // Optional: Show a snackbar that the call was declined
+    }).catchError((error) {
+      print('Error declining call: $error');
+    });
+  }
+  
+  // Start a new call
+  void _startCall(String recipientId, String type, {String? conversationId, bool isProducer = false}) {
+    // Determine recipient IDs based on whether we're calling a producer or user
+    List<String> recipientIds = [recipientId];
+    
+    // Show loading indicator
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          content: Row(
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(width: 16),
+              Text('Initiating call...'),
+            ],
+          ),
+        );
+      },
+    );
+    
+    // Call the service
+    _callService.initiateCall(
+      conversationId: conversationId,
+      recipientIds: recipientIds,
+      type: type,
+    ).then((response) {
+      // Close loading dialog
+      Navigator.pop(context);
+      
+      if (response['success'] == true) {
+        final callId = response['callId'];
+        final recipients = response['recipients'];
+        String recipientName = 'Unknown';
+        String? recipientAvatar;
+        
+        if (recipients != null && recipients.isNotEmpty) {
+          recipientName = recipients[0]['name'] ?? 'Contact';
+          recipientAvatar = recipients[0]['profilePicture'];
+        }
+        
+        // Navigate to call screen
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => VideoCallScreen(
+              conversationId: callId,
+              userId: widget.userId,
+              recipientName: recipientName,
+              recipientAvatar: recipientAvatar ?? '',
+              isGroup: false, // Would be true for group calls
+            ),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to initiate call')),
+        );
+      }
+    }).catchError((error) {
+      // Close loading dialog
+      Navigator.pop(context);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error initiating call: $error')),
+      );
+    });
+  }
+
+  // Build a rich text widget with clickable hashtags
+  Widget _buildMessagePreviewWithHashtags(String message, Color textColor, Color hashtagColor, bool isBold) {
+    // If no hashtags, return a regular text widget
+    if (!message.contains('#')) {
+      return Text(
+        message,
+        style: GoogleFonts.poppins(
+          color: textColor,
+          fontWeight: isBold ? FontWeight.w500 : FontWeight.normal,
+          fontSize: 14,
+        ),
+        maxLines: 1, 
+        overflow: TextOverflow.ellipsis,
+      );
+    }
+    
+    // Split the message to extract hashtags
+    List<TextSpan> textSpans = [];
+    int lastIndex = 0;
+    
+    for (final match in hashtagRegExp.allMatches(message)) {
+      // Add text before hashtag
+      if (match.start > lastIndex) {
+        textSpans.add(TextSpan(
+          text: message.substring(lastIndex, match.start),
+          style: TextStyle(
+            color: textColor,
+            fontWeight: isBold ? FontWeight.w500 : FontWeight.normal,
+          ),
+        ));
+      }
+      
+      // Add the hashtag with special styling
+      final hashtag = message.substring(match.start, match.end);
+      textSpans.add(TextSpan(
+        text: hashtag,
+        style: TextStyle(
+          color: hashtagColor,
+          fontWeight: FontWeight.bold,
+        ),
+        recognizer: TapGestureRecognizer()
+          ..onTap = () => _onHashtagTapped(hashtag.substring(1)), // Remove # prefix
+      ));
+      
+      lastIndex = match.end;
+    }
+    
+    // Add any remaining text after the last hashtag
+    if (lastIndex < message.length) {
+      textSpans.add(TextSpan(
+        text: message.substring(lastIndex),
+        style: TextStyle(
+          color: textColor,
+          fontWeight: isBold ? FontWeight.w500 : FontWeight.normal,
+        ),
+      ));
+    }
+    
+    return RichText(
+      text: TextSpan(children: textSpans),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+    );
+  }
+
+  // Handle hashtag taps
+  void _onHashtagTapped(String hashtag) {
+    print('Hashtag tapped: #$hashtag');
+    
+    // Show a bottom sheet with hashtag details
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: _isDarkMode ? Colors.grey[900] : Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.4,
+        minChildSize: 0.2,
+        maxChildSize: 0.9,
+        expand: false,
+        builder: (context, scrollController) => Column(
+          children: [
+            Container(
+              padding: EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.tag,
+                    color: primaryColor,
+                    size: 28,
+                  ),
+                  SizedBox(width: 10),
+                  Text(
+                    '#$hashtag',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: _isDarkMode ? Colors.white : Colors.black,
+                    ),
+                  ),
+                  Spacer(),
+                  IconButton(
+                    icon: Icon(Icons.close),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+            Divider(),
+            Expanded(
+              child: FutureBuilder(
+                future: _searchPostsByHashtag(hashtag),
+                builder: (context, AsyncSnapshot<List<dynamic>> snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return Center(child: CircularProgressIndicator());
+                  } else if (snapshot.hasError) {
+                    return Center(
+                      child: Text(
+                        'Error loading hashtag data',
+                        style: TextStyle(color: Colors.red),
+                      ),
+                    );
+                  } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                    return Center(
+                      child: Text(
+                        'No posts found with #$hashtag',
+                        style: TextStyle(
+                          color: _isDarkMode ? Colors.grey[400] : Colors.grey[600],
+                        ),
+                      ),
+                    );
+                  } else {
+                    return ListView.builder(
+                      controller: scrollController,
+                      itemCount: snapshot.data!.length,
+                      itemBuilder: (context, index) {
+                        final post = snapshot.data![index];
+                        return ListTile(
+                          leading: CircleAvatar(
+                            backgroundImage: getImageProvider(post['authorAvatar'] ?? ''),
+                          ),
+                          title: Text(
+                            post['authorName'] ?? 'User',
+                            style: TextStyle(
+                              color: _isDarkMode ? Colors.white : Colors.black,
+                            ),
+                          ),
+                          subtitle: Text(
+                            post['content'] ?? '',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: _isDarkMode ? Colors.grey[400] : Colors.grey[600],
+                            ),
+                          ),
+                          onTap: () {
+                            // Navigate to post details if implemented
+                            Navigator.pop(context);
+                          },
+                        );
+                      },
+                    );
+                  }
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Mock function to search posts by hashtag (replace with actual API call)
+  Future<List<dynamic>> _searchPostsByHashtag(String hashtag) async {
+    // In a real app, you would call your API here
+    // For now, return mock data
+    await Future.delayed(Duration(seconds: 1)); // Simulate network delay
+    
+    return [
+      {
+        'id': '1',
+        'authorName': 'John Doe',
+        'authorAvatar': '',
+        'content': 'Check out this amazing place! #$hashtag #travel',
+        'likes': 15,
+        'comments': 3,
+      },
+      {
+        'id': '2',
+        'authorName': 'Jane Smith',
+        'authorAvatar': '',
+        'content': 'Having a great time at the new restaurant! #foodie #$hashtag',
+        'likes': 27,
+        'comments': 8,
+      },
+      {
+        'id': '3',
+        'authorName': 'Alex Johnson',
+        'authorAvatar': '',
+        'content': 'Beautiful day for outdoor activities! #sunshine #nature #$hashtag',
+        'likes': 42,
+        'comments': 5,
+      },
+    ];
+  }
 }
 
 // Widget séparé pour l'animation du point de frappe

@@ -72,7 +72,7 @@ class Post {
   final bool? isChoice;
   final bool? isProducerPost;
   final bool? isLeisureProducer;
-  final bool? isBeautyProducer;  // Ajout du type beauté
+  final bool? isWellnessProducer;
   final bool? isRestaurationProducer;  // Ajout du type restauration
   final bool? isAutomated;
   final String? targetId;
@@ -140,7 +140,7 @@ class Post {
     this.isChoice,
     this.isProducerPost,
     this.isLeisureProducer,
-    this.isBeautyProducer,
+    this.isWellnessProducer,
     this.isRestaurationProducer,
     this.isAutomated,
     this.targetId,
@@ -172,20 +172,21 @@ class Post {
   String get post_content => content ?? description;
   
   // Ajouter un getter pour producerType
-  String? get producerType {
-    if (isBeautyProducer == true) return 'wellness';
+  String get producerType {
+    if (isProducerPost == true) return 'restaurant';
     if (isLeisureProducer == true) return 'leisure';
-    if (isRestaurationProducer == true || isProducerPost == true) return 'restaurant';
-    return type;
+    if (isWellnessProducer == true) return 'wellness';
+    return 'user';
   }
   
   // Accesseurs pour déterminer le type de producteur
   bool get isRestaurantProducer => isRestaurationProducer ?? false;
-  bool get isBeautyPlace => isBeautyProducer ?? false;
+  bool get isBeautyPlace => isWellnessProducer ?? false;
+  bool get isBeautyProducer => isWellnessProducer ?? false;
   
   // Méthode pour obtenir la couleur correspondante au type de post
   Color getTypeColor() {
-    if (isBeautyProducer == true || isBeautyPlace == true) {
+    if (isWellnessProducer == true || isBeautyPlace == true) {
       return Colors.green.shade700;  // Vert pour beauté/bien-être
     } else if (isLeisureProducer == true) {
       return Colors.purple.shade700;  // Violet pour loisir
@@ -198,7 +199,7 @@ class Post {
   
   // Méthode pour obtenir l'icône correspondante au type de post
   IconData getTypeIcon() {
-    if (isBeautyProducer == true) {
+    if (isWellnessProducer == true) {
       return Icons.spa;  // Icône de spa pour beauté/bien-être
     } else if (isLeisureProducer == true) {
       return Icons.local_activity;  // Icône d'activité pour loisir
@@ -211,7 +212,7 @@ class Post {
   
   // Méthode pour obtenir le libellé du type de post
   String getTypeLabel() {
-    if (isBeautyProducer == true) {
+    if (isWellnessProducer == true) {
       return 'Bien-être';
     } else if (isLeisureProducer == true) {
       return 'Loisir';
@@ -245,7 +246,7 @@ class Post {
       case 'isChoice': case 'choice': return isChoice;
       case 'isProducerPost': case 'is_producer_post': return isProducerPost;
       case 'isLeisureProducer': case 'is_leisure_producer': return isLeisureProducer;
-      case 'isBeautyProducer': case 'is_beauty_producer': case 'beauty_producer': return isBeautyProducer;
+      case 'isWellnessProducer': case 'is_wellness_producer': return isWellnessProducer;
       case 'isRestaurationProducer': case 'is_restauration_producer': return isRestaurationProducer;
       case 'isAutomated': case 'is_automated': return isAutomated;
       case 'targetId': case 'target_id': return targetId;
@@ -276,7 +277,7 @@ class Post {
       'interestedCount', 'entity_interests_count', 'choiceCount', 'entity_choices_count',
       'isInterested', 'interested', 'isChoice', 'choice',
       'isProducerPost', 'is_producer_post', 'isLeisureProducer', 'is_leisure_producer',
-      'isBeautyProducer', 'is_beauty_producer', 'beauty_producer',
+      'isWellnessProducer', 'is_wellness_producer', 'wellness_producer',
       'isRestaurationProducer', 'is_restauration_producer',
       'isAutomated', 'is_automated', 'targetId', 'target_id',
       'referencedEventId', 'referenced_event_id', 'title', 'subtitle', 'media', 'posts',
@@ -326,9 +327,9 @@ class Post {
 
     // Champs de type
     final bool isLeisureProducer = json['isLeisureProducer'] == true || json['is_leisure_producer'] == true || json['type'] == 'event_producer';
-    final bool isBeautyProducer = json['isBeautyProducer'] == true || json['is_beauty_producer'] == true || json['type'] == 'beauty_producer';
+    final bool isWellnessProducer = json['isWellnessProducer'] == true || json['is_wellness_producer'] == true || json['type'] == 'wellness_producer' || json['isBeautyProducer'] == true || json['is_beauty_producer'] == true || json['type'] == 'beauty_producer';
     final bool isRestaurationProducer = json['isRestaurationProducer'] == true || json['is_restauration_producer'] == true || json['type'] == 'restaurant_producer';
-    final bool isProducerPost = json['isProducerPost'] == true || json['is_producer_post'] == true || isLeisureProducer || isBeautyProducer || isRestaurationProducer;
+    final bool isProducerPost = json['isProducerPost'] == true || json['is_producer_post'] == true || isLeisureProducer || isWellnessProducer || isRestaurationProducer;
     final bool isUserPost = json['user_id'] != null && !isProducerPost;
 
     return Post(
@@ -355,7 +356,7 @@ class Post {
       isChoice: json['isChoice'] ?? json['choice'],
       isProducerPost: isProducerPost,
       isLeisureProducer: isLeisureProducer,
-      isBeautyProducer: isBeautyProducer,
+      isWellnessProducer: isWellnessProducer,
       isRestaurationProducer: isRestaurationProducer,
       isAutomated: json['isAutomated'] ?? json['is_automated'],
       targetId: json['target_id']?.toString() ?? json['targetId']?.toString(),
@@ -426,9 +427,9 @@ class Post {
       'is_producer_post': isProducerPost,
       'isLeisureProducer': isLeisureProducer,
       'is_leisure_producer': isLeisureProducer,
-      'isBeautyProducer': isBeautyProducer,
-      'is_beauty_producer': isBeautyProducer,
-      'beauty_producer': isBeautyProducer,
+      'isWellnessProducer': isWellnessProducer,
+      'is_wellness_producer': isWellnessProducer,
+      'wellness_producer': isWellnessProducer,
       'isRestaurationProducer': isRestaurationProducer,
       'is_restauration_producer': isRestaurationProducer,
       'isAutomated': isAutomated,
@@ -472,7 +473,7 @@ class Post {
     bool? isChoice,
     bool? isProducerPost,
     bool? isLeisureProducer,
-    bool? isBeautyProducer,
+    bool? isWellnessProducer,
     bool? isRestaurationProducer,
     bool? isAutomated,
     String? targetId,
@@ -516,7 +517,7 @@ class Post {
       isChoice: isChoice ?? this.isChoice,
       isProducerPost: isProducerPost ?? this.isProducerPost,
       isLeisureProducer: isLeisureProducer ?? this.isLeisureProducer,
-      isBeautyProducer: isBeautyProducer ?? this.isBeautyProducer,
+      isWellnessProducer: isWellnessProducer ?? this.isWellnessProducer,
       isRestaurationProducer: isRestaurationProducer ?? this.isRestaurationProducer,
       isAutomated: isAutomated ?? this.isAutomated,
       targetId: targetId ?? this.targetId,

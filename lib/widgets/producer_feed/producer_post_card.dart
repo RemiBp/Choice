@@ -3,6 +3,9 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:visibility_detector/visibility_detector.dart';
 import 'package:video_player/video_player.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
+import 'package:like_button/like_button.dart'; // Using like_button package
+import 'package:provider/provider.dart'; // <<< ADDED
 
 import '../../models/post.dart'; // Assuming Post model path
 import '../../models/comment.dart'; // Assuming Comment model path
@@ -12,10 +15,12 @@ import '../../screens/producerLeisure_screen.dart'; // For navigation
 import '../../screens/wellness_producer_screen.dart'; // For navigation
 import '../../screens/profile_screen.dart'; // For navigation
 import '../../screens/reels_view_screen.dart'; // For reels view
+import '../../screens/post_detail_screen.dart'; // <<< ADDED
+import '../../services/api_service.dart'; // <<< ADDED
 // Import other necessary screens or services
-// import '../../screens/post_detail_screen.dart'; // Example
 // Correct import path for local widget
 import '../choice_carousel.dart';
+import 'package:intl/intl.dart'; // For date formatting
 
 // --- REMOVED HELPER FUNCTIONS (Moved to utils.dart) ---
 // Color _getPostTypeColor(dynamic post) { ... }
@@ -30,6 +35,7 @@ class ProducerPostCard extends StatefulWidget {
   final String currentUserId;
   final Function(dynamic) onLike;
   final Function(dynamic) onComment;
+  final Function(dynamic) onTap; // ADDED: Callback for general card tap
   final Function(dynamic) onShare; // Placeholder
   final Function(dynamic) onShowStats;
   final Function(dynamic) onShowOptions;
@@ -38,7 +44,8 @@ class ProducerPostCard extends StatefulWidget {
   final Map<String, VideoPlayerController> videoControllers; // Pass controllers map
   final Function(String, String) initializeVideoController; // Pass initialization function
   final Function(dynamic, String) openReelsView; // Pass function to open reels
-  final Function(dynamic) openDetails; // Pass function to open details/comments
+  final VoidCallback? onShowLikers; // <-- Add this callback
+  final ApiService? apiService; // Optional: Pass ApiService if needed by PostDetailScreen
 
 
   const ProducerPostCard({
@@ -47,6 +54,7 @@ class ProducerPostCard extends StatefulWidget {
     required this.currentUserId,
     required this.onLike,
     required this.onComment,
+    required this.onTap, // ADDED: Add to constructor
     required this.onShare,
     required this.onShowStats,
     required this.onShowOptions,
@@ -54,8 +62,9 @@ class ProducerPostCard extends StatefulWidget {
     required this.videoControllers,
     required this.initializeVideoController,
     required this.openReelsView,
-    required this.openDetails,
     this.onNavigateToProfile,
+    this.onShowLikers, // <-- Add to constructor
+    this.apiService, // <<< ADDED
   }) : super(key: key);
 
   @override
@@ -223,6 +232,24 @@ class _ProducerPostCardState extends State<ProducerPostCard> {
      }
   }
 
+  // Ajouter cette fonction helper pour obtenir l'icône appropriée en fonction du type de post
+  IconData getPostTypeIcon(String postType) {
+    switch (postType.toLowerCase()) {
+      case 'restaurant':
+        return Icons.restaurant;
+      case 'leisure producer':
+      case 'leisureproducer':
+        return Icons.local_activity;
+      case 'wellness producer':
+      case 'wellnessproducer':
+      case 'beautyproducer':
+        return Icons.spa;
+      case 'user':
+        return Icons.person;
+      default:
+        return Icons.article;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -243,582 +270,290 @@ class _ProducerPostCardState extends State<ProducerPostCard> {
       firstVideoUrl = mediaItems.first['url'];
     }
 
-    return VisibilityDetector(
-      key: Key('post-$postId'), // Use extracted postId
-      onVisibilityChanged: (info) {
-        widget.onVisibilityChanged(postId, info.visibleFraction, firstVideoUrl);
-      },
-      child: Card(
-        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        elevation: 1,
-        // Use postTypeColor for border? Or keep it neutral?
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-          // side: BorderSide(color: postTypeColor.withOpacity(0.5), width: 1), // Optional colored border
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell( // Make card tappable for details
-           onTap: () => widget.openDetails(widget.post),
-           borderRadius: BorderRadius.circular(12),
-           child: Column(
-             crossAxisAlignment: CrossAxisAlignment.start,
-             children: [
-               _buildPostHeader(context),
-               if (content.isNotEmpty)
-                 Padding(
-                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                   child: Text(
-                     content,
-                     style: GoogleFonts.poppins(fontSize: 15, height: 1.4), // Consistent font
-                   ),
-                 ),
-               if (mediaItems.isNotEmpty) _buildPostMedia(context),
-               _buildPostActions(context),
-               if (comments.isNotEmpty) _buildCommentsPreview(context),
-             ],
-           ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPostHeader(BuildContext context) {
-      final bool isDarkTheme = Theme.of(context).brightness == Brightness.dark;
-      final Color headerTextColor = isDarkTheme ? Colors.white : Colors.black87;
-      final Color subtitleColor = Colors.grey.shade600;
-
-      // Enhanced Avatar with Fallback
-      ImageProvider? avatarImageProvider = getImageProvider(authorAvatar); // Use util
-      Widget avatarDisplay;
-      if (avatarImageProvider != null) {
-         avatarDisplay = CircleAvatar(
-             radius: 20,
-             backgroundColor: Colors.grey[200], // Background for loading/error
-             backgroundImage: avatarImageProvider,
-         );
-      } else {
-         // Placeholder with initials or icon
-          avatarDisplay = CircleAvatar(
-             radius: 20,
-             backgroundColor: postTypeColor.withOpacity(0.2),
-             child: Text(
-                 authorName.isNotEmpty ? authorName[0].toUpperCase() : '?',
-                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: postTypeColor),
-             ),
-          );
-      }
-
-
-      return Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          children: [
-            // Avatar with type badge
-            InkWell( // Make avatar tappable
-               onTap: () {
-                 if (widget.onNavigateToProfile != null) {
-                    // Determine type string expected by navigation
-                    String profileType = 'user';
-                    if (isLeisureProducer) profileType = 'leisureProducer';
-                    else if (isWellnessProducer) profileType = 'wellnessProducer';
-                    else if (isProducerPost) profileType = 'restaurant'; // Assuming 'Producer' maps to restaurant
-
-                    widget.onNavigateToProfile!(authorId, profileType);
-                 } else {
-                    // Fallback or default navigation if no callback provided
-                    // _defaultNavigateToProfile(context, authorId, ...)
-                 }
-               },
-               child: Stack(
-                 alignment: Alignment.bottomRight,
-                 children: [
-                    Container( // Border container
-                      decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(color: postTypeColor, width: 1.5),
-                      ),
-                      padding: const EdgeInsets.all(2),
-                      child: avatarDisplay,
-                    ),
-                   // Visual Badge
-                   Container(
-                      padding: const EdgeInsets.all(2),
-                      decoration: BoxDecoration(
-                         color: Colors.white,
-                         shape: BoxShape.circle,
-                         boxShadow: [
-                           BoxShadow(color: Colors.grey.withOpacity(0.3), spreadRadius: 1, blurRadius: 2),
-                         ],
-                      ),
-                     child: Text(visualBadge, style: const TextStyle(fontSize: 10)),
-                   ),
-                   // Automated indicator (optional)
-                   if (isAutomated)
-                       Positioned(
-                          top: 0, right: 0,
-                          child: Container(
-                             padding: const EdgeInsets.all(2),
-                             decoration: BoxDecoration(color: Colors.red.shade100, shape: BoxShape.circle),
-                             child: const Text('🤖', style: TextStyle(fontSize: 10)),
-                          ),
-                       ),
-                 ],
-               ),
-            ),
-            const SizedBox(width: 12),
-            // Author Name and Timestamp/Type
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                     children: [
-                        Flexible(
-                           child: Text(
-                             authorName,
-                             style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 15, color: headerTextColor),
-                             overflow: TextOverflow.ellipsis,
-                           ),
-                        ),
-                       if (isAutomated) const Text(' 🤖', style: TextStyle(fontSize: 14)),
-                     ],
-                  ),
-                  const SizedBox(height: 2),
-                  Row(
-                    children: [
-                      Text(
-                        formatTimestamp(postedAt), // Use helper from utils.dart
-                        style: TextStyle(color: subtitleColor, fontSize: 12),
-                      ),
-                      const SizedBox(width: 6),
-                       // Type Label Chip
-                       Container(
-                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                         decoration: BoxDecoration(
-                           // Use a less saturated color for the background
-                           color: postTypeColor.withOpacity(0.15),
-                           borderRadius: BorderRadius.circular(10),
-                         ),
-                         child: Text(
-                           postTypeLabel,
-                           style: TextStyle(
-                             fontSize: 10,
-                             // Use the main type color for the text for contrast
-                             color: postTypeColor,
-                             fontWeight: FontWeight.w600, // Slightly bolder
-                           ),
-                         ),
-                       ),
-                       // Event/Target indicators
-                       if (hasReferencedEvent || hasTarget)
-                          Container(
-                            margin: const EdgeInsets.only(left: 4),
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Colors.green.shade50,
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Text(
-                              hasReferencedEvent ? 'Événement' : 'Lieu',
-                              style: TextStyle(fontSize: 10, color: Colors.green.shade700, fontWeight: FontWeight.w500),
-                            ),
-                          ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            // More Options Button
-            IconButton(
-              icon: Icon(Icons.more_horiz, color: subtitleColor),
-              onPressed: () => widget.onShowOptions(widget.post),
-              tooltip: 'Plus d\'options',
-            ),
-          ],
-        ),
-      );
-  }
-
-
- Widget _buildPostMedia(BuildContext context) {
-    if (mediaItems.length == 1) {
-      // Single Media Item
-      final media = mediaItems.first;
-      final isVideo = media['type'] == 'video';
-      return GestureDetector(
-        onTap: () {
-          if (isVideo) {
-             widget.openReelsView(widget.post, media['url']);
-          } else {
-             widget.openDetails(widget.post); // Or a dedicated image viewer
-          }
-        },
-        child: Container(
-          constraints: const BoxConstraints(maxHeight: 450), // Max height for single item
-          width: double.infinity,
-          color: Colors.grey.shade100, // Background for loading/error
-          child: isVideo
-              ? _buildVideoPlayer(postId, media['url'])
-              : _buildImage(media['url'], BoxFit.cover), // Use cover for single image
-        ),
-      );
-    } else {
-      // Multiple Media Items (Carousel)
-      return ChoiceCarousel.builder( // Use the specific ChoiceCarousel
-        itemCount: mediaItems.length,
-        options: ChoiceCarouselOptions(
-          height: 350, // Height for carousel
-          enableInfiniteScroll: false,
-          enlargeCenterPage: false, // Standard carousel view
-          viewportFraction: 0.9, // Show parts of next/prev items
-          autoPlay: false,
-        ),
-        itemBuilder: (context, index, _) {
-          final media = mediaItems[index];
-          final isVideo = media['type'] == 'video';
-          return GestureDetector(
-             onTap: () {
-                if (isVideo) {
-                   widget.openReelsView(widget.post, media['url']);
-                } else {
-                   widget.openDetails(widget.post); // Or image viewer with index
-                }
-              },
-             child: Container(
-               margin: const EdgeInsets.symmetric(horizontal: 4.0), // Spacing between items
-               width: double.infinity,
-               color: Colors.black, // Black background for carousel items
-               child: isVideo
-                   ? _buildVideoPlayer('$postId-$index', media['url'])
-                   : _buildImage(media['url'], BoxFit.contain), // Use contain for carousel
-             ),
-           );
-        },
-      );
-    }
- }
-
-  Widget _buildImage(String url, BoxFit fit) {
-     ImageProvider? provider = getImageProvider(url);
-     if (provider != null) {
-       return Image(
-         image: provider,
-         fit: fit,
-         width: double.infinity, // Ensure image tries to fill width
-         // Loading builder (optional shimmer)
-         loadingBuilder: (context, child, loadingProgress) {
-           if (loadingProgress == null) return child;
-           return Container(
-             color: Colors.grey[200],
-             height: 300, // Match potential height
-             child: Center(
-                child: CircularProgressIndicator(
-                  value: loadingProgress.expectedTotalBytes != null
-                      ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
-                      : null,
-                  strokeWidth: 2,
-                )
-             ),
-           );
-         },
-         // Error builder
-         errorBuilder: (context, error, stackTrace) => Container(
-           color: Colors.grey[200],
-           height: 300,
-           child: Center(child: Icon(Icons.broken_image_outlined, color: Colors.grey[400], size: 40)),
-         ),
-       );
-     } else {
-       // Fallback if URL is invalid from the start
-       return Container(
-         color: Colors.grey[200],
-         height: 300,
-         child: Center(child: Icon(Icons.image_not_supported_outlined, color: Colors.grey[400], size: 40)),
-       );
-     }
-  }
-
-  Widget _buildVideoPlayer(String videoPostId, String videoUrl) {
-    // Check if controller needs initialization
-    if (!widget.videoControllers.containsKey(videoPostId)) {
-      // Trigger initialization via the callback passed from the parent
-      widget.initializeVideoController(videoPostId, videoUrl);
-      // Show loading indicator while initializing
-      return const Center(child: CircularProgressIndicator(valueColor: AlwaysStoppedAnimation<Color>(Colors.white)));
-    }
-
-    final controller = widget.videoControllers[videoPostId]!;
-
-    if (!controller.value.isInitialized) {
-      // Still initializing or failed
-      return const Center(child: CircularProgressIndicator(valueColor: AlwaysStoppedAnimation<Color>(Colors.white)));
-    }
-
-    // Controller is ready, build player
-    return Stack(
-      alignment: Alignment.center, // Center play/pause button
+    // Define the content that will be wrapped by OpenContainer
+    Widget cardContent = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        AspectRatio(
-          aspectRatio: controller.value.aspectRatio,
-          child: VideoPlayer(controller),
-        ),
-        // Play/Pause Button Overlay
-        GestureDetector(
-           onTap: () {
-              if (controller.value.isPlaying) {
-                 controller.pause();
-              } else {
-                 controller.play();
-              }
-              setState(() {}); // Rebuild to update icon
-           },
-           child: Container(
-              color: Colors.black.withOpacity(0.3), // Slight overlay for button visibility
-              child: Icon(
-                 controller.value.isPlaying ? Icons.pause_circle_outline : Icons.play_circle_outline,
-                 color: Colors.white.withOpacity(0.8),
-                 size: 60,
-              ),
-           ),
-        ),
-        // Mute/Unmute Button (Bottom Right)
-        Positioned(
-           bottom: 8, right: 8,
-           child: DecoratedBox(
-             decoration: BoxDecoration(
-               color: Colors.black.withOpacity(0.6),
-               borderRadius: BorderRadius.circular(20),
-             ),
-             child: IconButton(
-               icon: Icon(
-                 controller.value.volume > 0 ? Icons.volume_up_outlined : Icons.volume_off_outlined,
-                 color: Colors.white,
-                 size: 18, // Smaller mute icon
-               ),
-               padding: EdgeInsets.zero, // Remove default padding
-               constraints: const BoxConstraints(), // Remove default constraints
-               onPressed: () {
-                 controller.setVolume(controller.value.volume > 0 ? 0 : 1.0);
-                 setState(() {}); // Rebuild to update icon
-               },
-             ),
-           ),
-        ),
+        _buildPostHeader(),
+        if (content.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 12, bottom: 8),
+            child: Text(
+              content,
+              key: ValueKey('$postId-content'),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 14, height: 1.4),
+            ),
+          ),
+        if (mediaItems.isNotEmpty)
+          _buildMediaContent(firstVideoUrl),
+        _buildPostFooter(),
       ],
     );
-  }
 
-  Widget _buildPostActions(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0), // Reduced vertical padding
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween, // Space out buttons
-        children: [
-          // Like Button
-          _buildInteractionButton(
-            context: context,
-            icon: isLikedByCurrentUser ? Icons.favorite : Icons.favorite_border,
-            activeIcon: Icons.favorite, // Icon when active
-            label: 'Like', // Keep label for accessibility/clarity if needed
-            count: likesCount,
-            isActive: isLikedByCurrentUser,
-            activeColor: Colors.redAccent,
-            onPressed: _handleLike,
-          ),
-          // Comment Button
-          _buildInteractionButton(
-            context: context,
-            icon: Icons.chat_bubble_outline,
-            label: 'Commenter',
-            count: commentsCount,
-            activeColor: Theme.of(context).primaryColor, // Use theme color
-            onPressed: () => widget.onComment(widget.post),
-          ),
-          // Share Button (Placeholder)
-          _buildInteractionButton(
-            context: context,
-            icon: Icons.share_outlined,
-            label: 'Partager',
-             activeColor: Colors.purple, // Example color
-            onPressed: () => widget.onShare(widget.post),
-          ),
-          // Stats Button (Only for producer posts)
-          if (isProducerPost)
-            _buildInteractionButton(
-              context: context,
-              icon: Icons.bar_chart_outlined,
-              label: 'Stats',
-              activeColor: Colors.teal, // Example color
-              onPressed: () => widget.onShowStats(widget.post),
-            ),
-        ],
+    // REMOVE OpenContainer, use simple Card with InkWell
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      elevation: 2,
+      shadowColor: Colors.black.withOpacity(0.1),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15.0)),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => widget.onTap(widget.post), // Use the new onTap callback
+        child: Padding(
+          padding: const EdgeInsets.all(12.0),
+          child: cardContent,
+        ),
       ),
     );
   }
 
-  // Internal handler for like button press
-  Future<void> _handleLike() async {
-    if (_isLiking) return; // Prevent multiple clicks
-
-    setState(() {
-      _isLiking = true;
-      // Optimistic UI update (optional but recommended)
-      isLikedByCurrentUser = !isLikedByCurrentUser;
-      likesCount += isLikedByCurrentUser ? 1 : -1;
-    });
-
-    try {
-      await widget.onLike(widget.post); // Call the actual like function passed via props
-      // If API call fails, the controller should revert the state
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLiking = false;
-        });
-      }
-    }
-  }
-
-  // Reusable Interaction Button
-  Widget _buildInteractionButton({
-    required BuildContext context,
-    required IconData icon,
-    IconData? activeIcon, // Optional separate icon for active state
-    required String label,
-    int count = 0,
-    bool isActive = false,
-    required Color activeColor,
-    required VoidCallback onPressed,
-  }) {
-    final Color iconColor = isActive ? activeColor : (Theme.of(context).brightness == Brightness.dark ? Colors.grey.shade400 : Colors.grey.shade600);
-    final Color textColor = isActive ? activeColor : (Theme.of(context).brightness == Brightness.dark ? Colors.grey.shade400 : Colors.grey.shade700);
-    final FontWeight fontWeight = isActive ? FontWeight.bold : FontWeight.normal;
-
-    return TextButton.icon(
-        onPressed: onPressed,
-        style: TextButton.styleFrom(
-           foregroundColor: iconColor, // Color for splash/hover
-           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6), // Adjust padding
-           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)), // Rounded shape
-        ),
-        icon: Icon(isActive ? (activeIcon ?? icon) : icon, color: iconColor, size: 20),
-        label: Text(
-           count > 0 ? formatNumber(count) : label, // Use formatted number or label
-           style: GoogleFonts.poppins(
-               fontSize: 12,
-               fontWeight: fontWeight,
-               color: textColor,
+  Widget _buildPostHeader() {
+     return GestureDetector(
+       onTap: () {
+         if(widget.onNavigateToProfile != null) {
+           widget.onNavigateToProfile!(authorId, postTypeLabel.toLowerCase().replaceAll(' ', ''));
+         } else {
+            _defaultNavigateToProfile(authorId, postTypeLabel.toLowerCase().replaceAll(' ', ''));
+         }
+       },
+       child: Row(
+         children: [
+           CircleAvatar(
+             radius: 22,
+             backgroundImage: authorAvatar.isNotEmpty ? getImageProvider(authorAvatar) : null,
+             backgroundColor: authorAvatar.isEmpty ? postTypeColor.withOpacity(0.7) : postTypeColor,
+             child: authorAvatar.isEmpty ? Icon(getPostTypeIcon(postTypeLabel), color: Colors.white, size: 20) : null,
            ),
-        ),
+           const SizedBox(width: 12),
+           Expanded(
+             child: Column(
+               crossAxisAlignment: CrossAxisAlignment.start,
+               children: [
+                 Text(
+                   authorName,
+                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                 ),
+                 Text(
+                   postTypeLabel,
+                   style: TextStyle(fontSize: 12, color: postTypeColor, fontWeight: FontWeight.w500),
+                 ),
+               ],
+             ),
+           ),
+           Text(
+              formatTimestamp(postedAt), // Use helper from utils.dart
+              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+           ),
+           const SizedBox(width: 4),
+           // Options Button
+           IconButton(
+             icon: Icon(Icons.more_vert, color: Colors.grey[500]),
+             iconSize: 20,
+             padding: EdgeInsets.zero,
+             constraints: const BoxConstraints(),
+             tooltip: 'Options',
+             onPressed: () => widget.onShowOptions(widget.post),
+           ),
+         ],
+       ),
      );
   }
 
-  // Helper to format large numbers (e.g., 1234 -> 1.2k) - Move to utils.dart if used elsewhere
-  String formatNumber(int number) {
-    if (number < 1000) return number.toString();
-    if (number < 1000000) return '${(number / 1000).toStringAsFixed(1)}k';
-    return '${(number / 1000000).toStringAsFixed(1)}M';
+  // Default navigation if callback not provided
+  void _defaultNavigateToProfile(String profileId, String type) {
+     Widget? screen;
+     switch (type) {
+       case 'restaurant': screen = ProducerScreen(producerId: profileId); break;
+       case 'leisureproducer': screen = ProducerLeisureScreen(producerId: profileId); break;
+       case 'wellnessproducer': screen = WellnessProducerScreen(producerId: profileId); break;
+       case 'user': screen = ProfileScreen(userId: profileId); break;
+       default: print("Unknown profile type for default navigation: $type");
+     }
+     if (screen != null) {
+        Navigator.push(context, MaterialPageRoute(builder: (context) => screen!));
+     }
   }
 
-  Widget _buildCommentsPreview(BuildContext context) {
-    final commentsToShow = comments.take(2).toList();
-    if (commentsToShow.isEmpty) return const SizedBox.shrink();
+  Widget _buildMediaContent(String? firstVideoUrl) {
+       if (mediaItems.isEmpty) return const SizedBox.shrink();
 
-     final bool isDarkTheme = Theme.of(context).brightness == Brightness.dark;
-     final Color previewTextColor = isDarkTheme ? Colors.grey.shade300 : Colors.black87;
-     final Color authorColor = isDarkTheme ? Colors.white : Colors.black;
+       final firstMedia = mediaItems.first;
+       final isVideo = firstMedia['type'] == 'video';
+       final mediaUrl = firstMedia['url'] as String? ?? '';
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8), // Consistent padding
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-           Text(
-             'Commentaires', // Simple header
-             style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey[700]),
-           ),
-           const SizedBox(height: 6),
-          ...commentsToShow.map((comment) => _buildSingleCommentPreview(context, comment, authorColor, previewTextColor)).toList(),
-          if (commentsCount > 2)
-            Padding(
-               padding: const EdgeInsets.only(top: 4.0),
-               child: InkWell(
-                 onTap: () => widget.onComment(widget.post), // Open full comments view
-                 child: Text(
-                   'Voir les ${commentsCount - 2} autres commentaires...',
-                   style: GoogleFonts.poppins(
-                     fontSize: 13,
-                     color: Theme.of(context).primaryColor, // Use theme color
-                     fontWeight: FontWeight.w500,
-                   ),
-                 ),
-               ),
-            ),
-        ],
-      ),
-    );
+       if (mediaUrl.isEmpty) return const SizedBox.shrink();
+
+       // Use VisibilityDetector for video playback control
+       return VisibilityDetector(
+         key: Key('$postId-media'),
+         onVisibilityChanged: (visibilityInfo) {
+            widget.onVisibilityChanged(postId, visibilityInfo.visibleFraction, firstVideoUrl);
+         },
+         // AspectRatio might be needed depending on media dimensions
+         child: ClipRRect(
+           borderRadius: BorderRadius.circular(12.0),
+           child: isVideo
+               ? _buildVideoPlayer(mediaUrl)
+               : _buildImage(mediaUrl),
+         ),
+       );
   }
 
-  Widget _buildSingleCommentPreview(BuildContext context, dynamic commentData, Color authorColor, Color textColor) {
-     String authorName = 'Utilisateur';
-     String commentContent = '';
-     String authorAvatarUrl = ''; // Default empty
+  Widget _buildVideoPlayer(String videoUrl) {
+      final controller = widget.videoControllers[postId];
 
-     if (commentData is Comment) { // Handle strongly typed Comment object
-        authorName = commentData.authorName ?? 'Utilisateur';
-        commentContent = commentData.content ?? '';
-        authorAvatarUrl = commentData.authorAvatar ?? '';
-     } else if (commentData is Map<String, dynamic>) { // Handle Map object
-        final commentMap = commentData;
-        authorName = commentMap['author_name']?.toString() ?? commentMap['authorName']?.toString() ?? 'Utilisateur';
-        commentContent = commentMap['content']?.toString() ?? commentMap['text']?.toString() ?? '';
-        // Check multiple keys for avatar
-        authorAvatarUrl = commentMap['author_avatar']?.toString() ?? commentMap['authorAvatar']?.toString() ?? '';
-     } else {
-        // Unsupported comment format, maybe log an error
-         return const SizedBox.shrink();
-     }
-
-     // Avatar for comment author
-     ImageProvider? commentAuthorProvider = getImageProvider(authorAvatarUrl);
-     Widget commentAvatarWidget;
-     if (commentAuthorProvider != null) {
-         commentAvatarWidget = CircleAvatar(radius: 12, backgroundImage: commentAuthorProvider, backgroundColor: Colors.grey[200]);
-     } else {
-         commentAvatarWidget = CircleAvatar(
-             radius: 12,
-             backgroundColor: Colors.grey.shade300, // Placeholder background
-             child: Text(authorName.isNotEmpty ? authorName[0].toUpperCase() : '?', style: const TextStyle(fontSize: 10)),
-         );
-     }
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3.0), // Reduced vertical padding
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-           commentAvatarWidget,
-           const SizedBox(width: 8),
-           Expanded(
-            // Use RichText for better formatting (bold name)
-            child: RichText(
-              text: TextSpan(
-                style: GoogleFonts.poppins(fontSize: 13, color: textColor), // Default style
-                children: [
-                  TextSpan(
-                    text: '$authorName ',
-                    style: TextStyle(fontWeight: FontWeight.bold, color: authorColor),
-                  ),
-                  TextSpan(text: commentContent),
-                ],
+      // Placeholder while initializing or if controller is null
+      if (controller == null || !controller.value.isInitialized) {
+         // Ensure initialization is triggered by the parent screen
+         // widget.initializeVideoController(postId, videoUrl);
+         return AspectRatio(
+           aspectRatio: 16 / 9, // Default aspect ratio
+           child: Container(
+             decoration: BoxDecoration(
+               color: Colors.black,
+               borderRadius: BorderRadius.circular(12.0), // Match rounding
+             ),
+             child: const Center(
+                 child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white54)
               ),
-              maxLines: 2, // Limit lines for preview
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+           ),
+         );
+      }
 
+      // Display video player
+      return AspectRatio(
+         aspectRatio: controller.value.aspectRatio,
+         child: Stack(
+           alignment: Alignment.center,
+           children: [
+             VideoPlayer(controller),
+             // Simple play icon overlay when paused
+             if (!controller.value.isPlaying)
+                 Icon(Icons.play_arrow_rounded, color: Colors.white.withOpacity(0.7), size: 60),
+           ],
+         ),
+      );
+   }
+
+   Widget _buildImage(String imageUrl) {
+      return CachedNetworkImage(
+         imageUrl: imageUrl,
+         fit: BoxFit.cover,
+         width: double.infinity,
+         // Constrained height for consistency
+         height: 280,
+         placeholder: (context, url) => Container(
+           height: 280,
+           decoration: BoxDecoration(
+             color: Colors.grey[200],
+             borderRadius: BorderRadius.circular(12.0), // Match rounding
+           ),
+           child: Center(child: CircularProgressIndicator(strokeWidth: 2, color: Colors.grey[400])),
+         ),
+         errorWidget: (context, url, error) => Container(
+           height: 280,
+           decoration: BoxDecoration(
+             color: Colors.grey[300],
+             borderRadius: BorderRadius.circular(12.0), // Match rounding
+           ),
+           child: Center(child: Icon(Icons.broken_image_outlined, color: Colors.grey[600], size: 40)),
+         ),
+       );
+   }
+
+  Widget _buildPostFooter() {
+     // Use LikeButton package for like animation
+     return Padding(
+       padding: const EdgeInsets.only(top: 10.0),
+       child: Row(
+         mainAxisAlignment: MainAxisAlignment.spaceBetween,
+         children: [
+           // Like Button
+           LikeButton(
+             key: ValueKey('$postId-like'), // Add key
+             isLiked: isLikedByCurrentUser,
+             likeCount: likesCount,
+             size: 22,
+             padding: const EdgeInsets.all(6), // Add padding for easier tapping
+             circleColor: const CircleColor(start: Color(0xffFF5252), end: Color(0xffff0000)),
+             bubblesColor: const BubblesColor(
+               dotPrimaryColor: Color(0xffFF5252),
+               dotSecondaryColor: Color(0xffff4040),
+             ),
+             likeBuilder: (bool isLiked) {
+               return Icon(
+                 isLiked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                 color: isLiked ? Colors.redAccent : Colors.grey[600],
+                 size: 22,
+               );
+             },
+             countBuilder: (int? count, bool isLiked, String text) {
+               var color = isLiked ? Colors.redAccent : Colors.grey[600];
+               // Display count only if > 0
+               // Add GestureDetector to show likers
+               return GestureDetector(
+                   onTap: () {
+                     if (widget.onShowLikers != null && (count ?? 0) > 0) {
+                       widget.onShowLikers!();
+                     }
+                   },
+                   child: Text(
+                     count == null || count == 0 ? " J'aime" : " $text",
+                     style: TextStyle(color: color, fontSize: 13, fontWeight: FontWeight.w500),
+                   ),
+               );
+             },
+             likeCountPadding: const EdgeInsets.only(left: 4.0),
+             onTap: (isLiked) async {
+                 if (_isLiking) return isLiked; // Prevent concurrent calls
+                 setState(() { _isLiking = true; });
+                 bool success = false;
+                 try {
+                   // Call the actual like function passed from parent
+                   await widget.onLike(widget.post);
+                   // The parent should handle state update which rebuilds this widget
+                   // We *assume* success changes the state
+                   success = true;
+                   // Return the OPPOSITE of the current visual state for the animation
+                   return !isLiked;
+                 } catch (e) {
+                    print("Error in LikeButton onTap: $e");
+                    // Return the CURRENT visual state to prevent animation flip on error
+                    return isLiked;
+                 } finally {
+                    // Add a small delay before allowing another tap, even on error
+                    await Future.delayed(const Duration(milliseconds: 200));
+                    if(mounted) { // Check if widget is still mounted
+                       setState(() { _isLiking = false; });
+                    }
+                 }
+             },
+           ),
+
+           // Comment Button
+           TextButton.icon(
+             icon: Icon(Icons.mode_comment_outlined, color: Colors.grey[600], size: 20),
+             label: Text(
+                commentsCount > 0 ? commentsCount.toString() : 'Commenter',
+                style: TextStyle(color: Colors.grey[700], fontSize: 13, fontWeight: FontWeight.w500)
+             ),
+             // This now uses the specific onComment callback passed in,
+             // which should trigger the navigation/focus action in the parent screen.
+             onPressed: () => widget.onComment(widget.post),
+             style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 10)),
+           ),
+
+           // Share Button
+           TextButton.icon(
+             icon: Icon(Icons.share_outlined, color: Colors.grey[600], size: 20),
+             label: Text('Partager', style: TextStyle(color: Colors.grey[700], fontSize: 13, fontWeight: FontWeight.w500)),
+             onPressed: () => widget.onShare(widget.post),
+             style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 10)),
+           ),
+         ],
+       ),
+     );
+  }
 } 

@@ -3,6 +3,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../utils/map_colors.dart' as mapcolors;
 import '../services/map_service.dart';
 import '../utils.dart' show getImageProvider;
+import 'choiceInterestUsers_popup.dart'; // Import du widget popup
 
 class LeisureBookmarkWidget extends StatefulWidget {
   final Map<String, dynamic> venue;
@@ -24,19 +25,12 @@ class LeisureBookmarkWidget extends StatefulWidget {
 
 class _LeisureBookmarkWidgetState extends State<LeisureBookmarkWidget> {
   final MapService _mapService = MapService();
-  bool _isLoading = true;
   bool _isBookmarked = false;
-  Map<String, dynamic> _followingsData = {
-    'interests': [],
-    'choices': [],
-    'followings': [],
-  };
 
   @override
   void initState() {
     super.initState();
     _isBookmarked = widget.isBookmarked;
-    _loadFollowingsData();
   }
 
   @override
@@ -45,53 +39,6 @@ class _LeisureBookmarkWidgetState extends State<LeisureBookmarkWidget> {
     if (oldWidget.isBookmarked != widget.isBookmarked) {
       setState(() {
         _isBookmarked = widget.isBookmarked;
-      });
-    }
-    
-    if (oldWidget.venue['id'] != widget.venue['id']) {
-      _loadFollowingsData();
-    }
-  }
-
-  Future<void> _loadFollowingsData() async {
-    setState(() {
-      _isLoading = true;
-    });
-
-    try {
-      final venueId = widget.venue['id'] ?? widget.venue['_id'];
-      if (venueId != null) {
-        final dynamic data = await _mapService.getFollowingsInterestsForVenue(venueId.toString());
-        
-        // Initialiser une structure vide par défaut
-        Map<String, dynamic> followingsData = {
-          'interests': [],
-          'choices': [],
-          'followings': [],
-        };
-        
-        // Traiter les données selon leur type
-        if (data is Map<String, dynamic>) {
-          // Si c'est déjà une Map, l'utiliser directement
-          followingsData = data;
-        } else if (data is List) {
-          // Si c'est une liste, l'assigner comme followings
-          followingsData['followings'] = data;
-        }
-        
-        setState(() {
-          _followingsData = followingsData;
-          _isLoading = false;
-        });
-      } else {
-        setState(() {
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      print('Erreur lors du chargement des données des followings: $e');
-      setState(() {
-        _isLoading = false;
       });
     }
   }
@@ -106,10 +53,15 @@ class _LeisureBookmarkWidgetState extends State<LeisureBookmarkWidget> {
     });
 
     bool success = false;
-    if (newValue) {
-      success = await _mapService.addLeisureBookmark(venueId.toString());
-    } else {
-      success = await _mapService.removeLeisureBookmark(venueId.toString());
+    try {
+      if (newValue) {
+        success = await _mapService.addLeisureBookmark(venueId.toString());
+      } else {
+        success = await _mapService.removeLeisureBookmark(venueId.toString());
+      }
+    } catch (e) {
+      print("Erreur bookmark: $e");
+      success = false;
     }
 
     if (!success) {
@@ -117,12 +69,13 @@ class _LeisureBookmarkWidgetState extends State<LeisureBookmarkWidget> {
       setState(() {
         _isBookmarked = !newValue;
       });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erreur lors de la mise à jour du signet.'), backgroundColor: Colors.red),
+      );
     }
 
     // Informer le parent du changement
-    if (widget.onBookmarkChanged != null) {
-      widget.onBookmarkChanged!(venueId.toString(), _isBookmarked);
-    }
+    widget.onBookmarkChanged?.call(venueId.toString(), _isBookmarked);
   }
 
   @override
@@ -134,11 +87,12 @@ class _LeisureBookmarkWidgetState extends State<LeisureBookmarkWidget> {
     final double rating = (widget.venue['rating'] is num) 
         ? (widget.venue['rating'] as num).toDouble() 
         : 0.0;
+    final String venueId = widget.venue['id'] ?? widget.venue['_id'] ?? '';
+    final String venueType = widget.venue['venueType'] ?? widget.venue['targetType'] ?? 'leisure-venue'; // Déterminer le type pour le popup
 
-    // Compter le nombre de followings intéressés
-    final int interestsCount = (_followingsData['interests'] as List).length;
-    final int choicesCount = (_followingsData['choices'] as List).length;
-    final List<dynamic> followings = _followingsData['followings'] as List;
+    // Récupérer les compteurs DIRECTEMENT depuis widget.venue (suppose que l'API les fournit)
+    final int choiceCount = widget.venue['choice_count'] ?? widget.venue['choiceCount'] ?? 0;
+    final int interestCount = widget.venue['interest_count'] ?? widget.venue['interestCount'] ?? 0;
 
     return Card(
       elevation: 4,
@@ -147,7 +101,7 @@ class _LeisureBookmarkWidgetState extends State<LeisureBookmarkWidget> {
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: () => widget.onTap(widget.venue['id'] ?? widget.venue['_id']),
+        onTap: () => widget.onTap(venueId), // Utiliser venueId extrait
         child: Container(
           height: 220,
           width: double.infinity,
@@ -278,74 +232,31 @@ class _LeisureBookmarkWidgetState extends State<LeisureBookmarkWidget> {
                         ],
                       ),
                     SizedBox(height: 8),
-                    // Followings intéressés
-                    if (_isLoading)
-                      Center(
-                        child: SizedBox(
-                          height: 24,
-                          width: 24,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              mapcolors.MapColors.leisurePrimary,
-                            ),
-                          ),
-                        ),
-                      )
-                    else if (interestsCount > 0 || choicesCount > 0)
+                    
+                    // Affichage des compteurs globaux et trigger du popup
+                    if (choiceCount > 0 || interestCount > 0)
                       GestureDetector(
                         onTap: () {
-                          showModalBottomSheet(
-                            context: context,
-                            isScrollControlled: true,
-                            backgroundColor: Colors.transparent,
-                            builder: (context) => DraggableScrollableSheet(
-                              initialChildSize: 0.6,
-                              minChildSize: 0.4,
-                              maxChildSize: 0.8,
-                              builder: (context, scrollController) {
-                                return Container(
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.vertical(
-                                      top: Radius.circular(20),
-                                    ),
-                                  ),
-                                  padding: EdgeInsets.all(16),
-                                  child: FollowingsInterestsList(
-                                    followingsData: _followingsData,
-                                    onClose: () => Navigator.pop(context),
-                                  ),
-                                );
-                              },
-                            ),
-                          );
+                          // Ouvre le popup avec les infos du lieu/event
+                          _showChoiceInterestUsersPopup(context, venueId, venueType);
                         },
                         child: Row(
                           children: [
-                            Icon(
-                              Icons.people,
-                              size: 16,
-                              color: mapcolors.MapColors.leisurePrimary,
-                            ),
+                            Icon(Icons.check_circle_outline, size: 16, color: Colors.grey[600]),
                             SizedBox(width: 4),
-                            Text(
-                              interestsCount > 0 && choicesCount > 0
-                                ? '$interestsCount intéressés • $choicesCount ont visité'
-                                : interestsCount > 0
-                                  ? '$interestsCount intéressés'
-                                  : '$choicesCount ont visité',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey[700],
-                              ),
-                            ),
+                            Text('$choiceCount Choices', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                            SizedBox(width: 12),
+                            Icon(Icons.favorite_border, size: 16, color: Colors.grey[600]),
+                            SizedBox(width: 4),
+                            Text('$interestCount Intérêts', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                            Spacer(), // Pousse l'icône vers la droite
+                            Icon(Icons.chevron_right, color: Colors.grey, size: 18),
                           ],
                         ),
                       )
                     else
                       Text(
-                        'Aucun ami intéressé pour le moment',
+                        'Soyez le premier à interagir !',
                         style: TextStyle(
                           fontSize: 12,
                           color: Colors.grey[500],
@@ -358,6 +269,35 @@ class _LeisureBookmarkWidgetState extends State<LeisureBookmarkWidget> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  void _showChoiceInterestUsersPopup(BuildContext context, String targetId, String targetType) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.6,
+        minChildSize: 0.4,
+        maxChildSize: 0.8,
+        builder: (_, controller) {
+          // Import nécessaire pour ChoiceInterestUsersPopup
+          // import 'choiceInterestUsers_popup.dart'; 
+          return ChoiceInterestUsersPopup(
+            targetId: targetId,
+            targetType: targetType,
+            scrollController: controller,
+          );
+          // --- Placeholder en attendant l'import/widget --- 
+          /*
+          return Container(
+            color: Colors.white,
+            child: Center(child: Text("Popup pour $targetType $targetId")),
+          );
+          */
+        },
       ),
     );
   }
@@ -408,170 +348,5 @@ class _LeisureBookmarkWidgetState extends State<LeisureBookmarkWidget> {
     } else {
       return mapcolors.MapColors.leisurePrimary;
     }
-  }
-}
-
-/// Widget pour afficher la liste des followings intéressés par un lieu
-class FollowingsInterestsList extends StatelessWidget {
-  final Map<String, dynamic> followingsData;
-  final VoidCallback? onClose;
-
-  const FollowingsInterestsList({
-    Key? key,
-    required this.followingsData,
-    this.onClose,
-  }) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    final List<dynamic> followings = followingsData['followings'] as List;
-    final List<dynamic> interests = followingsData['interests'] as List;
-    final List<dynamic> choices = followingsData['choices'] as List;
-
-    if (followings.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Text(
-            'Aucun de vos amis ne s\'est intéressé à ce lieu pour l\'instant.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 16,
-              fontStyle: FontStyle.italic,
-              color: Colors.grey[600],
-            ),
-          ),
-        ),
-      );
-    }
-
-    return Container(
-      padding: EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // En-tête avec bouton de fermeture
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Amis intéressés',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: mapcolors.MapColors.leisurePrimary,
-                ),
-              ),
-              if (onClose != null)
-                IconButton(
-                  icon: Icon(Icons.close),
-                  onPressed: onClose,
-                ),
-            ],
-          ),
-          Divider(),
-          
-          // Liste des amis
-          Expanded(
-            child: ListView.builder(
-              itemCount: followings.length,
-              itemBuilder: (context, index) {
-                final following = followings[index];
-                final String followingId = following['id'] ?? following['_id'] ?? '';
-                final String name = following['name'] ?? 'Ami';
-                final String photoUrl = following['photo_url'] ?? following['avatar'] ?? '';
-                
-                // Vérifier si cet ami a exprimé un intérêt
-                final bool hasInterest = interests.any((i) => 
-                  (i['userId'] == followingId || i['user_id'] == followingId));
-                
-                // Vérifier si cet ami a fait un choix
-                final bool hasChoice = choices.any((c) => 
-                  (c['userId'] == followingId || c['user_id'] == followingId));
-                
-                return Card(
-                  elevation: 2,
-                  margin: EdgeInsets.symmetric(vertical: 8),
-                  child: ListTile(
-                    leading: CircleAvatar(
-                      radius: 20,
-                      backgroundImage: getImageProvider(photoUrl) ?? const AssetImage('assets/images/default_avatar.png'),
-                      backgroundColor: Colors.grey[200],
-                      child: getImageProvider(photoUrl) == null ? Icon(Icons.person, color: Colors.grey[400]) : null,
-                    ),
-                    title: Text(
-                      name,
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    subtitle: Row(
-                      children: [
-                        if (hasInterest)
-                          Container(
-                            margin: EdgeInsets.only(right: 8),
-                            padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Colors.amber.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.star_border, size: 14, color: Colors.amber),
-                                SizedBox(width: 4),
-                                Text(
-                                  'Intéressé',
-                                  style: TextStyle(
-                                    color: Colors.amber[800],
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        if (hasChoice)
-                          Container(
-                            padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Colors.green.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.check_circle_outline, size: 14, color: Colors.green),
-                                SizedBox(width: 4),
-                                Text(
-                                  'A visité',
-                                  style: TextStyle(
-                                    color: Colors.green,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                      ],
-                    ),
-                    trailing: IconButton(
-                      icon: Icon(Icons.message_outlined),
-                      onPressed: () {
-                        // TODO: Implémenter la fonction pour envoyer un message à l'ami
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('Envoyer un message à $name'),
-                            duration: Duration(seconds: 2),
-                          ),
-                        );
-                      },
-                      tooltip: 'Envoyer un message',
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-    );
   }
 } 

@@ -1623,7 +1623,7 @@ class _FeedScreenState extends State<FeedScreen> with SingleTickerProviderStateM
 
   // Build card for Post objects with improved styling and interactions
   Widget _buildPostCard(Post post) {
-    print('🏗️ Affichage du post: \\${post.id} - \\${post.authorName ?? "Sans auteur"}');
+    print('🏗️ Affichage du post: \${post.id} - \${post.authorName ?? "Sans auteur"}');
 
     void navigateToProfile() {
       if (post.isProducerPost ?? false) {
@@ -1637,7 +1637,7 @@ class _FeedScreenState extends State<FeedScreen> with SingleTickerProviderStateM
           ),
         ),
       );
-        } else if (post.isBeautyProducer ?? false) {
+        } else if (post.isWellnessProducer ?? false) {
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -1668,15 +1668,19 @@ class _FeedScreenState extends State<FeedScreen> with SingleTickerProviderStateM
   }
 
     void navigateToPostDetail({bool openComments = false}) {
+      final apiService = _apiService;
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => PostDetailScreen(
-            postId: post.id,
-            userId: widget.userId,
+          builder: (context) => Provider<ApiService>.value(
+            value: apiService,
+            child: PostDetailScreen(
+              postId: post.id,
+              userId: widget.userId,
             ),
           ),
-        );
+        ),
+      );
     }
 
     return Container(
@@ -1698,9 +1702,9 @@ class _FeedScreenState extends State<FeedScreen> with SingleTickerProviderStateM
                 children: [
                   GestureDetector(
                     onTap: navigateToProfile,
-              child: Row(
-                children: [
-                  CircleAvatar(
+                    child: Row(
+                      children: [
+                        CircleAvatar(
                           radius: 22,
                           backgroundImage: post.authorAvatar != null && post.authorAvatar!.isNotEmpty
                               ? CachedNetworkImageProvider(post.authorAvatar!)
@@ -1710,40 +1714,40 @@ class _FeedScreenState extends State<FeedScreen> with SingleTickerProviderStateM
                               : post.getTypeColor(),
                           child: post.authorAvatar == null || post.authorAvatar!.isEmpty
                               ? Icon(post.getTypeIcon(), color: Colors.white, size: 20)
-                  : null,
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+                              : null,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
                               Text(
                                 post.authorName ?? 'Utilisateur Anonyme',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
                                   fontSize: 15,
-                        ),
-                      ),
-                    Text(
+                                ),
+                              ),
+                              Text(
                                 post.getTypeLabel(),
-                      style: TextStyle(
-                        fontSize: 12,
+                                style: TextStyle(
+                                  fontSize: 12,
                                   color: post.getTypeColor(),
                                   fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                Text(
-                          timeago.format(post.postedAt ?? DateTime.now(), locale: 'fr'),
-                          style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                        ),
-                                const SizedBox(width: 4),
-                        Icon(Icons.more_vert, color: Colors.grey[500]),
                       ],
                     ),
                   ),
+                  Text(
+                    timeago.format(post.postedAt ?? DateTime.now(), locale: 'fr'),
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(Icons.more_vert, color: Colors.grey[500]),
                   if (post.content != null && post.content!.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(top: 12, bottom: 8),
@@ -1773,10 +1777,10 @@ class _FeedScreenState extends State<FeedScreen> with SingleTickerProviderStateM
                             height: 250,
                             color: Colors.grey[300],
                             child: Center(child: Icon(Icons.broken_image, color: Colors.grey[600])),
-                            ),
                           ),
                         ),
                       ),
+                    ),
                   Padding(
                     padding: const EdgeInsets.only(top: 12.0),
                     child: Row(
@@ -1809,7 +1813,6 @@ class _FeedScreenState extends State<FeedScreen> with SingleTickerProviderStateM
                               post.isInterested = !post.isInterested!;
                               post.interestedCount = (post.interestedCount ?? 0) + (post.isInterested! ? 1 : -1);
                             });
-                            // Call the controller method
                             _controller.markInterested(
                               post,
                               'feed',
@@ -1822,17 +1825,21 @@ class _FeedScreenState extends State<FeedScreen> with SingleTickerProviderStateM
                           onPressed: () {
                             // TODO: Implémenter le partage
                           },
-                ),
-              ],
-            ),
-          ),
-        ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
           );
         },
         openBuilder: (BuildContext _, VoidCallback __) {
-          return PostDetailScreen(postId: post.id, userId: widget.userId);
+          final apiService = _apiService;
+          return Provider<ApiService>.value(
+            value: apiService,
+            child: PostDetailScreen(postId: post.id, userId: widget.userId),
+          );
         },
       ),
     );
@@ -1848,7 +1855,7 @@ class _FeedScreenState extends State<FeedScreen> with SingleTickerProviderStateM
           case FeedContentType.leisure:
             return item.isLeisureProducer == true;
           case FeedContentType.wellness:
-            return item.isBeautyProducer == true || item.type == 'beauty_producer';
+            return item.isWellnessProducer == true || item.type == 'beauty_producer';
           case FeedContentType.userPosts:
             return !(item.isProducerPost ?? false);
           case FeedContentType.aiDialogic:
@@ -1863,7 +1870,7 @@ class _FeedScreenState extends State<FeedScreen> with SingleTickerProviderStateM
           case FeedContentType.leisure:
             return item['isLeisureProducer'] == true || item['type'] == 'event_producer';
           case FeedContentType.wellness:
-            return item['isBeautyProducer'] == true || item['type'] == 'beauty_producer';
+            return item['isWellnessProducer'] == true || item['type'] == 'beauty_producer';
           case FeedContentType.userPosts:
             return !(item['isProducerPost'] == true);
           case FeedContentType.aiDialogic:

@@ -7,6 +7,7 @@ import 'dart:typed_data';
 import 'package:provider/provider.dart';
 // Import Post model for type checking in helpers
 import './models/post.dart';
+import 'dart:ui'; // For Color, if not already imported
 
 /// Returns the base URL for API requests
 String getBaseUrl() {
@@ -236,8 +237,7 @@ IconData typeToIcon(String type) {
     case 'restaurant': return Icons.restaurant;
     case 'event': return Icons.event;
     case 'leisureproducer': return Icons.museum;
-    case 'beautyplace': // Changed from wellness
-    case 'beautyproducer': // Keep this too?
+    case 'wellnessproducer':
       return Icons.spa;
     case 'user': return Icons.person;
     default: return Icons.place;
@@ -250,8 +250,7 @@ Color typeToColor(String type) {
     case 'restaurant': return Colors.orange.shade700;
     case 'event': return Colors.blue.shade700;
     case 'leisureproducer': return Colors.purple.shade700;
-    case 'beautyplace': // Changed from wellness
-    case 'beautyproducer':
+    case 'wellnessproducer':
       return Colors.green.shade700;
     case 'user': return Colors.grey.shade700;
     default: return Colors.grey.shade500;
@@ -264,8 +263,8 @@ String typeToReadableString(String type) {
     case 'restaurant': return 'Restaurant';
     case 'event': return 'Événement';
     case 'leisureproducer': return 'Loisir';
-    case 'beautyplace': return 'Beauté'; // Changed from wellness
-    case 'beautyproducer': return 'Beauté Pro';
+    case 'wellnessproducer':
+      return 'Bien-être';
     case 'user': return 'Utilisateur';
     default: return 'Lieu';
   }
@@ -286,7 +285,7 @@ dynamic convertToApiContentType(dynamic contentType) {
 Color getPostTypeColor(dynamic post) {
   // Need Post import for this check
   bool isLeisure = post is Map ? post['isLeisureProducer'] == true : (post is Post ? post.isLeisureProducer ?? false : false);
-  bool isWellness = post is Map ? post['isWellnessProducer'] == true : (post is Post ? (post.isBeautyProducer ?? false) : false);
+  bool isWellness = post is Map ? post['isWellnessProducer'] == true : (post is Post ? (post.isWellnessProducer ?? false) : false);
   bool isRestaurant = post is Map ? (post['isProducerPost'] == true && !isLeisure && !isWellness) : (post is Post ? (post.isProducerPost ?? false) && !isLeisure && !isWellness : false);
   if (isLeisure) return Colors.purple.shade300;
   if (isRestaurant) return Colors.orange.shade300;
@@ -297,7 +296,7 @@ Color getPostTypeColor(dynamic post) {
 String getVisualBadge(dynamic post) {
   // Need Post import for this check
   bool isLeisure = post is Map ? post['isLeisureProducer'] == true : (post is Post ? post.isLeisureProducer ?? false : false);
-  bool isWellness = post is Map ? post['isWellnessProducer'] == true : (post is Post ? (post.isBeautyProducer ?? false) : false);
+  bool isWellness = post is Map ? post['isWellnessProducer'] == true : (post is Post ? (post.isWellnessProducer ?? false) : false);
   bool isRestaurant = post is Map ? (post['isProducerPost'] == true && !isLeisure && !isWellness) : (post is Post ? (post.isProducerPost ?? false) && !isLeisure && !isWellness : false);
   if (isLeisure) return '🎭';
   if (isRestaurant) return '🍽️';
@@ -308,7 +307,7 @@ String getVisualBadge(dynamic post) {
 String getPostTypeLabel(dynamic post) {
   // Need Post import for this check
   bool isLeisure = post is Map ? post['isLeisureProducer'] == true : (post is Post ? post.isLeisureProducer ?? false : false);
-  bool isWellness = post is Map ? post['isWellnessProducer'] == true : (post is Post ? (post.isBeautyProducer ?? false) : false);
+  bool isWellness = post is Map ? post['isWellnessProducer'] == true : (post is Post ? (post.isWellnessProducer ?? false) : false);
   bool isRestaurant = post is Map ? (post['isProducerPost'] == true && !isLeisure && !isWellness) : (post is Post ? (post.isProducerPost ?? false) && !isLeisure && !isWellness : false);
   if (isLeisure) return 'Loisir';
   if (isRestaurant) return 'Restaurant';
@@ -325,6 +324,32 @@ String formatTimestamp(DateTime timestamp) {
    if (difference.inHours < 24) return 'Il y a ${difference.inHours} h';
    if (difference.inDays < 7) return 'Il y a ${difference.inDays} j';
    return '${timestamp.day}/${timestamp.month}/${timestamp.year}';
+}
+
+/// Safely retrieves a boolean value from a map, handling null, bool, int, and double.
+///
+/// - Returns `true` if the value is `true`, `1`, or `1.0`.
+/// - Returns `false` if the value is `false`, `0`, `0.0`, or any other non-true value.
+/// - Returns `defaultValue` (defaults to `false`) if the key is not found or the value is null.
+bool safeGetBool(Map<String, dynamic>? data, String key, {bool defaultValue = false}) {
+  if (data == null || !data.containsKey(key) || data[key] == null) {
+    return defaultValue;
+  }
+  dynamic value = data[key];
+  if (value is bool) {
+    return value;
+  }
+  if (value is int) {
+    return value == 1;
+  }
+  if (value is double) {
+    return value == 1.0;
+  }
+  // Add other checks if necessary, e.g., for strings "true"/"false"
+  // if (value is String) {
+  //   return value.toLowerCase() == 'true';
+  // }
+  return false; // Default to false for other types
 }
 
 // Add other utility functions from your project as needed

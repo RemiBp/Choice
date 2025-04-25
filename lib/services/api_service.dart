@@ -19,6 +19,7 @@ import '../models/profile_data.dart';
 import '../models/sales_data.dart';
 import '../models/ai_query_response.dart';
 import '../services/auth_service.dart';
+import '../controllers/producer_feed_controller.dart'; // Make sure this import exists and contains ProducerFeedFilterType
 
 // Enum manquant pour les types de contenu du feed du producteur
 enum ProducerFeedContentType {
@@ -177,11 +178,11 @@ class ApiService {
   Future<List<Post>> getPostsForFeed(String userId, {int page = 1, int limit = 10}) async {
     try {
       print('*** Request ***');
-      print('uri: ${_dio.options.baseUrl}/api/feed?userId=$userId&page=$page&limit=$limit');
+      print('uri: ${_dio.options.baseUrl}/api/posts/feed?userId=$userId&page=$page&limit=$limit');
       print('');
       
       final response = await _dio.get(
-        '/api/feed',
+        '/api/posts/feed',
         queryParameters: {
           'userId': userId,
           'page': page,
@@ -634,15 +635,28 @@ class ApiService {
   }
 
   Future<bool> likeComment(String userId, String postId, String commentId) async {
+    final token = await _getToken();
+    final url = Uri.parse('${await constants.getBaseUrl()}/api/posts/$postId/comments/$commentId/like');
+    print('🌐 POST Like Comment: $url (User: $userId)');
     try {
-      final response = await _dio.post(
-        '/api/posts/$postId/comments/$commentId/like',
-        data: {'userId': userId},
+      final response = await http.post(
+        url,
+        headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
+        // Le backend s'attend peut-être à userId dans le body ou le récupère du token
+        // Adapter si nécessaire. Pour l'instant, on suppose qu'il le récupère du token via le middleware auth.
+        // body: json.encode({'userId': userId}), 
       );
 
-      return response.statusCode == 200;
+      if (response.statusCode == 200) {
+         print('✅ Comment like toggled successfully.');
+         final data = json.decode(response.body);
+         return data['isLiked'] ?? false; // Renvoyer le nouvel état si disponible
+      } else {
+        print('❌ Error liking comment: ${response.statusCode} - ${response.body}');
+        throw Exception('Failed to like comment');
+      }
     } catch (e) {
-      print('❌ Erreur lors du like du commentaire: $e');
+      print('❌ Exception liking comment: $e');
       rethrow;
     }
   }
@@ -1024,7 +1038,7 @@ class ApiService {
   Future<Map<String, dynamic>> getProducerFeed(
     String producerId,
     {
-      ProducerFeedContentType contentType = ProducerFeedContentType.venue,
+      required ProducerFeedFilterType filter,
       int page = 1,
       int limit = 10,
       String? producerType,
@@ -1033,13 +1047,13 @@ class ApiService {
   ) async {
     final token = await _getToken();
     final queryParams = {
-      'page': page.toString(),
-      'limit': limit.toString(),
-      'contentType': contentType.name,
-      if (producerType != null) 'producerType': producerType,
-      if (category != null) 'category': category,
+          'page': page.toString(),
+          'limit': limit.toString(),
+          'filter': filter.name,
+          if (producerType != null) 'producerType': producerType,
+          if (category != null) 'category': category,
     };
-    final url = Uri.parse('${await constants.getBaseUrl()}/api/producers/$producerId/feed').replace(queryParameters: queryParams);
+    final url = Uri.parse('${await constants.getBaseUrl()}/api/producer-feed/$producerId').replace(queryParameters: queryParams);
     print('🚀 GET Producer Feed: $url');
 
     try {
@@ -1047,8 +1061,10 @@ class ApiService {
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         return {
-          'items': data['items'] ?? [],
-          'hasMore': data['pagination']?['hasNextPage'] ?? false,
+          'items': data['items'] ?? data['posts'] ?? [],
+          'hasMore': data['hasMore'] ?? false,
+          'currentPage': data['currentPage'] ?? page,
+          'totalPages': data['totalPages'] ?? 1,
         };
       } else {
         print('❌ Error getting producer feed: ${response.statusCode} - ${response.body}');
@@ -1057,6 +1073,28 @@ class ApiService {
     } catch (e) {
       print('❌ Exception getting producer feed: $e');
       throw Exception('Failed to load producer feed: $e');
+    }
+  }
+
+  // Nouvelle méthode pour récupérer les likers d'un post
+  Future<List<Map<String, dynamic>>> getPostLikers(String postId) async {
+    final token = await _getToken();
+    final url = Uri.parse('${await constants.getBaseUrl()}/api/posts/$postId/likers');
+    print('🚀 GET Post Likers: $url');
+
+    try {
+      final response = await http.get(url, headers: {'Authorization': 'Bearer $token'});
+      if (response.statusCode == 200) {
+        final List<dynamic> data = json.decode(response.body);
+        // Convertir la liste dynamique en liste de Map<String, dynamic>
+        return data.map((item) => item as Map<String, dynamic>).toList();
+      } else {
+        print('❌ Error getting post likers: ${response.statusCode} - ${response.body}');
+        throw Exception('Failed to load post likers');
+      }
+    } catch (e) {
+      print('❌ Exception getting post likers: $e');
+      throw Exception('Failed to load post likers: $e');
     }
   }
 

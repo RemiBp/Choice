@@ -19,7 +19,7 @@ class PremiumFeatureService {
   /// Récupère les informations d'abonnement d'un producteur
   Future<Map<String, dynamic>> getSubscriptionInfo(String producerId) async {
     try {
-      final token = await AuthService.getToken(); // Get token
+      final token = await AuthService.getTokenStatic(); // Get token
       final response = await http.get(
         Uri.parse('${constants.getBaseUrl()}/api/premium-features/subscription-info/$producerId'),
         headers: {
@@ -48,7 +48,7 @@ class PremiumFeatureService {
     }
     
     try {
-      final token = await AuthService.getToken(); // Get token
+      final token = await AuthService.getTokenStatic(); // Get token
       final url = Uri.parse('${constants.getBaseUrl()}/api/premium-features/can-access/$producerId/$featureId');
       final response = await http.get(
         url,
@@ -157,7 +157,7 @@ class PremiumFeatureService {
   /// Récupère la liste des fonctionnalités pour un niveau d'abonnement
   Future<List<Map<String, dynamic>>> getFeaturesForLevel(String level) async {
     try {
-      final token = await AuthService.getToken(); // Get token
+      final token = await AuthService.getTokenStatic(); // Get token
       final response = await http.get(
         Uri.parse('${constants.getBaseUrl()}/api/subscription/features/$level'),
         headers: {
@@ -182,7 +182,7 @@ class PremiumFeatureService {
   /// Récupère tous les niveaux d'abonnement disponibles
   Future<List<Map<String, dynamic>>> getSubscriptionLevels() async {
     try {
-      final token = await AuthService.getToken(); // Get token
+      final token = await AuthService.getTokenStatic(); // Get token
       final response = await http.get(
         Uri.parse('${constants.getBaseUrl()}/api/subscription/levels'),
         headers: {
@@ -237,7 +237,7 @@ class PremiumFeatureService {
   /// Obtenir l'historique des abonnements d'un producteur
   Future<List<Map<String, dynamic>>> getSubscriptionHistory(String producerId) async {
     try {
-      final token = await AuthService.getToken(); // Get token
+      final token = await AuthService.getTokenStatic(); // Get token
       final response = await http.get(
         Uri.parse('${constants.getBaseUrl()}/api/subscription/producer/$producerId/history'),
         headers: {

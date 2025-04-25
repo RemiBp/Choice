@@ -26,6 +26,7 @@ import 'dart:io'; // Pour File (utilisé dans _ChoiceForm)
 import 'package:choice_app/screens/choice_detail_screen.dart'; // Importer le nouvel écran
 import 'choice_creation_screen.dart'; // Importer l'écran de création de choice
 import 'profile_screen.dart'; // Import ProfileScreen
+import 'package:choice_app/utils/validation_utils.dart';
 
 /// Classe delegate pour TabBar persistant
 class _SliverAppBarDelegate extends SliverPersistentHeaderDelegate {
@@ -343,7 +344,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> with AutomaticKeepAli
 
        // Filtrer les IDs invalides
        List<String> validPlaceIds = placeIds
-           .where((id) => id.isNotEmpty && mongoose.isValidObjectId(id))
+           .where((id) => id.isNotEmpty && ValidationUtils.isValidObjectId(id))
            .toSet() // Ensure unique IDs
            .toList();
        if (validPlaceIds.isEmpty) return {};
@@ -434,7 +435,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> with AutomaticKeepAli
      print('➡️ Navigating to details: ID=$targetId, Type=$targetType');
 
      // Valider l'ID
-     if (!mongoose.isValidObjectId(targetId)) {
+     if (!ValidationUtils.isValidObjectId(targetId)) {
         print("❌ ID cible invalide: $targetId");
         ScaffoldMessenger.of(context).showSnackBar(
            const SnackBar(content: Text("Impossible d'ouvrir les détails (ID invalide)."))
@@ -813,7 +814,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> with AutomaticKeepAli
                         if (choice is Map<String, dynamic> &&
                             choice.containsKey('targetId') &&
                             choice.containsKey('targetName') &&
-                            mongoose.isValidObjectId(choice['targetId']?.toString()))
+                            ValidationUtils.isValidObjectId(choice['targetId']?.toString()))
                         {
                            final String targetId = choice['targetId'].toString();
                            final String targetName = choice['targetName'].toString();
@@ -933,7 +934,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> with AutomaticKeepAli
       if (!mounted) return;
 
       final location = post['location'];
-      if (location == null || location is! Map || !mongoose.isValidObjectId(location['_id']?.toString())) {
+      if (location == null || location is! Map || !ValidationUtils.isValidObjectId(location['_id']?.toString())) {
         ScaffoldMessenger.of(context).showSnackBar(
           // Correction: Utiliser des guillemets doubles
           const SnackBar(content: Text("Ce post n'est pas associe a un lieu valide pour ajouter un Choice.")),
@@ -1059,7 +1060,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> with AutomaticKeepAli
       List<String> ids = [];
       for (var item in list) {
         if (item == null) continue;
-        if (item is String && mongoose.isValidObjectId(item)) { // If it's already a valid ID string
+        if (item is String && ValidationUtils.isValidObjectId(item)) { // If it's already a valid ID string
           ids.add(item);
         } else if (item is Map<String, dynamic>) { // If it's an object (likely ConnectionSchema)
           // Try to extract the ID from common fields ('userId', '_id')
@@ -1067,9 +1068,9 @@ class _MyProfileScreenState extends State<MyProfileScreen> with AutomaticKeepAli
           final idFromId = item['_id']?.toString(); // Fallback in case the object itself is the user ID (less likely based on schema)
 
           String? finalId = null;
-          if (idFromUserId != null && mongoose.isValidObjectId(idFromUserId)) {
+          if (idFromUserId != null && ValidationUtils.isValidObjectId(idFromUserId)) {
             finalId = idFromUserId;
-          } else if (idFromId != null && mongoose.isValidObjectId(idFromId)) {
+          } else if (idFromId != null && ValidationUtils.isValidObjectId(idFromId)) {
             finalId = idFromId;
           }
 
@@ -1081,7 +1082,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> with AutomaticKeepAli
         } else {
           // Try converting other types, but check validity
           final potentialId = item.toString();
-          if (mongoose.isValidObjectId(potentialId)) {
+          if (ValidationUtils.isValidObjectId(potentialId)) {
             ids.add(potentialId);
           } else {
             print("⚠️ _ensureStringList: Item is neither a String ID nor a recognized Map, and toString() is not a valid ID: $item");
@@ -2270,7 +2271,7 @@ class _ProfileTabs extends StatelessWidget {
            .map((choice) => choice['locationId']?['_id']?.toString() ?? // ID depuis locationId peuplé
                            choice['targetId']?.toString())              // Fallback si locationId n'est pas peuplé
            .whereType<String>()
-           .where((id) => mongoose.isValidObjectId(id))
+           .where((id) => ValidationUtils.isValidObjectId(id))
            .toSet() // Utiliser un Set pour éviter les doublons
            .toList();
     
@@ -2302,7 +2303,7 @@ class _ProfileTabs extends StatelessWidget {
             final choice = choices[index];
             final String? targetId = choice['locationId']?['_id']?.toString() ?? choice['targetId']?.toString();
 
-            if (targetId == null || !mongoose.isValidObjectId(targetId)) {
+            if (targetId == null || !ValidationUtils.isValidObjectId(targetId)) {
               return const Card(child: Center(child: Text('Donnée invalide')));
             }
             if (choice['_id'] == null) {
@@ -2581,7 +2582,7 @@ class _ProfileTabs extends StatelessWidget {
                     const SizedBox(height: 10),
                     InkWell(
                        onTap: () {
-                          if (locationId.isNotEmpty && mongoose.isValidObjectId(locationId)) {
+                          if (locationId.isNotEmpty && ValidationUtils.isValidObjectId(locationId)) {
                              onNavigateToDetails(locationId, locationType);
                           }
                        },
@@ -2607,7 +2608,7 @@ class _ProfileTabs extends StatelessWidget {
         children: [
                   _buildPostActionButton(context, icon: Icons.thumb_up_outlined, /* TODO: use filled icon if liked */ count: likes.length, onPressed: () => likePost(postId)),
                   _buildPostActionButton(context, icon: Icons.chat_bubble_outline, count: comments.length, onPressed: () => showComments(context, postId)),
-                  if (locationId.isNotEmpty && mongoose.isValidObjectId(locationId))
+                  if (locationId.isNotEmpty && ValidationUtils.isValidObjectId(locationId))
                      _buildPostActionButton(context, icon: Icons.check_circle_outline, label: "Choice", onPressed: () => showChoiceDialog(context, post))
                   else
                      const Spacer(), // Pour équilibrer si pas de bouton Choice
@@ -3161,15 +3162,5 @@ class _ChoiceFormState extends State<_ChoiceForm> {
         ],
       ),
     );
-  }
-}
-
-
-// Classe factice pour mongoose.isValidObjectId
-class mongoose {
-   static bool isValidObjectId(String? id) {
-      if (id == null) return false;
-      final RegExp objectIdRegExp = RegExp(r'^[0-9a-fA-F]{24}$');
-      return objectIdRegExp.hasMatch(id);
   }
 }
