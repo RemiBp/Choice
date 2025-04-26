@@ -6,6 +6,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:percent_indicator/circular_percent_indicator.dart';
 import 'package:percent_indicator/linear_percent_indicator.dart';
 import 'package:provider/provider.dart';
+import 'package:shimmer/shimmer.dart';
 import '../utils.dart';
 import '../models/growth_analytics_models.dart';
 import '../models/producer_type.dart';
@@ -370,6 +371,7 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
   @override
   Widget build(BuildContext context) {
     bool showLoading = _isLoading || _checkingPremiumAccess;
+    String loadingMessage = _checkingPremiumAccess ? 'Vérification des accès...' : 'Chargement des données...';
 
     return Scaffold(
       appBar: AppBar(
@@ -400,37 +402,35 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
           ),
         ],
       ),
-      body: showLoading
-          ? LoadingIndicator(message: _checkingPremiumAccess ? 'Vérification des accès...' : 'Chargement des données...')
-          : _error != null
-              ? ErrorMessage(
-                   message: _error!,
-                   onRetry: _loadInitialData,
-                 )
-              : _buildContent(),
+      body: _error != null
+          ? ErrorMessage(
+              message: _error!,
+              onRetry: _loadInitialData,
+            )
+          : _buildContent(showLoading, loadingMessage),
     );
   }
   
-  Widget _buildContent() {
+  Widget _buildContent(bool isLoading, String loadingMessage) {
     return RefreshIndicator(
-        onRefresh: _loadInitialData,
-        child: Column(
-          children: [
-            _buildHeader(),
-            _buildSubscriptionBanner(),
-            _buildPeriodSelector(),
-            Expanded(
-              child: TabBarView(
-                controller: _tabController,
-                children: [
-                  _buildOverviewTab(_overview),
-                  _buildTrendsTab(_trends),
-                  _buildRecommendationsTab(_recommendations),
-                ],
-              ),
+      onRefresh: _loadInitialData,
+      child: Column(
+        children: [
+          _buildHeader(),
+          if (!isLoading) _buildSubscriptionBanner(),
+          _buildPeriodSelector(),
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                _buildOverviewTab(_overview, isLoading),
+                _buildTrendsTab(_trends, isLoading),
+                _buildRecommendationsTab(_recommendations, isLoading),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
+      ),
     );
   }
   
@@ -649,11 +649,7 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
     );
   }
   
-  Widget _buildOverviewTab(GrowthOverview? overview) {
-    if (overview == null) {
-      return _buildNoDataAvailable("growth_reach.no_overview_data".tr());
-    }
-
+  Widget _buildOverviewTab(GrowthOverview? overview, bool isLoading) {
     bool canAccessDemographics = _premiumFeaturesAccess['audience_demographics'] ?? false;
     bool canAccessPredictions = _premiumFeaturesAccess['growth_predictions'] ?? false;
 
@@ -663,59 +659,62 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildSectionHeader("growth_reach.kpi_header".tr()),
-          SizedBox(height: 12),
-          _buildKpiGrid(overview.kpis),
+          SizedBox(height: 16),
+          isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : (overview != null
+                  ? _buildKpiGrid(overview.kpis)
+                  : _buildNoDataAvailable("growth_reach.no_overview_data".tr())),
           SizedBox(height: 24),
 
-          _buildEngagementSummaryCard(overview.engagementSummary),
-          SizedBox(height: 24),
+          if (!isLoading && overview != null)
+            _buildEngagementSummaryCard(overview.engagementSummary),
+          if (!isLoading && overview != null) SizedBox(height: 24),
 
           _buildSectionHeader("growth_reach.demographics_header".tr()),
-          SizedBox(height: 12),
-          _premiumFeaturesAccess['audience_demographics'] ?? false
-              ? (_demographics != null 
-                  ? _buildDemographicsContent(_demographics)
-                  : _buildDataLoadingError("growth_reach.error_loading_demographics".tr()) 
-                )
-              : _buildPremiumFeatureTeaser(
-                  title: "growth_reach.demographics_title".tr(),
-                  description: "growth_reach.demographics_desc".tr(),
-                  featureId: 'audience_demographics',
-                  icon: Icons.people_alt_outlined,
-                  color: Colors.indigo,
-                  producerId: widget.producerId,
-                  child: Container(height: 150, child: Center(child: Icon(Icons.bar_chart, size: 50, color: Colors.grey.shade400))),
-                ),
+          SizedBox(height: 16),
+          isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : (_premiumFeaturesAccess['audience_demographics'] ?? false
+                  ? (_demographics != null
+                      ? _buildDemographicsContent(_demographics)
+                      : _buildDataLoadingError("growth_reach.error_loading_demographics".tr()))
+                  : _buildPremiumFeatureTeaser(
+                      title: "growth_reach.demographics_title".tr(),
+                      description: "growth_reach.demographics_desc".tr(),
+                      featureId: 'audience_demographics',
+                      icon: Icons.people_alt_outlined,
+                      color: Colors.indigo,
+                      producerId: widget.producerId,
+                      child: Container(height: 150, child: Center(child: Icon(Icons.bar_chart, size: 50, color: Colors.grey.shade400))),
+                    )),
           SizedBox(height: 24),
 
           _buildSectionHeader("growth_reach.predictions_header".tr()),
-          SizedBox(height: 12),
-          _premiumFeaturesAccess['growth_predictions'] ?? false
-              ? (_predictions != null
-                  ? _buildPredictionsContent(_predictions)
-                  : _buildDataLoadingError("growth_reach.error_loading_predictions".tr())
-                )
-              : _buildPremiumFeatureTeaser(
-                  title: "growth_reach.predictions_title".tr(),
-                  description: "growth_reach.predictions_desc".tr(),
-                  featureId: 'growth_predictions',
-                  icon: Icons.online_prediction_outlined,
-                  color: Colors.purple,
-                  producerId: widget.producerId,
-                  child: Container(height: 150, child: Center(child: Icon(Icons.trending_up, size: 50, color: Colors.grey.shade400))),
-                ),
+          SizedBox(height: 16),
+          isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : (_premiumFeaturesAccess['growth_predictions'] ?? false
+                  ? (_predictions != null
+                      ? _buildPredictionsContent(_predictions)
+                      : _buildDataLoadingError("growth_reach.error_loading_predictions".tr()))
+                  : _buildPremiumFeatureTeaser(
+                      title: "growth_reach.predictions_title".tr(),
+                      description: "growth_reach.predictions_desc".tr(),
+                      featureId: 'growth_predictions',
+                      icon: Icons.online_prediction_outlined,
+                      color: Colors.purple,
+                      producerId: widget.producerId,
+                      child: Container(height: 150, child: Center(child: Icon(Icons.trending_up, size: 50, color: Colors.grey.shade400))),
+                    )),
+          SizedBox(height: 24),
         ],
       ),
     );
   }
   
-  Widget _buildTrendsTab(GrowthTrends? trends) {
-    if (trends == null) {
-      return _buildNoDataAvailable("growth_reach.no_trends_data".tr());
-    }
-
+  Widget _buildTrendsTab(GrowthTrends? trends, bool isLoading) {
     bool hasAnalyticsAccess = _premiumFeaturesAccess['advanced_analytics'] ?? false;
-    bool competitorCheckFailed = !_checkingPremiumAccess && _competitorAnalysis == null;
 
     return SingleChildScrollView(
       padding: EdgeInsets.all(16),
@@ -723,39 +722,39 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildSectionHeader("growth_reach.trends_header".tr()),
-          SizedBox(height: 12),
-          _buildTrendChartsContent(context),
+          SizedBox(height: 16),
+          isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : (trends != null
+                  ? _buildTrendChartsContent(context)
+                  : _buildNoDataAvailable("growth_reach.no_trends_data".tr())),
           SizedBox(height: 24),
 
           _buildSectionHeader("growth_reach.competitors_header".tr()),
-          SizedBox(height: 12),
-          hasAnalyticsAccess
-              ? (_competitorAnalysis != null 
-                  ? _buildCompetitorAnalysisContent(context)
-                  : _buildDataLoadingError("growth_reach.error_loading_competitors".tr())
-                ) 
-              : _buildPremiumFeatureTeaser(
-                  title: "growth_reach.competitors_title".tr(),
-                  description: "growth_reach.competitors_desc".tr(),
-                  featureId: 'advanced_analytics',
-                  icon: Icons.analytics_outlined,
-                  color: Colors.teal,
-                  producerId: widget.producerId,
-                  child: Container(height: 150, child: Center(child: Icon(Icons.compare_arrows, size: 50, color: Colors.grey.shade400))),
-                ),
+          SizedBox(height: 16),
+          isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : (hasAnalyticsAccess
+                  ? (_competitorAnalysis != null
+                      ? _buildCompetitorAnalysisContent(context)
+                      : _buildDataLoadingError("growth_reach.error_loading_competitors".tr()))
+                  : _buildPremiumFeatureTeaser(
+                      title: "growth_reach.competitors_title".tr(),
+                      description: "growth_reach.competitors_desc".tr(),
+                      featureId: 'advanced_analytics',
+                      icon: Icons.analytics_outlined,
+                      color: Colors.teal,
+                      producerId: widget.producerId,
+                      child: Container(height: 150, child: Center(child: Icon(Icons.compare_arrows, size: 50, color: Colors.grey.shade400))),
+                    )),
           SizedBox(height: 24),
         ],
       ),
     );
   }
   
-  Widget _buildRecommendationsTab(GrowthRecommendations? recommendations) {
-    if (recommendations == null || recommendations.recommendations.isEmpty) {
-      return _buildNoDataAvailable("growth_reach.no_recommendations_data".tr());
-    }
-
+  Widget _buildRecommendationsTab(GrowthRecommendations? recommendations, bool isLoading) {
     bool hasCampaignAccess = _premiumFeaturesAccess['simple_campaigns'] ?? false;
-    bool campaignCheckFailed = !_checkingPremiumAccess && _campaigns.isEmpty && !_loadingCampaigns;
 
     return SingleChildScrollView(
       padding: EdgeInsets.all(16),
@@ -763,26 +762,31 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildSectionHeader("growth_reach.recommendations_header".tr()),
-          SizedBox(height: 12),
-          _buildRecommendationsList(recommendations.recommendations),
+          SizedBox(height: 16),
+          isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : (recommendations == null || recommendations.recommendations.isEmpty)
+                  ? _buildNoDataAvailable("growth_reach.no_recommendations_data".tr())
+                  : _buildRecommendationsList(recommendations.recommendations),
           SizedBox(height: 24),
 
           _buildSectionHeader("growth_reach.campaigns_header".tr()),
-          SizedBox(height: 12),
-          hasCampaignAccess
-              ? (_loadingCampaigns 
-                  ? Center(child: CircularProgressIndicator()) 
-                  : _buildCampaignsContent()
-                )
-              : _buildPremiumFeatureTeaser(
-                  title: "growth_reach.campaigns_title".tr(),
-                  description: "growth_reach.campaigns_desc".tr(),
-                  featureId: 'simple_campaigns',
-                  icon: Icons.campaign_outlined,
-                  color: Colors.green,
-                  producerId: widget.producerId,
-                  child: Container(height: 150, child: Center(child: Icon(Icons.volume_up_outlined, size: 50, color: Colors.grey.shade400))),
-                ),
+          SizedBox(height: 16),
+          isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : (hasCampaignAccess
+                  ? (_loadingCampaigns
+                      ? Center(child: CircularProgressIndicator())
+                      : _buildCampaignsContent())
+                  : _buildPremiumFeatureTeaser(
+                      title: "growth_reach.campaigns_title".tr(),
+                      description: "growth_reach.campaigns_desc".tr(),
+                      featureId: 'simple_campaigns',
+                      icon: Icons.campaign_outlined,
+                      color: Colors.green,
+                      producerId: widget.producerId,
+                      child: Container(height: 150, child: Center(child: Icon(Icons.volume_up_outlined, size: 50, color: Colors.grey.shade400))),
+                    )),
           SizedBox(height: 24),
         ],
       ),
@@ -834,69 +838,7 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
   }
   
   Widget _buildKpiCard(String title, KpiValue kpi) {
-    final theme = Theme.of(context);
-    final bool isPositive = kpi.isPositiveChange;
-    final Color changeColor = isPositive ? Colors.green.shade700 : Colors.red.shade700;
-    final IconData changeIcon = isPositive ? Icons.arrow_upward : Icons.arrow_downward;
-
-    return Card(
-       elevation: 2,
-       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-       child: Padding(
-         padding: const EdgeInsets.all(16.0),
-         child: Column(
-           crossAxisAlignment: CrossAxisAlignment.start,
-           children: [
-             Text(
-               title,
-               style: TextStyle(
-                  fontSize: 14,
-                  color: theme.textTheme.bodySmall?.color ?? Colors.grey.shade600,
-                  fontWeight: FontWeight.w500,
-                ),
-             ),
-             SizedBox(height: 8),
-             Text(
-               _formatNumber(kpi.current),
-               style: TextStyle(
-                 fontSize: 24,
-                 fontWeight: FontWeight.bold,
-                 color: theme.textTheme.titleLarge?.color ?? Colors.black,
-               ),
-             ),
-             SizedBox(height: 8),
-             Row(
-                children: [
-                   Icon(changeIcon, size: 16, color: changeColor),
-                   SizedBox(width: 4),
-                   Flexible(
-                     child: Text(
-                        _formatNumber(kpi.change.abs()),
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                          color: changeColor,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                     ),
-                   ),
-                   SizedBox(width: 4),
-                   Flexible(
-                     child: Text(
-                       "(${_formatPercent(kpi.changePercent, includeSign: true)})",
-                       style: TextStyle(
-                          fontSize: 13,
-                          color: changeColor.withOpacity(0.9),
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                     ),
-                   ),
-                ],
-             )
-           ],
-         ),
-       ),
-    );
+    return _KpiCardWidget(title: title, kpi: kpi);
   }
   
   Widget _buildKpiGrid(Map<String, KpiValue> kpis) {
@@ -909,35 +851,42 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
        MapEntry('avgRating', 'growth_reach.kpi_rating'.tr()),
     ];
 
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: NeverScrollableScrollPhysics(),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 12,
-        childAspectRatio: 1.5,
-      ),
-      itemCount: kpiOrder.length,
-      itemBuilder: (context, index) {
-        final entry = kpiOrder[index];
-        final kpi = kpis[entry.key];
-        if (kpi == null) {
-           return Card(
-             elevation: 1,
-             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-             color: Colors.grey.shade100,
-             child: Center(
-               child: Text(
-                 '${entry.value}\n(N/A)',
-                 textAlign: TextAlign.center,
-                 style: TextStyle(color: Colors.grey.shade500),
-               ),
-             ),
-           );
-        }
-        return _buildKpiCard(entry.value, kpi);
-      },
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final crossAxisCount = constraints.maxWidth < 600 ? 2 : 3;
+        final childAspectRatio = crossAxisCount == 2 ? 1.5 : 1.8;
+
+        return GridView.builder(
+          shrinkWrap: true,
+          physics: NeverScrollableScrollPhysics(),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: crossAxisCount,
+            crossAxisSpacing: 12,
+            mainAxisSpacing: 12,
+            childAspectRatio: childAspectRatio,
+          ),
+          itemCount: kpiOrder.length,
+          itemBuilder: (context, index) {
+            final entry = kpiOrder[index];
+            final kpi = kpis[entry.key];
+            if (kpi == null) {
+               return Card(
+                 elevation: 1,
+                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                 color: Colors.grey.shade100,
+                 child: Center(
+                   child: Text(
+                     '${entry.value}\n(N/A)',
+                     textAlign: TextAlign.center,
+                     style: TextStyle(color: Colors.grey.shade500),
+                   ),
+                 ),
+               );
+            }
+            return _buildKpiCard(entry.value, kpi);
+          },
+        );
+      }
     );
   }
   
@@ -1243,19 +1192,28 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
   Widget _buildTopLocations(List<Map<String, dynamic>> locations) {
       if (locations.isEmpty) return Text("growth_reach.not_available".tr());
 
-      return Column(
-         crossAxisAlignment: CrossAxisAlignment.start,
-         children: locations.take(5).map((loc) {
-            final String name = loc['city'] ?? loc['region'] ?? loc['country'] ?? 'Inconnu';
-            final double percentage = (loc['percentage'] ?? 0.0).toDouble();
+      return ListView.builder(
+         shrinkWrap: true,
+         physics: NeverScrollableScrollPhysics(),
+         itemCount: locations.length,
+         itemBuilder: (context, index) {
+            final loc = locations[index];
+            final name = loc['city'] ?? loc['region'] ?? loc['country'] ?? 'Inconnu';
+            final percentage = (loc['percentage'] ?? 0.0).toDouble();
             return Padding(
                padding: const EdgeInsets.symmetric(vertical: 3.0),
-               child: Text(
-                  "• $name (${_formatPercent(percentage)})",
-                  style: TextStyle(fontSize: 14),
+               child: Row(
+                 children: [
+                   Expanded(
+                     child: Text(
+                       "• $name (${_formatPercent(percentage)})",
+                       style: TextStyle(fontSize: 14),
+                     ),
+                   ),
+                 ],
                ),
             );
-         }).toList(),
+         },
       );
   }
   
@@ -1286,16 +1244,16 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
                     padding: const EdgeInsets.symmetric(vertical: 8.0),
                     child: Row(
                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                       crossAxisAlignment: CrossAxisAlignment.start,
                        children: [
                           Expanded(
                              flex: 2,
                              child: Text(
                                label,
                                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
-                               overflow: TextOverflow.ellipsis,
-                               maxLines: 2,
                              ),
                           ),
+                          SizedBox(width: 8),
                           Flexible(
                             flex: 1,
                             child: Column(
@@ -1304,14 +1262,21 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
                                  Text(
                                     _formatNumber(prediction.value),
                                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                                    textAlign: TextAlign.end,
                                  ),
-                                  Row(
+                                 SizedBox(height: 2),
+                                 Row(
+                                     mainAxisSize: MainAxisSize.min,
+                                     mainAxisAlignment: MainAxisAlignment.end,
                                      children: [
                                        Icon(Icons.shield_outlined, size: 12, color: confidenceColor),
                                        SizedBox(width: 4),
-                                       Text(
-                                          'growth_reach.prediction_confidence'.tr(args: [prediction.confidence]),
-                                          style: TextStyle(fontSize: 11, color: confidenceColor),
+                                       Flexible(
+                                         child: Text(
+                                            'growth_reach.prediction_confidence'.tr(args: [prediction.confidence]),
+                                            style: TextStyle(fontSize: 11, color: confidenceColor),
+                                            textAlign: TextAlign.end,
+                                         ),
                                        ),
                                      ],
                                   ),
@@ -1817,7 +1782,7 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
        child: child,
        producerId: producerId,
        color: color,
-       icon: icon,
+       icon: icon ?? Icons.lock_outline,
     );
   }
   
@@ -1893,112 +1858,206 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
         ),
      );
   }
+
+  Widget _buildShimmer({required Widget child}) {
+    return Shimmer.fromColors(
+      baseColor: Colors.grey[300]!,
+      highlightColor: Colors.grey[100]!,
+      child: child,
+    );
+  }
+
+  Widget _buildKpiPlaceholder() {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(width: 80, height: 14, color: Colors.white),
+            SizedBox(height: 8),
+            Container(width: 60, height: 24, color: Colors.white),
+            SizedBox(height: 8),
+            Row(
+              children: [
+                Container(width: 16, height: 16, color: Colors.white),
+                SizedBox(width: 4),
+                Container(width: 40, height: 14, color: Colors.white),
+                SizedBox(width: 4),
+                Container(width: 50, height: 13, color: Colors.white),
+              ],
+            )
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildChartPlaceholder() {
+    return _buildShimmer(
+      child: Card(
+        elevation: 2,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Container(
+          height: 250,
+          padding: EdgeInsets.all(16),
+          child: Column(
+             crossAxisAlignment: CrossAxisAlignment.start,
+             children: [
+               Container(width: 150, height: 20, color: Colors.white),
+               SizedBox(height: 16),
+               Expanded(
+                 child: Container(color: Colors.white),
+               ),
+             ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGenericPlaceholder({double height = 150}) {
+     return _buildShimmer(
+       child: Card(
+         elevation: 1,
+         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+         child: Container(
+           height: height,
+           width: double.infinity,
+           color: Colors.white,
+         ),
+       ),
+     );
+  }
+
+  Widget _buildRecommendationsPlaceholder() {
+     return _buildShimmer(
+       child: ListView.separated(
+         shrinkWrap: true,
+         physics: NeverScrollableScrollPhysics(),
+         itemCount: 3,
+         separatorBuilder: (_, __) => SizedBox(height: 12),
+         itemBuilder: (context, index) {
+            return Card(
+              elevation: 2,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(width: 20, height: 20, color: Colors.white),
+                        SizedBox(width: 8),
+                        Container(width: MediaQuery.of(context).size.width * 0.5, height: 16, color: Colors.white),
+                      ],
+                    ),
+                    SizedBox(height: 8),
+                    Container(width: double.infinity, height: 14, color: Colors.white),
+                    SizedBox(height: 6),
+                    Container(width: MediaQuery.of(context).size.width * 0.7, height: 14, color: Colors.white),
+                    SizedBox(height: 12),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Container(width: 100, height: 30, color: Colors.white),
+                    ),
+                  ],
+                ),
+              ),
+            );
+         },
+       ),
+     );
+  }
 }
 
-class PremiumFeatureTeaser extends StatelessWidget {
+class _KpiCardWidget extends StatelessWidget {
   final String title;
-  final String description;
-  final String featureId;
-  final Widget child;
-  final String producerId;
-  final Color? color;
-  final IconData? icon;
+  final KpiValue kpi;
 
-  const PremiumFeatureTeaser({
-    Key? key,
-    required this.title,
-    required this.description,
-    required this.featureId,
-    required this.child,
-    required this.producerId,
-    this.color,
-    this.icon,
-  }) : super(key: key);
+  const _KpiCardWidget({required this.title, required this.kpi});
+
+  // Format number in compact form
+  String _formatNumber(double number) {
+    return NumberFormat.compact().format(number);
+  }
+  
+  // Format percent with optional sign
+  String _formatPercent(double percent, {bool includeSign = false}) {
+    final format = NumberFormat("##0.0'%'", "fr_FR");
+    String formatted = format.format(percent / 100);
+    if (includeSign && percent > 0) {
+      formatted = "+$formatted";
+    }
+    return formatted;
+  }
 
   @override
   Widget build(BuildContext context) {
-    final themeColor = color ?? Theme.of(context).primaryColor;
+    final theme = Theme.of(context);
+    final bool isPositive = kpi.isPositiveChange;
+    final Color changeColor = isPositive ? Colors.green.shade700 : Colors.red.shade700;
+    final IconData changeIcon = isPositive ? Icons.arrow_upward : Icons.arrow_downward;
+
     return Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: themeColor.withOpacity(0.3)),
-      ),
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: ColorFiltered(
-                 colorFilter: ColorFilter.mode(Colors.grey.withOpacity(0.6), BlendMode.srcATop),
-                 child: child,
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 14,
+                color: theme.textTheme.bodySmall?.color ?? Colors.grey.shade600,
+                fontWeight: FontWeight.w500,
               ),
             ),
-          ),
-          Container(
-            padding: const EdgeInsets.all(16.0),
-            decoration: BoxDecoration(
-               borderRadius: BorderRadius.circular(12),
-               gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                     Colors.black.withOpacity(0.5),
-                     Colors.black.withOpacity(0.7),
-                  ],
-               ),
+            SizedBox(height: 8),
+            Text(
+              _formatNumber(kpi.current),
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: theme.textTheme.titleLarge?.color ?? Colors.black,
+              ),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              mainAxisAlignment: MainAxisAlignment.center,
+            SizedBox(height: 8),
+            Row(
               children: [
-                if (icon != null)
-                  Icon(icon, size: 36, color: themeColor.withOpacity(0.8)),
-                SizedBox(height: 8),
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
+                Icon(changeIcon, size: 16, color: changeColor),
+                SizedBox(width: 4),
+                Flexible(
+                  child: Text(
+                    _formatNumber(kpi.change.abs()),
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: changeColor,
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  textAlign: TextAlign.center,
                 ),
-                SizedBox(height: 8),
-                Text(
-                  description,
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.white.withOpacity(0.85),
+                SizedBox(width: 4),
+                Flexible(
+                  child: Text(
+                    "(${_formatPercent(kpi.changePercent, includeSign: true)})",
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: changeColor.withOpacity(0.9),
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  textAlign: TextAlign.center,
-                ),
-                SizedBox(height: 16),
-                ElevatedButton.icon(
-                   icon: Icon(Icons.lock_open_outlined, size: 16),
-                   label: Text('Débloquer'),
-                   onPressed: () async {
-                      final premiumService = PremiumFeatureService();
-                      final shouldUpgrade = await premiumService.showUpgradeDialog(
-                         context,
-                         producerId,
-                         featureId,
-                      );
-                      if (shouldUpgrade && context.mounted) {
-                         final state = context.findAncestorStateOfType<_GrowthAndReachScreenState>();
-                         state?._loadInitialData();
-                      }
-                   },
-                   style: ElevatedButton.styleFrom(
-                      backgroundColor: themeColor,
-                      foregroundColor: Colors.white,
-                      padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                   ),
                 ),
               ],
-            ),
-          ),
-        ],
+            )
+          ],
+        ),
       ),
     );
   }

@@ -32,15 +32,9 @@ import '../utils.dart';
 import '../widgets/likers_list_dialog.dart'; // Import the new dialog widget
 
 // --- Category Lists ---
-const List<String> _restaurantCategories = [
-  'Tous', 'Promotions', 'Événements', 'Plats', 'Nouveautés', 'Ambiance', 'Coulisses'
-];
-const List<String> _leisureCategories = [
-  'Tous', 'Événements', 'Expositions', 'Spectacles', 'Promotions', 'Activités', 'Nouveautés'
-];
-const List<String> _wellnessCategories = [
-  'Tous', 'Soins', 'Cours', 'Ateliers', 'Événements', 'Promotions', 'Conseils'
-];
+const List<String> _restaurantCategories = ['Tous', 'Promotions', 'Événements', 'Plats', 'Nouveautés', 'Ambiance', 'Coulisses'];
+const List<String> _leisureCategories = ['Tous', 'Événements', 'Expositions', 'Spectacles', 'Promotions', 'Activités', 'Nouveautés'];
+const List<String> _wellnessCategories = ['Tous', 'Soins', 'Cours', 'Ateliers', 'Événements', 'Promotions', 'Conseils'];
 
 // --- Helper Functions (Define or Import) ---
 // Moved to producer_post_card.dart, ensure they are accessible there or move to utils.dart
@@ -214,15 +208,19 @@ class _ProducerFeedScreenState extends State<ProducerFeedScreen> with SingleTick
     }
   }
   
-  // --- Navigation Methods ---
-  void _navigateToMessaging() {
-     print("Navigating to Producer Messaging...");
-     Navigator.push(context, MaterialPageRoute(builder: (context) =>
+  // --- Navigation Methods (Modified for Refresh on Return) ---
+  Future<void> _navigateToMessaging() async { // Make async
+    print("Navigating to Producer Messaging...");
+    // Await the result of navigation
+    await Navigator.push(context, MaterialPageRoute(builder: (context) =>
         ProducerMessagingScreen(producerId: _producerAccountId, producerType: _producerTypeString)));
+    // Refresh feed when returning
+    print("Returned from Messaging - Refreshing feed...");
+    _controller.refreshFeed(); // Consider a less disruptive refresh if needed
   }
 
- // REVISED: Navigation to Post Detail Screen
- void _openPostDetail(dynamic postData, {bool focusCommentField = false}) {
+  // REVISED: Navigation to Post Detail Screen
+  Future<void> _openPostDetail(dynamic postData, {bool focusCommentField = false}) async { // Make async
     String postId;
     if (postData is Post) {
       postId = postData.id;
@@ -252,7 +250,8 @@ class _ProducerFeedScreenState extends State<ProducerFeedScreen> with SingleTick
     // Get ApiService instance HERE using the correct context
     final apiService = Provider.of<api_service.ApiService>(context, listen: false);
 
-    Navigator.push(
+    // Await the result of navigation
+    await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (ctx) => Provider<api_service.ApiService>.value(
@@ -265,9 +264,12 @@ class _ProducerFeedScreenState extends State<ProducerFeedScreen> with SingleTick
         ),
       ),
     );
+    // Refresh feed when returning
+    print("Returned from Post Detail - Refreshing feed...");
+    _controller.refreshFeed(); // Consider a less disruptive refresh if needed
   }
 
- void _openReelsView(dynamic post, String mediaUrl) {
+  Future<void> _openReelsView(dynamic post, String mediaUrl) async { // Make async (if refresh needed after reels)
     // ... (Video pausing)
     Map<String, dynamic> postData = {}; List<Map<String, dynamic>> videos = []; int initialIndex = 0;
      if (post is Post) {
@@ -278,17 +280,17 @@ class _ProducerFeedScreenState extends State<ProducerFeedScreen> with SingleTick
        // ... (Other data extraction)
      } else { return; }
      // ... (Video list preparation and navigation)
- }
+  }
 
- void _navigateToProfileFromData(dynamic postData) {
+  void _navigateToProfileFromData(dynamic postData) {
     // ... (Keep previous extraction logic)
      String profileId = ''; String profileType = 'user';
     if (postData is Map) { profileId = postData['author_id'] ?? postData['author']?['id'] ?? ''; if (postData['isLeisureProducer'] == true) profileType = 'leisureProducer'; else if (postData['isWellnessProducer'] == true || postData['isBeautyProducer'] == true) profileType = 'wellnessProducer'; else if (postData['isProducerPost'] == true || postData['producer_id'] != null) profileType = 'restaurant'; }
     else if (postData is Post) { profileId = postData.authorId ?? ''; if (postData.isLeisureProducer ?? false) profileType = 'leisureProducer'; else if (postData.isBeautyProducer ?? false) profileType = 'wellnessProducer'; else if (postData.isProducerPost ?? false) profileType = 'restaurant'; }
     if (profileId.isNotEmpty) _navigateToProfile(profileId, profileType); else print("❌ No profile ID.");
- }
+  }
 
- void _navigateToProfile(String profileId, String type) {
+  Future<void> _navigateToProfile(String profileId, String type) async { // Make async
     print("Nav to profile: $profileId ($type)");
     Widget? screen; // Make screen nullable
     final bool isOwnProfile = (profileId == _producerAccountId);
@@ -317,37 +319,41 @@ class _ProducerFeedScreenState extends State<ProducerFeedScreen> with SingleTick
 
     // Only navigate if screen was assigned
     if (screen != null) {
-      Navigator.push(context, MaterialPageRoute(builder: (context) => screen!));
+      // Await the result of navigation
+      await Navigator.push(context, MaterialPageRoute(builder: (context) => screen!));
+      // Refresh feed when returning
+      print("Returned from Profile ($type) - Refreshing feed...");
+      _controller.refreshFeed(); // Consider a less disruptive refresh if needed
     }
   }
 
- void _showSimplePostOptions(dynamic post) {
-     final postId = (post is Map ? post['_id'] : post?.id) ?? 'inconnu';
-     if (postId == 'inconnu') return;
-     showModalBottomSheet(context: context, builder: (context) => Wrap(
-        children: [ ListTile(leading: const Icon(Icons.delete_outline, color: Colors.red), title: const Text('Supprimer le post', style: TextStyle(color: Colors.red)), onTap: () { Navigator.pop(context); _confirmDeletePost(postId); }) ]
+  void _showSimplePostOptions(dynamic post) {
+      final postId = (post is Map ? post['_id'] : post?.id) ?? 'inconnu';
+      if (postId == 'inconnu') return;
+      showModalBottomSheet(context: context, builder: (context) => Wrap(
+         children: [ ListTile(leading: const Icon(Icons.delete_outline, color: Colors.red), title: const Text('Supprimer le post', style: TextStyle(color: Colors.red)), onTap: () { Navigator.pop(context); _confirmDeletePost(postId); }) ]
+      ));
+  }
+
+  void _confirmDeletePost(String postId) {
+     showDialog(context: context, builder: (context) => AlertDialog(
+        title: const Text('Supprimer le Post'), content: const Text('Êtes-vous sûr ? Cette action est définitive.'),
+        actions: [ TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')), TextButton(onPressed: () { Navigator.pop(context); _deletePost(postId); }, child: const Text('Supprimer', style: TextStyle(color: Colors.red))) ],
      ));
- }
+  }
 
- void _confirmDeletePost(String postId) {
-    showDialog(context: context, builder: (context) => AlertDialog(
-       title: const Text('Supprimer le Post'), content: const Text('Êtes-vous sûr ? Cette action est définitive.'),
-       actions: [ TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')), TextButton(onPressed: () { Navigator.pop(context); _deletePost(postId); }, child: const Text('Supprimer', style: TextStyle(color: Colors.red))) ],
-    ));
- }
-
- Future<void> _deletePost(String postId) async {
-    print("🗑️ Deleting post $postId");
-    try {
-       // Pass the correct producer ID (assuming it's needed for authorization)
-       await Provider.of<api_service.ApiService>(context, listen: false).deletePost(_producerAccountId, postId);
-       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Post supprimé'), backgroundColor: Colors.green,));
-       _controller.refreshFeed();
-      } catch (e) {
-       print("❌ Error deleting post $postId: $e");
-       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur suppression: ${e.toString()}'), backgroundColor: Colors.red,));
-    }
- }
+  Future<void> _deletePost(String postId) async {
+     print("🗑️ Deleting post $postId");
+     try {
+        // Pass the correct producer ID (assuming it's needed for authorization)
+        await Provider.of<api_service.ApiService>(context, listen: false).deletePost(_producerAccountId, postId);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Post supprimé'), backgroundColor: Colors.green,));
+        _controller.refreshFeed();
+       } catch (e) {
+        print("❌ Error deleting post $postId: $e");
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur suppression: ${e.toString()}'), backgroundColor: Colors.red,));
+     }
+  }
 
   // === Show Likers Dialog ===
   Future<void> _showLikers(String postId) async {

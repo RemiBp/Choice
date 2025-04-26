@@ -946,7 +946,7 @@ class AuthService extends ChangeNotifier {
         return false;
       }
 
-      final url = Uri.parse('${constants.getBaseUrl()}/api/users/stripe-customer-id');
+      final url = Uri.parse('${constants.getBaseUrl()}/api/users/$userId');
       final response = await http.put(
         url,
         headers: {

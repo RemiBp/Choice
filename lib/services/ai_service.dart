@@ -204,16 +204,33 @@ class AIService {
     Duration timeout = const Duration(seconds: 30),
   }) async {
     print("🔍 Requête AI pour ${producerType ?? 'type inconnu'} (ID: $producerId): $query");
-    final url = Uri.parse('$_baseUrl/api/ai/producer-query');
-    print("📡 Endpoint utilisé: /api/ai/producer-query");
     
     try {
+      // Si le type n'est pas fourni, essayer de le détecter
+      String typeToUse = producerType ?? '';
+      if (typeToUse.isEmpty) {
+        print("🔍 Détection automatique du type de producteur...");
+        try {
+          typeToUse = await detectProducerType(producerId);
+          print("✅ Type détecté: $typeToUse");
+        } catch (e) {
+          print("⚠️ Échec de la détection du type: $e");
+          // Continuer sans type, le backend fera sa propre détection
+        }
+      }
+      
+      // Utiliser l'endpoint générique pour tous les types
+      final url = Uri.parse('$_baseUrl/api/ai/producer-query');
+      print("📡 Endpoint utilisé: /api/ai/producer-query");
+      
       final headers = await _getAuthHeaders();
       final body = json.encode({
         'producerId': producerId,
-        'message': query,
-        if (producerType != null) 'producerType': producerType,
+        'message': query,  // Le backend s'attend à 'message' et non 'query'
+        if (typeToUse.isNotEmpty) 'producerType': typeToUse,
       });
+
+      print("📦 Paramètres envoyés: producerId=$producerId, message=<Query>, ${typeToUse.isNotEmpty ? 'producerType=$typeToUse' : 'Sans type spécifié'}");
 
       final response = await http.post(
         url,
@@ -228,11 +245,11 @@ class AIService {
       } else {
         print("❌ Erreur serveur AI (${response.statusCode}): ${response.body}");
         String errorMessage = "Erreur serveur: ${response.statusCode}";
-        if (response.statusCode == 401) errorMessage = "Non autorisé (Token invalide ou manquant ?)";
-        if (response.statusCode == 403) errorMessage = "Accès refusé.";
-        if (response.statusCode == 500) errorMessage = "Erreur interne du serveur AI.";
-        if (response.statusCode == 503) errorMessage = "Service AI indisponible.";
-        
+         if (response.statusCode == 401) errorMessage = "Non autorisé (Token invalide ou manquant ?)";
+         if (response.statusCode == 403) errorMessage = "Accès refusé.";
+         if (response.statusCode == 500) errorMessage = "Erreur interne du serveur AI.";
+         if (response.statusCode == 503) errorMessage = "Service AI indisponible.";
+
         try {
           final errorJson = json.decode(utf8.decode(response.bodyBytes));
           if (errorJson['response'] is String) {
@@ -241,7 +258,7 @@ class AIService {
              errorMessage = errorJson['error'];
           }
         } catch (_) { }
-        
+
         throw Exception(errorMessage);
       }
     } catch (e) {
@@ -519,8 +536,45 @@ class AIService {
     return spans;
   }
 
-  /// Détecte le type de producteur en interrogeant les différentes API
+  /// Détecte le type de producteur en utilisant l'endpoint centralisé
   Future<String> detectProducerType(String producerId) async {
+    final String defaultType = 'restaurant';
+    
+    try {
+      print("🔍 Détection du type pour producerId: $producerId via API centralisée");
+      // Utiliser l'endpoint centralisé pour la détection du type
+      final url = Uri.parse('$_baseUrl/api/ai/detect-producer-type/$producerId');
+      final headers = await _getAuthHeaders();
+      
+      final response = await http.get(url, headers: headers)
+        .timeout(const Duration(seconds: 5)); // Timeout court pour éviter de bloquer l'interface
+      
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['success'] == true && data['producerType'] != null) {
+          final detectedType = data['producerType'].toString();
+          print("✅ Type de producteur détecté par API: $detectedType");
+          return detectedType;
+        }
+      } else if (response.statusCode == 404) {
+        print("❌ Producteur non trouvé dans aucune collection");
+        throw Exception("Producteur non trouvé");
+      } else {
+        print("❌ Erreur API (${response.statusCode}): ${response.body}");
+      }
+      
+      // En cas d'échec, essayer la méthode alternative de détection
+      return _detectProducerTypeByEndpoints(producerId);
+      
+    } catch (e) {
+      print("⚠️ Exception lors de la détection du type: $e");
+      // En cas d'erreur, essayer la méthode alternative de détection
+      return _detectProducerTypeByEndpoints(producerId);
+    }
+  }
+
+  /// Méthode de détection alternative qui interroge chaque API séparément
+  Future<String> _detectProducerTypeByEndpoints(String producerId) async {
     final String defaultType = 'restaurant';
     final Map<String, String> endpoints = {
       'leisureProducer': '/api/leisureProducers/$producerId',
@@ -528,12 +582,14 @@ class AIService {
       'restaurant': '/api/producers/$producerId',
     };
 
+    print("🔄 Utilisation de la méthode alternative de détection par endpoints");
+    
     for (var entry in endpoints.entries) {
       try {
         final url = Uri.parse('$_baseUrl${entry.value}');
         final response = await http.get(url);
         if (response.statusCode == 200) {
-          print("✅ Type de producteur détecté: ${entry.key}");
+          print("✅ Type de producteur détecté par endpoints: ${entry.key}");
           return entry.key; // Return the type if found
         }
       } catch (e) {

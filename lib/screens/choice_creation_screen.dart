@@ -9,6 +9,7 @@ import '../widgets/emotion_selector.dart';
 import '../widgets/location_search.dart';
 import 'dart:convert';
 import 'package:flutter/rendering.dart';
+import 'package:flutter_rating_bar/flutter_rating_bar.dart';
 
 class ChoiceCreationScreen extends StatefulWidget {
   final String userId;
@@ -22,36 +23,65 @@ class ChoiceCreationScreen extends StatefulWidget {
   State<ChoiceCreationScreen> createState() => _ChoiceCreationScreenState();
 }
 
+class ConsumedItem {
+  final String id;
+  final String name;
+  final String type;
+  final String? category;
+  double? rating;
+
+  ConsumedItem({
+    required this.id,
+    required this.name,
+    required this.type,
+    this.category,
+    this.rating,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'itemId': id,
+    'name': name,
+    'type': type,
+    if (category != null) 'category': category,
+    if (rating != null) 'rating': rating,
+  };
+}
+
 class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
-  // Force à vide pour commencer par la sélection du type
   String _selectedType = '';
   Map<String, dynamic>? _selectedLocation;
   final Map<String, double> _ratings = {};
   final List<String> _selectedEmotions = [];
-  final List<String> _menuItems = [];
   final TextEditingController _commentController = TextEditingController();
   bool _createPost = false;
   bool _isLoading = false;
   bool _isVerifying = false;
   bool _isVerified = false;
 
-  // Restaurant rating aspects
+  bool _loadingMenuItems = false;
+  List<dynamic> _fetchedMenus = [];
+  Map<String, List<Map<String, dynamic>>> _fetchedCategorizedItems = {};
+  final List<ConsumedItem> _selectedConsumedItems = [];
+
+  Map<String, dynamic> _fetchedCriteriaRatings = {};
+  List<String> _dynamicWellnessCriteriaKeys = [];
+  bool _loadingCriteria = false;
+
   final Map<String, String> _restaurantAspects = {
     'service': 'Service',
     'lieu': 'Lieu',
-    'portions': 'Portions',
     'ambiance': 'Ambiance',
   };
   
-  // Wellness rating aspects
   final Map<String, String> _wellnessAspects = {
-    'ambiance': 'Ambiance',
-    'service': 'Service',
-    'proprete': 'Propreté',
-    'expertise': 'Expertise',
+    'Qualité des soins': 'Qualité des soins', 
+    'Propreté': 'Propreté', 
+    'Accueil': 'Accueil', 
+    'Rapport qualité/prix': 'Rapport Qualité/Prix',
+    'Ambiance': 'Ambiance', 
+    'Expertise du personnel': 'Expertise du Personnel'
   };
 
-  // Event rating aspects based on category
   final Map<String, Map<String, List<String>>> _eventCategories = {
     'Théâtre': {
       'aspects': ['mise en scène', 'jeu des acteurs', 'texte', 'scénographie'],
@@ -88,8 +118,15 @@ class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
       _createPost = false;
       _commentController.clear();
       _selectedEmotions.clear();
-      _menuItems.clear();
-      _initializeRatings(); // Réinitialiser les notes
+      _ratings.clear();
+      _fetchedCriteriaRatings.clear();
+      _dynamicWellnessCriteriaKeys.clear();
+      _loadingCriteria = false;
+      _loadingMenuItems = false;
+      _fetchedMenus = [];
+      _fetchedCategorizedItems = {};
+      _selectedConsumedItems.clear();
+      _initializeStaticRatings();
     });
   }
 
@@ -107,12 +144,41 @@ class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
     });
   }
 
+  void _initializeStaticRatings() {
+    _ratings.clear();
+    _restaurantAspects.forEach((key, _) {
+      if (!_ratings.containsKey(key)) {
+         _ratings[key] = 3.0;
+      }
+    });
+  }
+
+  void _initializeWellnessRatings() {
+     _ratings.clear();
+     for (String key in _dynamicWellnessCriteriaKeys) {
+       dynamic fetchedValue = _fetchedCriteriaRatings[key];
+       double initialValue = 3.0; 
+       if (fetchedValue is num) {
+         initialValue = fetchedValue.toDouble().clamp(0.0, 5.0);
+       }
+       _ratings[key] = initialValue;
+       print("Initializing wellness rating for '$key' to $initialValue");
+     }
+  }
+
   Future<void> _verifyLocation() async {
     if (_selectedLocation == null) return;
 
     setState(() {
       _isVerifying = true;
       _isVerified = false;
+      _fetchedCriteriaRatings.clear();
+      _dynamicWellnessCriteriaKeys.clear();
+      _loadingCriteria = false;
+      _loadingMenuItems = false;
+      _fetchedMenus = [];
+      _fetchedCategorizedItems = {};
+      _selectedConsumedItems.clear();
     });
 
     try {
@@ -124,8 +190,7 @@ class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
           'userId': widget.userId,
           'locationId': _selectedLocation!['_id'],
           'locationType': _selectedType,
-          // Add additional location data to help with verification
-          'location': _selectedLocation!['gps_coordinates'],
+          'location': _selectedLocation!['location'],
         }),
       );
 
@@ -136,11 +201,22 @@ class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
           _isVerifying = false;
         });
 
-        if (!_isVerified) {
+        if (_isVerified) {
+          if (_selectedType == 'wellness') {
+            await _fetchWellnessCriteria();
+          } else if (_selectedType == 'restaurant') {
+            await _fetchRestaurantMenuData();
+            _initializeStaticRatings();
+          } else {
+             _initializeStaticRatings(); 
+          }
+        } else {
           _showVerificationError(data['message'] ?? 'Vérification échouée');
         }
       } else {
-        throw Exception('Verification failed with status: ${response.statusCode}');
+        final errorData = json.decode(response.body);
+        setState(() { _isVerifying = false; });
+        _showVerificationError('Erreur ${response.statusCode}: ${errorData['message'] ?? 'Erreur serveur'}');
       }
     } catch (e) {
       print('Error verifying location: $e');
@@ -152,17 +228,166 @@ class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
     }
   }
 
+  Future<void> _fetchWellnessCriteria() async {
+    if (_selectedLocation == null || _selectedLocation!['_id'] == null) return;
+
+    setState(() {
+      _loadingCriteria = true;
+      _dynamicWellnessCriteriaKeys.clear();
+      _fetchedCriteriaRatings.clear();
+    });
+
+    try {
+      final placeId = _selectedLocation!['_id'];
+      final url = Uri.parse('${constants.getBaseUrl()}/api/wellness/$placeId');
+      print('Fetching wellness criteria from: $url');
+      final response = await http.get(
+        url,
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final producerData = data;
+        
+        if (producerData != null && producerData['criteria_ratings'] is Map) {
+           print('Received criteria data: ${producerData['criteria_ratings']}');
+           
+           _fetchedCriteriaRatings = Map<String, dynamic>.from(producerData['criteria_ratings']);
+           
+           _dynamicWellnessCriteriaKeys = _fetchedCriteriaRatings.keys
+               .where((key) => key != 'average_score')
+               .toList();
+
+            print('Dynamic criteria keys loaded: $_dynamicWellnessCriteriaKeys');
+            
+           _initializeWellnessRatings();
+
+        } else {
+          print('Criteria data not found or invalid format in response for $placeId');
+          _showVerificationError('Critères d\'évaluation non trouvés pour ce lieu.');
+        }
+      } else {
+         final errorData = json.decode(response.body);
+         _showVerificationError('Erreur chargement critères ${response.statusCode}: ${errorData['message'] ?? 'Erreur serveur'}');
+         print('Failed to load criteria: ${response.statusCode} - ${response.body}');
+      }
+    } catch (e) {
+      print('Error fetching wellness criteria: $e');
+      _showVerificationError('Erreur réseau lors du chargement des critères.');
+    } finally {
+      if (mounted) {
+         setState(() {
+            _loadingCriteria = false;
+         });
+      }
+    }
+  }
+
+  Future<void> _fetchRestaurantMenuData() async {
+    if (_selectedLocation == null || _selectedLocation!['_id'] == null) return;
+
+    setState(() {
+      _loadingMenuItems = true;
+      _fetchedMenus = [];
+      _fetchedCategorizedItems = {};
+      _selectedConsumedItems.clear();
+    });
+
+    try {
+      final placeId = _selectedLocation!['_id'];
+      final url = Uri.parse('${constants.getBaseUrl()}/api/producers/$placeId'); 
+      print('Fetching restaurant menu data from: $url');
+      final response = await http.get(
+         url,
+         headers: {'Content-Type': 'application/json'},
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final producerData = data;
+
+        if (producerData != null && producerData['structured_data'] is Map) {
+          final structuredData = producerData['structured_data'] as Map<String, dynamic>;
+          List<dynamic> globalMenus = [];
+          Map<String, List<Map<String, dynamic>>> groupedItems = {};
+
+          if (structuredData['Menus Globaux'] is List) {
+            globalMenus = List<dynamic>.from(structuredData['Menus Globaux']);
+             print('🍽️ Fetched ${globalMenus.length} global menus.');
+          }
+
+          if (structuredData['Items Indépendants'] is List) {
+            final categoriesData = structuredData['Items Indépendants'] as List;
+            for (var categoryData in categoriesData) {
+              if (categoryData is Map<String, dynamic>) {
+                final categoryName = categoryData['catégorie']?.toString().trim() ?? 'Autres';
+                final itemsList = categoryData['items'];
+                if (itemsList is List) {
+                  final List<Map<String, dynamic>> validItems = itemsList.whereType<Map<String, dynamic>>().toList();
+                  if (validItems.isNotEmpty) {
+                    groupedItems.putIfAbsent(categoryName, () => []).addAll(validItems);
+                  }
+                }
+              }
+            }
+             print('🛒 Fetched ${groupedItems.values.map((list) => list.length).fold(0, (a, b) => a + b)} independent items across ${groupedItems.keys.length} categories.');
+          }
+
+          if (mounted) {
+             setState(() {
+               _fetchedMenus = globalMenus;
+               _fetchedCategorizedItems = groupedItems;
+             });
+          }
+        } else {
+          print('Menu data (structured_data) not found or invalid format for $placeId');
+           _showVerificationError('Données du menu non trouvées pour ce restaurant.');
+        }
+      } else {
+        final errorData = json.decode(response.body);
+         _showVerificationError('Erreur chargement menu ${response.statusCode}: ${errorData['message'] ?? 'Erreur serveur'}');
+         print('Failed to load menu data: ${response.statusCode} - ${response.body}');
+      }
+    } catch (e) {
+      print('Error fetching restaurant menu data: $e');
+      _showVerificationError('Erreur réseau lors du chargement du menu.');
+    } finally {
+      if (mounted) {
+          setState(() {
+            _loadingMenuItems = false;
+          });
+      }
+    }
+  }
+
   void _showVerificationError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.red,
-      ),
-    );
+    if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(message),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+    }
   }
 
   Future<void> _submitChoice() async {
-    if (!_isVerified || _selectedLocation == null) return;
+    if (!_isVerified || _selectedLocation == null) {
+       _showVerificationError("Veuillez sélectionner et vérifier un lieu.");
+       return;
+    }
+    
+    if ((_selectedType == 'restaurant' || _selectedType == 'wellness') && _ratings.isEmpty) {
+        _showVerificationError("Veuillez attribuer des notes aux critères principaux.");
+        return;
+    }
+    
+    if (_selectedType == 'restaurant' && _selectedConsumedItems.isEmpty && (_fetchedMenus.isNotEmpty || _fetchedCategorizedItems.isNotEmpty)) {
+        _showVerificationError("Veuillez sélectionner au moins un plat ou menu consommé.");
+        return;
+    }
 
     setState(() {
       _isLoading = true;
@@ -170,25 +395,37 @@ class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
 
     try {
       final url = Uri.parse('${constants.getBaseUrl()}/api/choices');
+      Map<String, double> ratingsToSubmit = {};
+      if (_selectedType == 'restaurant') {
+          _restaurantAspects.keys.forEach((key) { 
+              if (_ratings.containsKey(key)) ratingsToSubmit[key] = _ratings[key]!; 
+          });
+      } else if (_selectedType == 'wellness') {
+          _dynamicWellnessCriteriaKeys.forEach((key) { 
+              if (_ratings.containsKey(key)) ratingsToSubmit[key] = _ratings[key]!; 
+          });
+      }
+
+      List<Map<String, dynamic>> consumedItemsToSubmit = _selectedConsumedItems.map((item) => item.toJson()).toList();
+
       final Map<String, dynamic> choiceData = {
         'userId': widget.userId,
         'locationId': _selectedLocation!['_id'],
         'locationType': _selectedType,
-        'ratings': _ratings,
+        'ratings': ratingsToSubmit,
         'createPost': _createPost,
+        'consumedItems': consumedItemsToSubmit,
       };
 
-      if (_selectedType == 'restaurant') {
-        choiceData['menuItems'] = _menuItems;
-      } else if (_selectedType == 'event') {
-        choiceData['emotions'] = _selectedEmotions;
-      } else if (_selectedType == 'wellness') {
+      if ((_selectedType == 'event' || _selectedType == 'wellness') && _selectedEmotions.isNotEmpty) {
         choiceData['emotions'] = _selectedEmotions;
       }
 
-      if (_commentController.text.isNotEmpty) {
-        choiceData['comment'] = _commentController.text;
+      if (_commentController.text.trim().isNotEmpty) {
+        choiceData['comment'] = _commentController.text.trim();
       }
+
+      print("Submitting Choice Data: ${json.encode(choiceData)}");
 
       final response = await http.post(
         url,
@@ -197,35 +434,36 @@ class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
       );
 
       if (response.statusCode == 201) {
-        // If post creation was requested and we have a comment, make sure it was created
-        if (_createPost && _commentController.text.isNotEmpty) {
-          // Optionally check post creation status here if needed
-        }
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Choice créé avec succès!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        
-        Navigator.pop(context, true);
+         if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Choice créé avec succès!'),
+                backgroundColor: Colors.green,
+              ),
+            );
+            Navigator.pop(context, true);
+         }
       } else {
         final errorData = json.decode(response.body);
+        print("Choice creation failed: ${response.statusCode} - ${response.body}");
         throw Exception(errorData['message'] ?? 'Failed to create choice');
       }
     } catch (e) {
       print('Error creating choice: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Erreur: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+       if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Erreur: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+       }
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
+      }
     }
   }
 
@@ -237,23 +475,32 @@ class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () {
-            if (_selectedType.isNotEmpty && _selectedLocation == null) {
-              // Si un type est sélectionné mais pas de lieu, revenir à la sélection du type
-              _resetSelection();
+            if (_isVerified) {
+               setState(() {
+                 _isVerified = false;
+                 _selectedLocation = null;
+                 _ratings.clear();
+                 _dynamicWellnessCriteriaKeys.clear();
+                 _fetchedCriteriaRatings.clear();
+                 _selectedConsumedItems.clear();
+                 _fetchedMenus = [];
+                 _fetchedCategorizedItems = {};
+               });
+            } else if (_selectedLocation != null) {
+               setState(() {
+                  _selectedLocation = null;
+               });
+            } else if (_selectedType.isNotEmpty) {
+               _resetSelection();
             } else {
-              // Sinon, fermer l'écran
               Navigator.pop(context);
             }
           },
         ),
         actions: [
-          if (_selectedType.isNotEmpty && _selectedLocation != null && !_isVerified)
-            TextButton.icon(
-              icon: const Icon(Icons.restore, color: Colors.white),
-              label: const Text(
-                'CHANGER TYPE',
-                style: TextStyle(color: Colors.white),
-              ),
+          if (_selectedLocation != null && !_isVerified && !_isVerifying)
+            TextButton(
+              child: const Text('CHANGER', style: TextStyle(color: Colors.white)),
               onPressed: _resetSelection,
             ),
           if (_isVerified && !_isLoading)
@@ -265,6 +512,11 @@ class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
               ),
               onPressed: _submitChoice,
             ),
+          if (_isLoading || _isVerifying)
+             const Padding(
+               padding: EdgeInsets.only(right: 16.0),
+               child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3))),
+             ),
         ],
       ),
       body: SingleChildScrollView(
@@ -272,7 +524,6 @@ class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Type selection
             if (_selectedType.isEmpty) ...[
               const Text(
                 'Que souhaitez-vous partager ?',
@@ -284,47 +535,107 @@ class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
               const SizedBox(height: 20),
               _buildTypeSelectionCards(),
             ] else ...[
-              // Location search
               if (_selectedLocation == null) ...[
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      _selectedType == 'restaurant'
-                          ? 'Restaurant'
-                          : _selectedType == 'event'
-                              ? 'Événement'
-                              : 'Bien-être',
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
+                 Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        _selectedType == 'restaurant'
+                            ? 'Restaurant'
+                            : _selectedType == 'event'
+                                ? 'Événement'
+                                : 'Bien-être',
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
-                    ),
-                    TextButton.icon(
-                      icon: const Icon(Icons.arrow_back),
-                      label: const Text('CHANGER'),
-                      onPressed: _resetSelection,
-                    ),
-                  ],
-                ),
-                const Divider(),
+                      TextButton.icon(
+                        icon: const Icon(Icons.arrow_back, size: 18),
+                        label: const Text('Changer Type'),
+                        onPressed: _resetSelection,
+                      ),
+                    ],
+                  ),
+                  const Divider(),
                 _buildLocationSearch(),
               ] else ...[
-                // Location verification
                 if (!_isVerified) ...[
                   _buildVerificationSection(),
                 ] else ...[
-                  // Rating section
+                  _buildSelectedLocationHeader(),
+                  const SizedBox(height: 16),
                   _buildRatingSection(),
-                  
-                  // Post creation option
+                  const SizedBox(height: 24),
                   _buildPostCreationSection(),
+                   const SizedBox(height: 24),
                 ],
               ],
             ],
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildSelectedLocationHeader() {
+     Color themeColor = _selectedType == 'restaurant'
+        ? Colors.amber
+        : _selectedType == 'event'
+            ? Colors.green
+            : Colors.purple;
+    return Container(
+       padding: const EdgeInsets.all(12),
+       decoration: BoxDecoration(
+         color: themeColor.withOpacity(0.1),
+         borderRadius: BorderRadius.circular(12),
+         border: Border.all(color: themeColor.withOpacity(0.3))
+       ),
+       child: Row(
+          children: [
+            CircleAvatar(
+              backgroundColor: themeColor,
+              radius: 20,
+              child: Icon(
+                _selectedType == 'restaurant'
+                    ? Icons.restaurant
+                    : _selectedType == 'event'
+                        ? Icons.event
+                        : Icons.spa,
+                color: Colors.white,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _selectedLocation!['name'] ?? 'Lieu sélectionné',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  if (_selectedLocation!['address'] != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2.0),
+                      child: Text(
+                        _selectedLocation!['address'],
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey[700],
+                        ),
+                         overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+       ),
     );
   }
 
@@ -363,7 +674,7 @@ class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
                 Colors.purple,
               ),
             ),
-            const Expanded(child: SizedBox()), // Espace vide pour équilibrer
+            const Expanded(child: SizedBox()),
           ],
         ),
       ],
@@ -385,6 +696,7 @@ class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
         onTap: () {
           setState(() {
             _selectedType = type;
+            _initializeStaticRatings();
           });
         },
         borderRadius: BorderRadius.circular(16),
@@ -401,6 +713,7 @@ class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
                 ),
+                textAlign: TextAlign.center,
               ),
             ],
           ),
@@ -413,18 +726,20 @@ class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          _selectedType == 'restaurant'
-              ? 'Rechercher un restaurant'
-              : _selectedType == 'event'
-                  ? 'Rechercher un événement'
-                  : 'Rechercher un établissement de bien-être',
-          style: const TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8.0),
+          child: Text(
+            _selectedType == 'restaurant'
+                ? 'Quel restaurant avez-vous visité ?'
+                : _selectedType == 'event'
+                    ? 'À quel événement avez-vous assisté ?'
+                    : 'Quel établissement avez-vous fréquenté ?',
+            style: TextStyle(
+              fontSize: 16,
+              color: Colors.grey[700],
+            ),
           ),
         ),
-        const SizedBox(height: 16),
         LocationSearch(
           type: _selectedType,
           onLocationSelected: (location) {
@@ -477,48 +792,9 @@ class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    CircleAvatar(
-                      backgroundColor: themeColor.withOpacity(0.8),
-                      child: Icon(
-                        _selectedType == 'restaurant'
-                            ? Icons.restaurant
-                            : _selectedType == 'event'
-                                ? Icons.event
-                                : Icons.spa,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _selectedLocation!['name'] ?? 'Lieu sélectionné',
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          if (_selectedLocation!['address'] != null) 
-                            Padding(
-                              padding: const EdgeInsets.only(top: 4.0),
-                              child: Text(
-                                _selectedLocation!['address'],
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: Colors.grey[700],
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
+                _buildSelectedLocationHeader(),
                 const SizedBox(height: 20),
+
                 if (_isVerifying)
                   const Center(
                     child: Column(
@@ -537,6 +813,7 @@ class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
                         label: const Text('VÉRIFIER MA VISITE', style: TextStyle(fontWeight: FontWeight.bold)),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: themeColor,
+                          foregroundColor: Colors.white,
                           minimumSize: const Size(double.infinity, 48),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
@@ -554,6 +831,7 @@ class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
                           border: Border.all(color: themeColor.withOpacity(0.3)),
                         ),
                         child: Column(
+                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Row(
                               children: [
@@ -567,18 +845,10 @@ class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
                             ),
                             const SizedBox(height: 8),
                             const Text(
-                              'Nous vérifions que vous avez passé au moins 30 minutes sur place dans les 7 derniers jours.',
+                              'Nous vérifions que vous avez passé au moins 30 minutes sur place dans les 7 derniers jours via votre historique de localisation.',
                               style: TextStyle(fontSize: 14),
                             ),
                             const Divider(height: 16),
-                            Text(
-                              'Mode démo : vérification automatique activée',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontStyle: FontStyle.italic,
-                                color: themeColor,
-                              ),
-                            ),
                           ],
                         ),
                       ),
@@ -597,7 +867,7 @@ class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          'Votre ressenti',
+          'Votre expérience',
           style: TextStyle(
             fontSize: 20,
             fontWeight: FontWeight.bold,
@@ -605,7 +875,7 @@ class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
         ),
         const SizedBox(height: 16),
         if (_selectedType == 'restaurant')
-          _buildRestaurantRatings()
+          _buildRestaurantExperienceSection()
         else if (_selectedType == 'event')
           _buildEventRatings()
         else if (_selectedType == 'wellness')
@@ -614,28 +884,50 @@ class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
     );
   }
 
-  Widget _buildRestaurantRatings() {
+  Widget _buildRestaurantExperienceSection() {
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Rating sliders
-        ..._restaurantAspects.entries.map((entry) {
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 16),
-            child: RatingSlider(
-              label: entry.value,
-              value: _ratings[entry.key] ?? 5.0,
-              onChanged: (value) {
-                setState(() {
-                  _ratings[entry.key] = value;
-                });
-              },
-            ),
-          );
-        }),
+         Card(
+           elevation: 2,
+           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+           child: Padding(
+             padding: const EdgeInsets.all(16.0),
+             child: Column(
+               crossAxisAlignment: CrossAxisAlignment.start,
+               children: [
+                 const Text(
+                   'Note globale du restaurant', 
+                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)
+                 ),
+                 const SizedBox(height: 16),
+                 ..._restaurantAspects.entries.map((entry) {
+                   return Padding(
+                     padding: const EdgeInsets.only(bottom: 16),
+                     child: RatingSlider(
+                       label: entry.value,
+                       value: _ratings[entry.key] ?? 3.0,
+                       onChanged: (value) {
+                         setState(() {
+                           _ratings[entry.key] = value;
+                         });
+                       },
+                     ),
+                   );
+                 }),
+               ],
+             ),
+           ),
+         ),
+         const SizedBox(height: 24),
 
-        // Menu items
-        const SizedBox(height: 20),
-        Card(
+        _buildConsumedItemsSection(),
+      ],
+    );
+  }
+
+  Widget _buildConsumedItemsSection() {
+     return Card(
           elevation: 2,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           child: Padding(
@@ -654,199 +946,297 @@ class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
                       child: const Icon(Icons.restaurant_menu, color: Colors.amber),
                     ),
                     const SizedBox(width: 12),
-                    const Text(
-                      'Plats consommés',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
+                    const Expanded(
+                      child: Text(
+                        'Plats & Menus Consommés',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 16),
                 
-                // Fetch and display menu items from producer
-                FutureBuilder<List<String>>(
-                  future: _getRestaurantMenuItems(),
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-                    
-                    if (snapshot.hasError) {
-                      return Text(
-                        'Erreur de chargement des plats',
-                        style: TextStyle(color: Colors.red[300]),
-                      );
-                    }
-                    
-                    final availableItems = snapshot.data ?? [];
-                    
-                    if (availableItems.isEmpty) {
-                      return Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.grey[100],
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Column(
-                          children: [
-                            const Icon(Icons.no_food, color: Colors.grey),
-                            const SizedBox(height: 8),
-                            const Text(
-                              'Aucun plat disponible',
-                              style: TextStyle(color: Colors.grey),
-                            ),
-                            const SizedBox(height: 16),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: CustomItemInputField(
-                                    onItemAdded: (item) {
-                                      setState(() {
-                                        _menuItems.add(item);
-                                      });
-                                    },
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      );
-                    }
-                    
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Sélectionnez les plats que vous avez goûtés :',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: availableItems.map((item) {
-                            final isSelected = _menuItems.contains(item);
-                            return FilterChip(
-                              label: Text(item),
-                              selected: isSelected,
-                              selectedColor: Colors.amber.withOpacity(0.2),
-                              checkmarkColor: Colors.amber,
-                              onSelected: (selected) {
-                                setState(() {
-                                  if (selected) {
-                                    _menuItems.add(item);
-                                  } else {
-                                    _menuItems.remove(item);
-                                  }
-                                });
-                              },
-                            );
-                          }).toList(),
-                        ),
-                        const Divider(height: 24),
-                        const Text(
-                          'Ajouter un plat non listé :',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        CustomItemInputField(
-                          onItemAdded: (item) {
-                            setState(() {
-                              _menuItems.add(item);
-                            });
-                          },
-                        ),
-                        if (_menuItems.isNotEmpty) ...[
-                          const SizedBox(height: 16),
-                          const Text(
-                            'Plats sélectionnés :',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: _menuItems.map((item) {
-                              return Chip(
-                                label: Text(item),
-                                onDeleted: () {
-                                  setState(() {
-                                    _menuItems.remove(item);
-                                  });
-                                },
-                                backgroundColor: Colors.amber.withOpacity(0.1),
-                                deleteIconColor: Colors.amber,
-                              );
-                            }).toList(),
-                          ),
-                        ],
-                      ],
-                    );
-                  },
-                ),
+                if (_loadingMenuItems)
+                   const Center(child: Padding(padding: EdgeInsets.all(16.0), child: CircularProgressIndicator()))
+                else if (_fetchedMenus.isEmpty && _fetchedCategorizedItems.isEmpty)
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(12)),
+                      child: const Center(child: Text('Menu non disponible pour ce restaurant.', style: TextStyle(color: Colors.grey))), 
+                    )
+                else ...[
+                   if (_fetchedMenus.isNotEmpty) ...[
+                      const Text('Menus', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 8),
+                      ..._fetchedMenus.map((menuData) => _buildSelectableMenuItemCard(menuData, 'menu')).toList(),
+                      const SizedBox(height: 16),
+                   ],
+                   if (_fetchedCategorizedItems.isNotEmpty) ...[
+                      ..._fetchedCategorizedItems.entries.map((entry) {
+                          return Column(
+                             crossAxisAlignment: CrossAxisAlignment.start,
+                             children: [
+                                Text(entry.key, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                                const SizedBox(height: 8),
+                                ...entry.value.map((itemData) => _buildSelectableMenuItemCard(itemData, 'item', category: entry.key)).toList(),
+                                const SizedBox(height: 16),
+                             ],
+                          );
+                      }).toList(),
+                   ],
+                ],
+
+                 if (_selectedConsumedItems.isNotEmpty) ...[
+                   const Divider(height: 24),
+                   const Text(
+                      'Notez les plats sélectionnés :', 
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)
+                   ),
+                   const SizedBox(height: 12),
+                   ..._selectedConsumedItems.map((consumedItem) => _buildSelectedItemRatingCard(consumedItem)).toList(),
+                 ],
               ],
             ),
           ),
-        ),
-      ],
+        );
+  }
+
+  Widget _buildSelectableMenuItemCard(Map<String, dynamic> itemData, String type, {String? category}) {
+    final String itemId = itemData['_id']?.toString() ?? 'temp_${itemData['name'] ?? UniqueKey().toString()}';
+    final String name = itemData['name'] ?? itemData['nom'] ?? 'Inconnu';
+    final dynamic price = itemData['price'] ?? itemData['prix'];
+    final String formattedPrice = price != null ? '${price.toStringAsFixed(2)} €' : '';
+    final bool isSelected = _selectedConsumedItems.any((item) => item.id == itemId);
+
+    return Card(
+       margin: const EdgeInsets.only(bottom: 12),
+       elevation: isSelected ? 0 : 1,
+       color: isSelected ? Colors.amber.withOpacity(0.1) : Colors.white,
+       shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+          side: BorderSide(color: isSelected ? Colors.amber : Colors.grey[200]!)
+       ),
+       child: InkWell(
+          onTap: () {
+             setState(() {
+                if (isSelected) {
+                   _selectedConsumedItems.removeWhere((item) => item.id == itemId);
+                } else {
+                   _selectedConsumedItems.add(ConsumedItem(
+                     id: itemId,
+                     name: name,
+                     type: type,
+                     category: category,
+                   ));
+                }
+             });
+          },
+          borderRadius: BorderRadius.circular(10),
+          child: Padding(
+             padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 10.0),
+             child: Row(
+                children: [
+                   Icon(
+                      isSelected ? Icons.check_circle : Icons.circle_outlined,
+                      color: isSelected ? Colors.amber : Colors.grey,
+                      size: 24,
+                   ),
+                   const SizedBox(width: 12),
+                   Expanded(
+                     child: Text(
+                        name,
+                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
+                     ),
+                   ),
+                   if (formattedPrice.isNotEmpty)
+                     Text(
+                       formattedPrice,
+                       style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black54),
+                     ),
+                ],
+             ),
+          ),
+       ),
+    );
+  }
+
+  Widget _buildSelectedItemRatingCard(ConsumedItem consumedItem) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+         color: Colors.white,
+         borderRadius: BorderRadius.circular(10),
+         border: Border.all(color: Colors.grey[300]!),
+         boxShadow: [
+           BoxShadow(
+             color: Colors.grey.withOpacity(0.1),
+             spreadRadius: 1,
+             blurRadius: 3,
+             offset: const Offset(0, 1), 
+           ),
+         ],
+      ),
+      child: Column(
+         crossAxisAlignment: CrossAxisAlignment.start,
+         children: [
+           Row(
+             children: [
+               Expanded(
+                 child: Text(
+                   consumedItem.name,
+                   style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                 ),
+               ),
+               IconButton(
+                  icon: Icon(Icons.close, size: 20, color: Colors.red[300]),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  tooltip: 'Désélectionner',
+                  onPressed: () {
+                     setState(() {
+                        _selectedConsumedItems.removeWhere((item) => item.id == consumedItem.id);
+                     });
+                  },
+               )
+             ],
+           ),
+           const SizedBox(height: 8),
+           Text(
+             'Votre note pour ce plat :' ?? '',
+             style: TextStyle(fontSize: 14, color: Colors.grey[700]),
+           ),
+           const SizedBox(height: 8),
+           RatingBar.builder(
+             initialRating: consumedItem.rating ?? 0,
+             minRating: 0,
+             direction: Axis.horizontal,
+             allowHalfRating: true,
+             itemCount: 5,
+             itemPadding: const EdgeInsets.symmetric(horizontal: 4.0),
+             itemBuilder: (context, _) => const Icon(
+               Icons.star,
+               color: Colors.amber,
+             ),
+             itemSize: 30.0,
+             onRatingUpdate: (rating) {
+               setState(() {
+                  int index = _selectedConsumedItems.indexWhere((item) => item.id == consumedItem.id);
+                  if (index != -1) {
+                     _selectedConsumedItems[index].rating = (rating == 0) ? null : rating;
+                  }
+               });
+             },
+           ),
+         ],
+      ),
     );
   }
 
   Widget _buildWellnessRatings() {
+    if (_loadingCriteria) {
+      return const Center(
+         child: Padding(
+           padding: EdgeInsets.symmetric(vertical: 32.0),
+           child: Column(
+             children: [
+               CircularProgressIndicator(color: Colors.purple),
+               SizedBox(height: 16),
+               Text("Chargement des critères d'évaluation...")
+             ],
+           ),
+         )
+      );
+    }
+
+    if (_dynamicWellnessCriteriaKeys.isEmpty) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.symmetric(vertical: 32.0),
+          child: Text(
+             "Impossible de charger les critères d'évaluation pour ce lieu.",
+             textAlign: TextAlign.center,
+             style: TextStyle(color: Colors.red)
+          )
+        )
+      );
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Rating sliders
-        ..._wellnessAspects.entries.map((entry) {
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 16),
-            child: RatingSlider(
-              label: entry.value,
-              value: _ratings[entry.key] ?? 5.0,
-              onChanged: (value) {
-                setState(() {
-                  _ratings[entry.key] = value;
-                });
-              },
-            ),
-          );
-        }),
+         Card(
+           elevation: 2,
+           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+           child: Padding(
+             padding: const EdgeInsets.all(16.0),
+             child: Column(
+               crossAxisAlignment: CrossAxisAlignment.start,
+               children: [
+                  const Text(
+                    'Note globale de l\'établissement',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)
+                  ),
+                  const SizedBox(height: 16),
+                  ..._dynamicWellnessCriteriaKeys.map((criterionKey) {
+                    String displayLabel = criterionKey.replaceAll('_', ' ');
+                    displayLabel = displayLabel[0].toUpperCase() + displayLabel.substring(1);
 
-        // Emotion selection
-        const SizedBox(height: 20),
-        const Text(
-          'Sensations ressenties',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 12),
-        EmotionSelector(
-          emotions: _wellnessEmotions,
-          selectedEmotions: _selectedEmotions,
-          onEmotionToggled: (emotion) {
-            setState(() {
-              if (_selectedEmotions.contains(emotion)) {
-                _selectedEmotions.remove(emotion);
-              } else {
-                _selectedEmotions.add(emotion);
-              }
-            });
-          },
-        ),
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 16),
+                      child: RatingSlider(
+                        label: displayLabel,
+                        value: _ratings[criterionKey] ?? 3.0,
+                        onChanged: (value) {
+                          setState(() {
+                            _ratings[criterionKey] = value;
+                          });
+                        },
+                      ),
+                    );
+                  }),
+               ],
+             ),
+           ),
+         ),
+         const SizedBox(height: 24),
+
+        Card(
+           elevation: 2,
+           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+           child: Padding(
+             padding: const EdgeInsets.all(16.0),
+             child: Column(
+               crossAxisAlignment: CrossAxisAlignment.start,
+               children: [
+                  const Text(
+                    'Sensations ressenties',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  EmotionSelector(
+                    emotions: _wellnessEmotions,
+                    selectedEmotions: _selectedEmotions,
+                    onEmotionToggled: (emotion) {
+                      setState(() {
+                        if (_selectedEmotions.contains(emotion)) {
+                          _selectedEmotions.remove(emotion);
+                        } else {
+                          _selectedEmotions.add(emotion);
+                        }
+                      });
+                    },
+                  ),
+               ],
+             ),
+           ),
+         ),
       ],
     );
   }
@@ -858,53 +1248,86 @@ class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
     final emotions = _eventCategories[category]?['emotions'] ??
         ['agréable', 'intéressant', 'divertissant', 'satisfaisant'];
 
+    for (var aspect in aspects) {
+        if (!_ratings.containsKey(aspect)) {
+            _ratings[aspect] = 3.0;
+        }
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Rating sliders
-        ...aspects.map((aspect) {
-          final formattedAspect = aspect
-              .split(' ')
-              .map((word) => word[0].toUpperCase() + word.substring(1))
-              .join(' ');
+        Card(
+           elevation: 2,
+           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+           child: Padding(
+             padding: const EdgeInsets.all(16.0),
+             child: Column(
+               crossAxisAlignment: CrossAxisAlignment.start,
+               children: [
+                 const Text(
+                   'Note globale de l\'événement', 
+                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)
+                 ),
+                 const SizedBox(height: 16),
+                 ...aspects.map((aspect) {
+                   String displayLabel = aspect
+                       .split(' ')
+                       .map((word) => word.isNotEmpty ? word[0].toUpperCase() + word.substring(1) : '')
+                       .join(' ');
+         
+                   return Padding(
+                     padding: const EdgeInsets.only(bottom: 16),
+                     child: RatingSlider(
+                       label: displayLabel,
+                       value: _ratings[aspect] ?? 3.0,
+                       onChanged: (value) {
+                         setState(() {
+                           _ratings[aspect] = value;
+                         });
+                       },
+                     ),
+                   );
+                 }),
+               ],
+             ),
+           ),
+         ),
+         const SizedBox(height: 24),
 
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 16),
-            child: RatingSlider(
-              label: formattedAspect,
-              value: _ratings[aspect] ?? 5.0,
-              onChanged: (value) {
-                setState(() {
-                  _ratings[aspect] = value;
-                });
-              },
-            ),
-          );
-        }),
-
-        // Emotion selection
-        const SizedBox(height: 20),
-        const Text(
-          'Émotions ressenties',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 12),
-        EmotionSelector(
-          emotions: emotions,
-          selectedEmotions: _selectedEmotions,
-          onEmotionToggled: (emotion) {
-            setState(() {
-              if (_selectedEmotions.contains(emotion)) {
-                _selectedEmotions.remove(emotion);
-              } else {
-                _selectedEmotions.add(emotion);
-              }
-            });
-          },
-        ),
+        Card(
+           elevation: 2,
+           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+           child: Padding(
+             padding: const EdgeInsets.all(16.0),
+             child: Column(
+               crossAxisAlignment: CrossAxisAlignment.start,
+               children: [
+                  const Text(
+                    'Émotions ressenties',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  EmotionSelector(
+                    emotions: emotions,
+                    selectedEmotions: _selectedEmotions,
+                    onEmotionToggled: (emotion) {
+                      setState(() {
+                        if (_selectedEmotions.contains(emotion)) {
+                          _selectedEmotions.remove(emotion);
+                        } else {
+                          _selectedEmotions.add(emotion);
+                        }
+                      });
+                    },
+                  ),
+               ],
+             ),
+           ),
+         ),
       ],
     );
   }
@@ -918,6 +1341,7 @@ class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
 
     return Card(
       elevation: 2,
+      margin: const EdgeInsets.only(top: 16),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -961,7 +1385,7 @@ class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
               TextField(
                 controller: _commentController,
                 decoration: InputDecoration(
-                  hintText: 'Partagez votre expérience...',
+                  hintText: 'Partagez votre expérience... (optionnel)',
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                     borderSide: BorderSide(color: themeColor.withOpacity(0.5)),
@@ -972,195 +1396,62 @@ class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
                   ),
                   filled: true,
                   fillColor: Colors.white,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 ),
-                maxLines: 3,
+                maxLines: 4,
+                minLines: 2,
+                 textCapitalization: TextCapitalization.sentences,
               ),
               const SizedBox(height: 12),
               Row(
                 children: [
                   Icon(Icons.visibility, size: 14, color: Colors.grey[600]),
                   const SizedBox(width: 4),
-                  Text(
-                    'Ce post sera visible sur votre profil et dans le fil d\'actualité',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey[600],
-                      fontStyle: FontStyle.italic,
+                  Expanded(
+                    child: Text(
+                      "Ce post sera visible sur votre profil et dans le fil d'actualité.",
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey[600],
+                      ),
                     ),
                   ),
                 ],
               ),
             ] else ...[
               const SizedBox(height: 8),
-              Text(
-                'Activez cette option pour partager votre avis avec vos abonnés',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey[600],
-                ),
+              Padding(
+                 padding: const EdgeInsets.only(left: 52),
+                 child: Text(
+                    'Activez pour partager votre avis avec vos abonnés.',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey[600],
+                    ),
+                 ),
               ),
             ],
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                icon: const Icon(Icons.check_circle),
-                label: const Text('VALIDER MON CHOICE', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: themeColor,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  elevation: 4,
-                ),
-                onPressed: _submitChoice,
-              ),
-            ),
+             const SizedBox(height: 24),
+             SizedBox(
+               width: double.infinity,
+               child: ElevatedButton.icon(
+                 icon: const Icon(Icons.check_circle),
+                 label: const Text('VALIDER MON CHOICE', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                 style: ElevatedButton.styleFrom(
+                   backgroundColor: themeColor,
+                   foregroundColor: Colors.white,
+                   padding: const EdgeInsets.symmetric(vertical: 16),
+                   shape: RoundedRectangleBorder(
+                     borderRadius: BorderRadius.circular(12),
+                   ),
+                   elevation: 4,
+                 ),
+                 onPressed: _submitChoice,
+               ),
+             ),
           ],
         ),
       ),
-    );
-  }
-
-  Future<List<String>> _getRestaurantMenuItems() async {
-    if (_selectedLocation == null || _selectedType != 'restaurant') {
-      return [];
-    }
-
-    try {
-      final url = Uri.parse('${constants.getBaseUrl()}/api/producers/${_selectedLocation!['_id']}');
-      final response = await http.get(url);
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        List<String> menuItems = [];
-
-        // Extrait les plats de la structure de données
-        if (data['structured_data'] != null) {
-          // Extraire des items indépendants
-          if (data['structured_data']['Items Indépendants'] != null) {
-            final items = data['structured_data']['Items Indépendants'];
-            if (items is List) {
-              for (var category in items) {
-                if (category is Map && category['items'] is List) {
-                  for (var item in category['items']) {
-                    if (item is Map && item['nom'] != null) {
-                      menuItems.add(item['nom']);
-                    }
-                  }
-                }
-              }
-            }
-          }
-
-          // Extraire des menus globaux
-          if (data['structured_data']['Menus Globaux'] != null) {
-            final menus = data['structured_data']['Menus Globaux'];
-            if (menus is List) {
-              for (var menu in menus) {
-                if (menu is Map && menu['inclus'] is List) {
-                  for (var category in menu['inclus']) {
-                    if (category is Map && category['items'] is List) {
-                      for (var item in category['items']) {
-                        if (item is Map && item['nom'] != null) {
-                          menuItems.add(item['nom']);
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-
-        // Enlever les doublons
-        return menuItems.toSet().toList();
-      }
-    } catch (e) {
-      print('Erreur lors de la récupération des plats: $e');
-    }
-
-    return [];
-  }
-}
-
-// Widget pour la saisie personnalisée de plats
-class CustomItemInputField extends StatefulWidget {
-  final Function(String) onItemAdded;
-
-  const CustomItemInputField({
-    Key? key,
-    required this.onItemAdded,
-  }) : super(key: key);
-
-  @override
-  State<CustomItemInputField> createState() => _CustomItemInputFieldState();
-}
-
-class _CustomItemInputFieldState extends State<CustomItemInputField> {
-  final TextEditingController _controller = TextEditingController();
-  final FocusNode _focusNode = FocusNode();
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    _focusNode.dispose();
-    super.dispose();
-  }
-
-  void _addItem() {
-    final text = _controller.text.trim();
-    if (text.isNotEmpty) {
-      widget.onItemAdded(text);
-      _controller.clear();
-      _focusNode.requestFocus();
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: TextField(
-            controller: _controller,
-            focusNode: _focusNode,
-            decoration: InputDecoration(
-              hintText: 'Ajouter un plat non listé...',
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: Colors.grey[300]!),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: Colors.amber, width: 2),
-              ),
-              filled: true,
-              fillColor: Colors.white,
-            ),
-            onSubmitted: (value) {
-              if (value.isNotEmpty) {
-                _addItem();
-              }
-            },
-          ),
-        ),
-        const SizedBox(width: 8),
-        ElevatedButton(
-          onPressed: _addItem,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.amber,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-          ),
-          child: const Icon(Icons.add),
-        ),
-      ],
     );
   }
 }

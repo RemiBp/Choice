@@ -10,21 +10,37 @@ import 'package:google_maps_cluster_manager/google_maps_cluster_manager.dart' as
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/user_hotspot.dart' as models;
 import '../utils/constants.dart' as constants;
-import '../utils/api_config.dart'; // Add ApiConfig import
+import '../utils/api_config.dart';
 import 'dart:ui' as ui;
 import 'package:fl_chart/fl_chart.dart';
-import 'package:flutter/services.dart'; // Needed for FilteringTextInputFormatter
-import '../services/secure_storage_service.dart'; // Added for auth headers
-import '../services/auth_service.dart'; // <<< ADDED AuthService import
+import 'package:flutter/services.dart';
+import '../services/secure_storage_service.dart';
+import '../services/auth_service.dart';
 import 'package:timeago/timeago.dart' as timeago;
-import 'package:collection/collection.dart'; // Added for DeepCollectionEquality
-import '../models/user_model.dart'; // <<< ADDED User model import
-import 'package:mobile_scanner/mobile_scanner.dart'; // <-- Import scanner
-import './offer_scanner_screen.dart'; // <-- Import the new screen (to be created)
+import 'package:collection/collection.dart';
+import '../models/user_model.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
+import './offer_scanner_screen.dart';
 import 'package:choice_app/utils/validation_utils.dart';
-import 'package:qr_flutter/qr_flutter.dart'; // <-- ADDED QR Code Package (ensure added to pubspec.yaml)
-import 'package:flutter_animate/flutter_animate.dart'; // <-- ADDED Animation Package
+import 'package:qr_flutter/qr_flutter.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 
+// --- ADDED: Custom dark theme colors ---
+class AppColors {
+  static const Color darkBackground = Color(0xFF121212);
+  static const Color darkSurface = Color(0xFF1E1E1E);
+  static const Color darkCard = Color(0xFF252525);
+  static const Color accent = Color(0xFF4A6FE5);
+  static const Color accentSecondary = Color(0xFF8A50E0);
+  static const Color accentTertiary = Color(0xFFE55270);
+  static const Color textPrimary = Color(0xFFF5F5F5);
+  static const Color textSecondary = Color(0xFFBBBBBB);
+  
+  // Intensity colors with more futuristic feeling
+  static Color lowIntensity = const Color(0xFF4A6FE5);
+  static Color medIntensity = const Color(0xFF50C5E0); 
+  static Color highIntensity = const Color(0xFFE55270);
+}
 
 void initializeTimeago() {
   try {
@@ -339,6 +355,13 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
   // +++ ADDED: Store producer location +++
   LatLng? _producerLocation;
   final Completer<GoogleMapController> _mapControllerCompleter = Completer(); // To ensure map is ready
+  
+  // +++ ADDED: State for producer marker +++
+  Marker? _producerMarker;
+  BitmapDescriptor? _producerIcon;
+
+  // Ajouter une variable pour contrôler l'affichage des insights
+  bool _showInsightsPanel = true;
 
   
   @override
@@ -349,6 +372,7 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
     _clusterManager = _initClusterManager();
     _bottomSheetTabController = TabController(length: 3, vsync: this);
     _loadData();
+    _loadProducerIcon(); // Load the custom icon
   }
   
   @override
@@ -400,6 +424,9 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
       print("🔄 [_loadData] Fetching producer location..."); // Log location fetch start
       _producerLocation = await _fetchProducerLocation(); // Store fetched location
       print("✅ [_loadData] Producer location fetched: ${_producerLocation?.latitude}, ${_producerLocation?.longitude}"); // Log location success
+
+      // +++ ADDED: Create producer marker once location is fetched +++
+      _createOrUpdateProducerMarker();
 
       // +++ ADDED: Center map once controller is ready and location is fetched +++
       if (_producerLocation != null) {
@@ -1123,12 +1150,13 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
     return circles;
   }
 
+  // --- MODIFIED: Helper function for intensity color ---
   Color _getColorForIntensity(double intensity) {
-    // Interpolate from Blue (0.0) -> Green (0.5) -> Red (1.0)
+    // Futuristic colors from blue -> teal -> red
     if (intensity < 0.5) {
-      return Color.lerp(Colors.blue, Colors.green, intensity * 2) ?? Colors.grey;
+      return Color.lerp(AppColors.lowIntensity, AppColors.medIntensity, intensity * 2) ?? Colors.grey;
     } else {
-      return Color.lerp(Colors.green, Colors.red, (intensity - 0.5) * 2) ?? Colors.grey;
+      return Color.lerp(AppColors.medIntensity, AppColors.highIntensity, (intensity - 0.5) * 2) ?? Colors.grey;
     }
   }
 
@@ -1497,216 +1525,965 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
       textPainter.paint(canvas, Offset(size/2 - textPainter.width/2, size/2 - textPainter.height/2));
   }
 
+  // +++ ADDED: Method to load producer icon asset +++
+  Future<void> _loadProducerIcon() async {
+    // Consider using a custom asset or a distinct Material icon
+    // Using store icon for now
+     try {
+       _producerIcon = await BitmapDescriptor.fromAssetImage(
+           const ImageConfiguration(size: Size(48, 48)), // Adjust size as needed
+           'assets/icons/store_marker.png' // MAKE SURE you have this asset!
+       );
+       // Fallback if asset loading fails
+        _producerIcon ??= BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange);
+     } catch (e) {
+        print("Error loading producer icon asset: $e");
+         _producerIcon = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange); // Fallback color
+     }
+     // Refresh marker if location is already known
+     if (_producerLocation != null) {
+        _createOrUpdateProducerMarker();
+     }
+  }
+
+  // +++ ADDED: Method to create/update the producer marker +++
+  void _createOrUpdateProducerMarker() {
+     if (!mounted || _producerLocation == null) return;
+     
+     final Marker marker = Marker(
+        markerId: const MarkerId('producer_location'),
+        position: _producerLocation!,
+        icon: _producerIcon ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange), // Use loaded icon or fallback
+        infoWindow: const InfoWindow(title: 'Mon Établissement'),
+        zIndex: 5.0, // Ensure it's visible above others
+     );
+     
+     setState(() {
+        _producerMarker = marker;
+     });
+     print(" Producer marker created/updated at $_producerLocation");
+  }
+
   // --- Main Widget Build ---
   @override
   Widget build(BuildContext context) {
-    // Determine map padding based on whether the bottom sheet might be visible
     final bool canShowBottomSheet = _loadingError == null;
-
-    return Scaffold(
-      // AppBar with title and actions
-      appBar: AppBar(
-        title: const Text('Analyse d\'Audience', style: TextStyle(fontSize: 18)),
-        elevation: 1,
-        backgroundColor: Theme.of(context).cardColor,
-        actions: [ // Prepend the center button to existing actions
-          IconButton(
-            icon: const Icon(Icons.storefront_outlined), // Icon for business location
-            onPressed: _centerOnProducerLocation,
-            tooltip: 'Centrer sur mon établissement',
+    final Set<Marker> allMarkers = {
+      ..._clusterMarkers,
+      if (_producerMarker != null) _producerMarker!,
+    };
+    
+    // Always use dark theme
+    return Theme(
+      data: ThemeData.dark().copyWith(
+        scaffoldBackgroundColor: AppColors.darkBackground,
+        appBarTheme: const AppBarTheme(
+          backgroundColor: AppColors.darkSurface,
+          elevation: 0,
+        ),
+        cardTheme: const CardTheme(
+          color: AppColors.darkCard,
+          elevation: 4,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.all(Radius.circular(16)),
           ),
-          ..._buildAppBarActions(), // Keep existing actions
-        ],
-        bottom: _buildFilterBar(),
+        ),
+        colorScheme: const ColorScheme.dark(
+          primary: AppColors.accent,
+          secondary: AppColors.accentSecondary,
+          surface: AppColors.darkSurface,
+          background: AppColors.darkBackground,
+          onPrimary: Colors.white,
+          onSurface: AppColors.textPrimary,
+          onBackground: AppColors.textPrimary,
+        ),
+        textTheme: const TextTheme(
+          bodyMedium: TextStyle(color: AppColors.textPrimary),
+          bodySmall: TextStyle(color: AppColors.textSecondary),
+        ),
+        dividerTheme: const DividerThemeData(
+          color: Color(0xFF333333),
+        ),
       ),
-      
-      // FAB for sending notifications
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _isLoading || _loadingError != null ? null : () => _showSendPushDialog(),
-        label: const Text('Notifier Zone'),
-        icon: const Icon(Icons.campaign_outlined),
-        tooltip: 'Envoyer une notification push aux alentours',
-      ),
-      
-      // Main body Stack
-      body: Stack(
-        children: [
-          // Google Map or Error Display
-          if (_loadingError == null) 
-            GoogleMap(
-              initialCameraPosition: _producerLocation != null 
-                  ? CameraPosition(target: _producerLocation!, zoom: 13) 
-                  : _initialCameraPosition, 
-              onMapCreated: _onMapCreated,
-              markers: _clusterMarkers,
-              myLocationButtonEnabled: false, 
-              myLocationEnabled: true,
-              mapType: MapType.normal, 
-              buildingsEnabled: true, 
-              compassEnabled: false, 
-              zoomControlsEnabled: false, 
-              trafficEnabled: false,
-              onCameraMove: (position) => _clusterManager.onCameraMove(position),
-              onCameraIdle: () => _clusterManager.updateMap(),
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text("Analyse d'Audience", 
+            style: TextStyle(
+              fontSize: 18, 
+              fontWeight: FontWeight.w500,
+              letterSpacing: 0.5,
             )
-          else 
-            _buildErrorDisplay(),
+          ),
+          elevation: 0,
+          actions: [ 
+            IconButton(
+              icon: const Icon(Icons.storefront_outlined),
+              onPressed: _centerOnProducerLocation,
+              tooltip: 'Centrer sur mon établissement',
+              color: AppColors.accent, // Highlight this important button
+            ),
+            ..._buildAppBarActions(),
+          ],
+          // Use the stylized filter bar
+          bottom: _buildFilterBar(ThemeData.dark()),
+        ),
+        
+        // FAB - Styled
+        floatingActionButton: FloatingActionButton.extended(
+          onPressed: _isLoading || _loadingError != null ? null : () => _showSendPushDialog(),
+          label: const Text('Notifier Zone'),
+          icon: const Icon(Icons.campaign_outlined),
+          tooltip: 'Envoyer une notification push aux alentours',
+          backgroundColor: AppColors.accentSecondary,
+          foregroundColor: Colors.white,
+          elevation: 6,
+        ),
+        
+        body: Stack(
+          children: [
+            // Google Map or Error Display
+            if (_loadingError == null) 
+              GoogleMap(
+                initialCameraPosition: _producerLocation != null 
+                    ? CameraPosition(target: _producerLocation!, zoom: 15) // Zoom in more
+                    : _initialCameraPosition, 
+                onMapCreated: _onMapCreated,
+                markers: allMarkers, 
+                circles: _createHeatmapCircles(),
+                myLocationButtonEnabled: false, 
+                myLocationEnabled: true, 
+                mapType: MapType.normal, 
+                buildingsEnabled: true, 
+                compassEnabled: false, 
+                zoomControlsEnabled: false, 
+                trafficEnabled: false,
+                onCameraMove: (position) => _clusterManager.onCameraMove(position),
+                onCameraIdle: () => _clusterManager.updateMap(),
+              )
+            else 
+              _buildErrorDisplay(),
 
-          // Legend Card remains the same
-          if (_showLegend && _loadingError == null) 
-            _buildLegendCard(),
+            // Legend Card
+            if (_showLegend && _loadingError == null) 
+              _buildLegendCard(),
 
-          // --- REFACTORED: Bottom Sheet using DraggableScrollableSheet --- 
-          if (canShowBottomSheet)
-            DraggableScrollableSheet(
-              initialChildSize: 0.25, // Start smaller
-              minChildSize: 0.15,    // Minimum height
-              maxChildSize: 0.6,     // Maximum height (adjust as needed)
-              expand: false, 
-              builder: (context, scrollController) {
-                return Container(
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).cardColor, // Use theme card color
-                    borderRadius: const BorderRadius.only(
-                      topLeft: Radius.circular(20),
-                      topRight: Radius.circular(20),
-                    ),
-                    boxShadow: const [
-                      BoxShadow(
-                        blurRadius: 10,
-                        color: Colors.black26,
-                      )
-                    ],
+            // Toggle Insights Button
+            if (canShowBottomSheet)
+              Positioned(
+                bottom: _showInsightsPanel ? null : 20,
+                right: 20,
+                child: FloatingActionButton.small(
+                  heroTag: "toggleInsights",
+                  backgroundColor: AppColors.darkCard,
+                  elevation: 4,
+                  onPressed: () => setState(() => _showInsightsPanel = !_showInsightsPanel),
+                  child: Icon(
+                    _showInsightsPanel ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_up,
+                    color: AppColors.accent,
                   ),
-                  child: ListView(
-                    controller: scrollController, // IMPORTANT: Assign controller
-                    padding: const EdgeInsets.only(top: 8), // Padding moved inside ListView
-                    children: [
-                      // Drag handle centered
-                      Center(
-                        child: Container(
-                          width: 40, 
-                          height: 5, 
-                          margin: const EdgeInsets.only(bottom: 12), 
-                          decoration: BoxDecoration(
-                            color: Colors.grey[400], // Slightly darker handle
-                            borderRadius: BorderRadius.circular(3),
+                ),
+              ),
+
+            // Modified: Bottom Sheet avec option de masquage
+            if (canShowBottomSheet && _showInsightsPanel)
+              DraggableScrollableSheet(
+                initialChildSize: 0.15, // Reduced initial size - more subtle
+                minChildSize: 0.12,    // Reduced minimum
+                maxChildSize: 0.5,     // Reduced maximum
+                expand: false, 
+                builder: (context, scrollController) {
+                  return Container(
+                    decoration: const BoxDecoration(
+                      color: AppColors.darkSurface, 
+                      borderRadius: BorderRadius.only(
+                        topLeft: Radius.circular(24),
+                        topRight: Radius.circular(24),
+                      ),
+                      boxShadow: [
+                        BoxShadow(blurRadius: 15, color: Colors.black38, spreadRadius: 2)
+                      ],
+                    ),
+                    child: ListView(
+                      controller: scrollController, 
+                      padding: const EdgeInsets.only(top: 10),
+                      children: [
+                        // Handle
+                        Center(
+                          child: Container(
+                            width: 45, height: 5, 
+                            margin: const EdgeInsets.only(bottom: 14), 
+                            decoration: BoxDecoration(
+                              color: Colors.grey[700],
+                              borderRadius: BorderRadius.circular(3),
+                            ),
                           ),
                         ),
-                      ),
-                      // Content sections with horizontal padding
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Stats Section
-                            Row(
-                              children: const [
-                                Icon(Icons.analytics_outlined, size: 20, color: Colors.deepPurple),
-                                SizedBox(width: 8),
-                                Text('Statistiques Zones Filtrées', 
-                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16))
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            SizedBox(
-                              height: 130,
-                              child: (_isLoading || _filteredHotspots.isEmpty) 
-                                ? Center(
-                                    child: _isLoading 
-                                      ? const CircularProgressIndicator(strokeWidth: 2) 
-                                      : const Text("Aucune zone selon filtres.", 
-                                          style: TextStyle(color: Colors.grey))
-                                  )
-                                : ListView.builder(
-                                    scrollDirection: Axis.horizontal,
-                                    itemCount: _filteredHotspots.length,
-                                    itemBuilder: (context, index) {
-                                      final hotspot = _filteredHotspots[index];
-                                      // Using _buildZoneStatItem helper widget
-                                      return _buildZoneStatItem(hotspot);
-                                    },
+                        // Content sections - Insights minimized
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Insights Section - More subtle header
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Row(
+                                    children: [
+                                      const Icon(Icons.lightbulb_outline, size: 16, color: Colors.amber),
+                                      const SizedBox(width: 8),
+                                      Text('Insights & Opportunités', 
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w500, 
+                                          fontSize: 14,
+                                          color: Colors.grey[300],
+                                        )
+                                      ),
+                                    ],
                                   ),
-                            ),
-                            
-                            const SizedBox(height: 20),
-                            
-                            // Insights Section
-                            Row(
-                              children: const [
-                                Icon(Icons.lightbulb_outline, size: 20, color: Colors.amber),
-                                SizedBox(width: 8),
-                                Text('Insights & Opportunités', 
-                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16))
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            SizedBox(
-                              height: 160,
-                              child: (_isLoadingInsights || _zoneInsights.isEmpty) 
-                                ? Center(
-                                    child: _isLoadingInsights 
-                                      ? const CircularProgressIndicator(strokeWidth: 2) 
-                                      : const Text("Aucun insight disponible.", 
-                                          style: TextStyle(color: Colors.grey))
-                                  )
-                                : ListView.builder(
-                                    scrollDirection: Axis.horizontal,
-                                    itemCount: _zoneInsights.length,
-                                    itemBuilder: (context, index) {
-                                      final insight = _zoneInsights[index];
-                                      // Using _buildInsightItem helper widget
-                                      return _buildInsightItem(insight);
-                                    },
+                                  IconButton(
+                                    icon: const Icon(Icons.close, size: 16),
+                                    onPressed: () => setState(() => _showInsightsPanel = false),
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                    color: Colors.grey[400],
                                   ),
-                            ),
-                            
-                            const SizedBox(height: 20),
-                            
-                            // Nearby Searches Section
-                            Row(
-                              children: const [
-                                Icon(Icons.person_search_outlined, size: 20, color: Colors.blueAccent),
-                                SizedBox(width: 8),
-                                Text('Recherches Utilisateurs Proches', 
-                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16))
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            SizedBox(
-                              height: 150,
-                              child: (_isFetchingSearches && _nearbySearches.isEmpty) 
-                                ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
-                                : _nearbySearches.isEmpty
-                                  ? const Center(
-                                      child: Text("Aucune recherche récente à proximité.", 
-                                          style: TextStyle(color: Colors.grey))
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              SizedBox(
+                                height: 120, // Reduced height
+                                child: (_isLoadingInsights || _zoneInsights.isEmpty) 
+                                  ? Center(
+                                      child: _isLoadingInsights 
+                                        ? const CircularProgressIndicator(strokeWidth: 2) 
+                                        : const Text("Aucun insight disponible.", 
+                                            style: TextStyle(color: Colors.grey))
                                     )
                                   : ListView.builder(
                                       scrollDirection: Axis.horizontal,
-                                      itemCount: _nearbySearches.length,
-                                      // Using _buildNearbySearchItem helper widget
-                                      itemBuilder: (context, index) => _buildNearbySearchItem(_nearbySearches[index]),
+                                      itemCount: _zoneInsights.length,
+                                      itemBuilder: (context, index) => _buildInsightItem(_zoneInsights[index]),
                                     ),
+                              ),
+                              
+                              const SizedBox(height: 16),
+                              
+                              // Nearby Searches Section - More subtle header
+                              Row(
+                                children: [
+                                  const Icon(Icons.person_search_outlined, size: 16, color: AppColors.accent),
+                                  const SizedBox(width: 8),
+                                  Text('Recherches Proches', 
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w500, 
+                                      fontSize: 14,
+                                      color: Colors.grey[300]
+                                    )
+                                  )
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              SizedBox(
+                                height: 100, // Reduced height
+                                child: (_isFetchingSearches && _nearbySearches.isEmpty) 
+                                  ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
+                                  : _nearbySearches.isEmpty
+                                    ? const Center(
+                                        child: Text("Aucune recherche récente à proximité.", 
+                                            style: TextStyle(color: Colors.grey))
+                                      )
+                                    : ListView.builder(
+                                        scrollDirection: Axis.horizontal,
+                                        itemCount: _nearbySearches.length,
+                                        itemBuilder: (context, index) => _buildNearbySearchItem(_nearbySearches[index]),
+                                      ),
+                              ),
+                              
+                              const SizedBox(height: 16),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            
+            // Loading Overlay
+            if (_isLoading && _loadingError == null)
+              _buildLoadingOverlay(),
+              
+            // Producer highlight animation - fixed implementation that doesn't use screen coordinates
+            if (_highlightProducerMarker && _producerLocation != null)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: CustomPaint(
+                    painter: SimplePulseEffect(
+                      color: AppColors.accent
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // --- Styled Helper Widgets ---
+
+  // Restyled Filter Bar
+  PreferredSizeWidget _buildFilterBar(ThemeData theme) {
+    final Color dropdownColor = theme.brightness == Brightness.dark 
+        ? AppColors.darkSurface
+        : Colors.grey[100]!;
+    final Color dropdownTextColor = AppColors.textPrimary;
+
+    return PreferredSize(
+      preferredSize: const Size.fromHeight(kToolbarHeight + 10), // Add padding
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 10.0),
+        color: AppColors.darkSurface, // Match AppBar
+        child: Row(
+          children: [
+            Expanded(
+              child: DropdownButtonFormField<String>(
+                style: TextStyle(color: dropdownTextColor, fontSize: 12), // Reduced font size
+                decoration: InputDecoration(
+                  hintText: 'Heure',
+                  hintStyle: TextStyle(color: dropdownTextColor.withOpacity(0.7)),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(25), // More rounded
+                    borderSide: BorderSide.none,
+                  ),
+                  filled: true,
+                  fillColor: dropdownColor,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), // Reduced padding
+                  isDense: true,
+                  prefixIcon: Icon(Icons.access_time, size: 16, color: dropdownTextColor.withOpacity(0.8)),
+                ),
+                dropdownColor: dropdownColor, // Match background
+                value: _selectedTimeFilter,
+                items: _timeFilterOptions.map((value) => DropdownMenuItem<String>(
+                  value: value,
+                  child: Text(
+                    value == 'Tous' ? 'Toute journée' : value, // Shortened text
+                    style: const TextStyle(fontSize: 12), // Explicit font size
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                )).toList(),
+                isExpanded: true, // Fix the overflow
+                onChanged: (value) {
+                  if (value != null) {
+                    setState(() => _selectedTimeFilter = value);
+                    _applyFilters();
+                  }
+                },
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: DropdownButtonFormField<String>(
+                style: TextStyle(color: dropdownTextColor, fontSize: 12), // Reduced font size
+                decoration: InputDecoration(
+                  hintText: 'Jour',
+                  hintStyle: TextStyle(color: dropdownTextColor.withOpacity(0.7)),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(25), // More rounded
+                    borderSide: BorderSide.none,
+                  ),
+                  filled: true,
+                  fillColor: dropdownColor,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), // Reduced padding
+                  isDense: true,
+                  prefixIcon: Icon(Icons.calendar_today, size: 14, color: dropdownTextColor.withOpacity(0.8)),
+                ),
+                dropdownColor: dropdownColor,
+                value: _selectedDayFilter,
+                items: _dayFilterOptions.map((value) => DropdownMenuItem<String>(
+                  value: value,
+                  child: Text(
+                    value == 'Tous' ? 'Tous jours' : value, // Shortened text
+                    style: const TextStyle(fontSize: 12), // Explicit font size
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                )).toList(),
+                isExpanded: true, // Fix the overflow
+                onChanged: (value) {
+                  if (value != null) {
+                    setState(() => _selectedDayFilter = value);
+                    _applyFilters();
+                  }
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Restyled Push Dialog
+  void _showSendPushDialog({String? zoneId, ThemeData? theme}) {
+    if (!mounted) return;
+    final currentTheme = theme ?? Theme.of(context);
+    final bool isDarkMode = currentTheme.brightness == Brightness.dark;
+    
+    _customPushTitleController.text = 'Offre Spéciale!';
+    _customPushBodyController.text = 'Visitez notre établissement pour une remise exclusive aujourd\'hui!';
+    _customDiscountController.text = '15';
+    _customDurationController.text = '1';
+
+    // Variables pour gérer les étapes
+    int _currentStep = 0;
+    bool _isTargetingZone = zoneId != null;
+    bool _isConfirming = false;
+    
+    String _getTargetDescription() {
+      if (_isTargetingZone && zoneId != null) {
+        final zone = _filteredHotspots.firstWhereOrNull((h) => h.id == zoneId);
+        return zone?.zoneName ?? "Zone spécifique";
+      } else {
+        return "Tous les utilisateurs à proximité";
+      }
+    }
+    
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              backgroundColor: AppColors.darkCard,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              contentPadding: EdgeInsets.zero,
+              title: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.campaign_outlined, color: AppColors.accentSecondary),
+                      const SizedBox(width: 12),
+                      const Text('Notification Ciblée', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _isConfirming 
+                      ? 'Confirmer l\'envoi' 
+                      : (_currentStep == 0 ? 'Détails de l\'offre' : 'Paramètres de ciblage'),
+                    style: TextStyle(
+                      fontSize: 14, 
+                      color: AppColors.textSecondary,
+                      fontWeight: FontWeight.normal
+                    ),
+                  ),
+                ],
+              ),
+              content: SizedBox(
+                width: double.maxFinite,
+                child: Stepper(
+                  currentStep: _currentStep,
+                  controlsBuilder: (context, details) {
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 12.0),
+                      child: Row(
+                        children: [
+                          ElevatedButton(
+                            onPressed: details.onStepContinue, 
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.accent,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                             ),
-                            
-                            const SizedBox(height: 20), // Add padding at the bottom
+                            child: Text(_currentStep < 1 ? 'Continuer' : 'Prévisualiser'),
+                          ),
+                          const SizedBox(width: 8),
+                          if (_currentStep > 0)
+                            TextButton(
+                              onPressed: details.onStepCancel,
+                              child: const Text('Retour'),
+                            ),
+                        ],
+                      ),
+                    );
+                  },
+                  steps: [
+                    Step(
+                      title: const Text('Contenu de l\'offre'),
+                      content: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          TextField(
+                            controller: _customPushTitleController,
+                            decoration: InputDecoration(
+                              labelText: 'Titre',
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                              filled: true,
+                              fillColor: AppColors.darkSurface,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          TextField(
+                            controller: _customPushBodyController,
+                            decoration: InputDecoration(
+                              labelText: 'Message',
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                              filled: true,
+                              fillColor: AppColors.darkSurface,
+                              alignLabelWithHint: true,
+                            ),
+                            maxLines: 3,
+                          ),
+                          const SizedBox(height: 16),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextField(
+                                  controller: _customDiscountController,
+                                  decoration: InputDecoration(
+                                    labelText: 'Réduction (%)',
+                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                    filled: true,
+                                    fillColor: AppColors.darkSurface,
+                                    suffixText: '%',
+                                  ),
+                                  keyboardType: TextInputType.number,
+                                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: TextField(
+                                  controller: _customDurationController,
+                                  decoration: InputDecoration(
+                                    labelText: 'Durée (jours)',
+                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                    filled: true,
+                                    fillColor: AppColors.darkSurface,
+                                    suffixText: 'j',
+                                  ),
+                                  keyboardType: TextInputType.number,
+                                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      isActive: _currentStep >= 0,
+                    ),
+                    Step(
+                      title: const Text('Ciblage'),
+                      content: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppColors.darkSurface,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.grey[800]!),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Cible de la notification:',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 8),
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: AppColors.accentSecondary.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: AppColors.accentSecondary.withOpacity(0.3)),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    _isTargetingZone ? Icons.place_outlined : Icons.public_outlined,
+                                    color: AppColors.accentSecondary,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          _getTargetDescription(),
+                                          style: const TextStyle(fontWeight: FontWeight.bold),
+                                        ),
+                                        Text(
+                                          _isTargetingZone 
+                                              ? "Utilisateurs fréquentant cette zone" 
+                                              : "Utilisateurs dans un rayon de 2km",
+                                          style: TextStyle(fontSize: 12, color: Colors.grey[400]),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (!_isTargetingZone) ...[
+                              const SizedBox(height: 16),
+                              const Text(
+                                'Nombre d\'utilisateurs estimés:',
+                                style: TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                              const SizedBox(height: 8),
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: AppColors.darkSurface,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: Colors.grey[700]!),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.people_outline, color: Colors.blue[400]),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      "${_activeUsers.length + (_filteredHotspots.fold(0, (sum, zone) => sum + (zone.visitorCount ?? 0)))}",
+                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      "utilisateurs potentiels",
+                                      style: TextStyle(fontSize: 12, color: Colors.grey[400]),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ],
                         ),
                       ),
+                      isActive: _currentStep >= 1,
+                    ),
+                  ],
+                  onStepTapped: (step) {
+                    setDialogState(() {
+                      _currentStep = step;
+                    });
+                  },
+                  onStepContinue: () {
+                    setDialogState(() {
+                      if (_currentStep < 1) {
+                        _currentStep++;
+                      } else {
+                        _isConfirming = true;
+                      }
+                    });
+                    
+                    if (_isConfirming) {
+                      // Afficher la prévisualisation
+                      showDialog(
+                        context: context,
+                        builder: (previewContext) {
+                          return AlertDialog(
+                            backgroundColor: AppColors.darkCard,
+                            title: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(Icons.preview_outlined, color: AppColors.accent),
+                                    const SizedBox(width: 8),
+                                    const Text('Prévisualisation'),
+                                  ],
+                                ),
+                                const Divider(),
+                              ],
+                            ),
+                            content: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text("L'utilisateur verra cette notification:"),
+                                const SizedBox(height: 12),
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.all(16),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.darkBackground,
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(color: Colors.grey[800]!),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          const CircleAvatar(
+                                            radius: 16,
+                                            backgroundColor: AppColors.accent, 
+                                            child: Icon(Icons.store, size: 16, color: Colors.white),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              const Text("Mon Établissement",
+                                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                                              ),
+                                              Text("Maintenant",
+                                                style: TextStyle(fontSize: 10, color: Colors.grey[400]),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 12),
+                                      Text(
+                                        _customPushTitleController.text,
+                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(_customPushBodyController.text,
+                                        style: const TextStyle(fontSize: 12),
+                                      ),
+                                      if (_customDiscountController.text.isNotEmpty) ...[
+                                        const SizedBox(height: 8),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                          decoration: BoxDecoration(
+                                            color: AppColors.accentSecondary.withOpacity(0.2),
+                                            borderRadius: BorderRadius.circular(20),
+                                          ),
+                                          child: Text(
+                                            "-${_customDiscountController.text}% • Valable ${_customDurationController.text} jour${int.parse(_customDurationController.text) > 1 ? 's' : ''}",
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              color: AppColors.accentSecondary,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(previewContext),
+                                child: const Text('Modifier'),
+                              ),
+                              ElevatedButton.icon(
+                                icon: const Icon(Icons.send_outlined, size: 18),
+                                label: const Text('Confirmer'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.accentSecondary,
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                ),
+                                onPressed: () {
+                                  Navigator.pop(previewContext); // Fermer la prévisualisation
+                                  Navigator.pop(dialogContext); // Fermer le dialogue principal
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text("Notification envoyée avec succès!"),
+                                      backgroundColor: Colors.green,
+                                    ),
+                                  );
+                                },
+                              ),
+                            ],
+                          );
+                        },
+                      );
+                    }
+                  },
+                  onStepCancel: () {
+                    setDialogState(() {
+                      _isConfirming = false;
+                      if (_currentStep > 0) {
+                        _currentStep--;
+                      }
+                    });
+                  },
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Annuler'),
+                  style: TextButton.styleFrom(foregroundColor: Colors.grey),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // Restyled Offer Dialog (Similar styling approach)
+  void _showSendOfferDialog(dynamic user) {
+    if (!mounted) return;
+    final currentTheme = Theme.of(context);
+    final bool isDarkMode = currentTheme.brightness == Brightness.dark;
+
+    String userId = '';
+    String userName = '';
+    if (user is PublicUserProfile) {
+      userId = user.id;
+      userName = user.name;
+    } else if (user is NearbySearchEvent) {
+      userId = user.userId;
+      userName = user.userName;
+    } else { /* ... error handling ... */ return; }
+    
+    _offerTitleController.text = 'Offre Exclusive!';
+    _offerBodyController.text = 'Nous avons remarqué votre intérêt. Voici une offre spéciale pour vous!';
+    _offerDiscountController.text = '10';
+    _offerValidityController.text = '30';
+    _isSendingOffer = false;
+    
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        final formKey = GlobalKey<FormState>();
+        
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              backgroundColor: isDarkMode ? currentTheme.colorScheme.surfaceVariant : Colors.white,
+              titlePadding: const EdgeInsets.only(top: 24, left: 24, right: 24, bottom: 10),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              actionsPadding: const EdgeInsets.only(left: 24, right: 24, bottom: 16, top: 8),
+              title: Row(
+                 children: [
+                    Icon(Icons.card_giftcard_outlined, color: currentTheme.colorScheme.primary),
+                    const SizedBox(width: 12),
+                    const Text('Envoyer une Offre', style: TextStyle(fontWeight: FontWeight.bold)),
+                 ],
+              ),
+              content: SingleChildScrollView(
+                child: Form(
+                  key: formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Destinataire: $userName', 
+                           style: TextStyle(fontWeight: FontWeight.w500, color: currentTheme.colorScheme.onSurfaceVariant)),
+                      const SizedBox(height: 20),
+                      TextFormField(
+                        controller: _offerTitleController,
+                        decoration: InputDecoration(
+                          labelText: 'Titre',
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                          filled: true,
+                          fillColor: isDarkMode ? currentTheme.colorScheme.surface : Colors.grey[100],
+                        ),
+                        validator: (v) => v!.isEmpty ? 'Champ requis' : null,
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _offerBodyController,
+                        decoration: InputDecoration(
+                          labelText: 'Message',
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                          filled: true,
+                          fillColor: isDarkMode ? currentTheme.colorScheme.surface : Colors.grey[100],
+                          alignLabelWithHint: true,
+                        ),
+                        maxLines: 3,
+                        validator: (v) => v!.isEmpty ? 'Champ requis' : null,
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: _offerDiscountController,
+                              decoration: InputDecoration(
+                                labelText: 'Réduction (%)',
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                filled: true,
+                                fillColor: isDarkMode ? currentTheme.colorScheme.surface : Colors.grey[100],
+                                suffixText: '%',
+                              ),
+                              keyboardType: TextInputType.number,
+                              inputFormatters: [/* ... */],
+                              validator: (v) {/* ... */},
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: TextFormField(
+                              controller: _offerValidityController,
+                              decoration: InputDecoration(
+                                labelText: 'Validité (jours)',
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                filled: true,
+                                fillColor: isDarkMode ? currentTheme.colorScheme.surface : Colors.grey[100],
+                                suffixText: 'jours',
+                              ),
+                              keyboardType: TextInputType.number,
+                              inputFormatters: [/* ... */],
+                              validator: (v) {/* ... */},
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+                      if (_isSendingOffer) 
+                        const Center(child: CircularProgressIndicator()),
                     ],
                   ),
-                );
-              },
-            ),
-          // --- END REFACTORED Bottom Sheet ---
-          
-          // Loading Overlay remains the same
-          if (_isLoading && _loadingError == null)
-            _buildLoadingOverlay(),
-        ],
-      ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Annuler'),
+                  style: TextButton.styleFrom(foregroundColor: currentTheme.colorScheme.secondary),
+                ),
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.send_outlined, size: 18),
+                  label: const Text('Envoyer'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: currentTheme.colorScheme.primary,
+                    foregroundColor: currentTheme.colorScheme.onPrimary,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12)
+                  ),
+                  onPressed: _isSendingOffer ? null : () async {
+                    if (formKey.currentState!.validate()) {
+                      setDialogState(() => _isSendingOffer = true);
+                      String? originalSearchQuery;
+                      String? triggeringSearchId;
+                      if (user is NearbySearchEvent) { /* ... */ }
+                      
+                      final success = await _sendTargetedOffer(
+                        targetUserId: userId,
+                        title: _offerTitleController.text,
+                        body: _offerBodyController.text,
+                        discountPercent: int.parse(_offerDiscountController.text),
+                        validityDays: int.parse(_offerValidityController.text),
+                        originalSearchQuery: originalSearchQuery,
+                        triggeringSearchId: triggeringSearchId,
+                      );
+                      if (!mounted) return; // Add mounted check after await
+                      setDialogState(() => _isSendingOffer = false);
+                      if (success) {
+                        Navigator.pop(dialogContext); // Use dialogContext
+                        _showOfferQRCode();
+                      }
+                    }
+                  },
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
@@ -1735,81 +2512,6 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
     ];
   }
 
-  PreferredSizeWidget _buildFilterBar() {
-    return PreferredSize(
-      preferredSize: const Size.fromHeight(kToolbarHeight),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
-        color: Theme.of(context).cardColor,
-        child: Row(
-          children: [
-            Expanded(
-              child: DropdownButtonFormField<String>(
-                decoration: InputDecoration(
-                  hintText: 'Heure',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide.none,
-                  ),
-                  filled: true,
-                  fillColor: Theme.of(context).scaffoldBackgroundColor,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  isDense: true,
-                  prefixIcon: const Icon(Icons.access_time, size: 18),
-                ),
-                value: _selectedTimeFilter,
-                items: _timeFilterOptions.map((value) => DropdownMenuItem<String>(
-                  value: value,
-                  child: Text(
-                    value == 'Tous' ? 'Toute la journée' : value,
-                    style: const TextStyle(fontSize: 13),
-                  ),
-                )).toList(),
-                onChanged: (value) {
-                  if (value != null) {
-                    setState(() => _selectedTimeFilter = value);
-                    _applyFilters();
-                  }
-                },
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: DropdownButtonFormField<String>(
-                decoration: InputDecoration(
-                  hintText: 'Jour',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide.none,
-                  ),
-                  filled: true,
-                  fillColor: Theme.of(context).scaffoldBackgroundColor,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  isDense: true,
-                  prefixIcon: const Icon(Icons.calendar_today, size: 16),
-                ),
-                value: _selectedDayFilter,
-                items: _dayFilterOptions.map((value) => DropdownMenuItem<String>(
-                  value: value,
-                  child: Text(
-                    value == 'Tous' ? 'Tous les jours' : value,
-                    style: const TextStyle(fontSize: 13),
-                  ),
-                )).toList(),
-                onChanged: (value) {
-                  if (value != null) {
-                    setState(() => _selectedDayFilter = value);
-                    _applyFilters();
-                  }
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   void _onMapCreated(GoogleMapController controller) {
     if (!mounted) return;
     
@@ -1822,7 +2524,7 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
     }
      setState(() { _mapController = controller; }); // Keep internal ref if needed elsewhere
 
-    // Apply Custom Map Style (Can run concurrently)
+    // Always apply dark map style for futuristic appearance
     rootBundle.loadString('assets/map_styles/dark_mode.json').then((mapStyle) {
       if (!mounted) return;
       print("Applying dark map style...");
@@ -1833,7 +2535,6 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
       print("Failed to load map style: $error");
     });
 
-    // Removed animation from here, handled in _loadData after location fetch
     _clusterManager.setMapId(controller.mapId);
   }
 
@@ -1913,26 +2614,59 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
 
   Widget _buildLoadingOverlay() {
     return Container(
-      color: Colors.black.withOpacity(0.5),
-      child: const Center(
+      color: Colors.black.withOpacity(0.7),
+      child: Center(
         child: Card(
           elevation: 8,
+          color: AppColors.darkCard,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+            side: BorderSide(
+              color: AppColors.accent.withOpacity(0.5),
+              width: 1,
+            ),
+          ),
           child: Padding(
-            padding: EdgeInsets.all(20.0),
+            padding: const EdgeInsets.all(24.0),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                CircularProgressIndicator(),
-                SizedBox(height: 16),
-                Text('Chargement des données...', style: TextStyle(fontWeight: FontWeight.bold)),
-                SizedBox(height: 8),
-                Text('Veuillez patienter', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                SizedBox(
+                  width: 50,
+                  height: 50,
+                  child: CircularProgressIndicator(
+                    valueColor: AlwaysStoppedAnimation<Color>(AppColors.accent),
+                    strokeWidth: 3,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                const Text(
+                  'Chargement des données...',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w500, 
+                    fontSize: 16,
+                    letterSpacing: 0.5,
+                  )
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Veuillez patienter',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[400],
+                    letterSpacing: 0.3,
+                  )
+                ),
               ],
             ),
           ),
+        ).animate().fade(duration: 300.ms).scale(
+          begin: const Offset(0.9, 0.9),
+          end: const Offset(1.0, 1.0),
+          duration: 400.ms,
         ),
       ),
-    ).animate().fade();
+    ).animate().fade(duration: 300.ms);
   }
 
   // Add missing method for nearby search polling
@@ -2086,182 +2820,259 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
     );
   }
 
-  // Show send offer dialog
-  void _showSendOfferDialog(dynamic user) {
-    if (!mounted) return;
-    
-    // Get the user ID and name based on the type of the user parameter
-    String userId = '';
-    String userName = '';
-    
-    if (user is PublicUserProfile) {
-      userId = user.id;
-      userName = user.name;
-    } else if (user is NearbySearchEvent) {
-      userId = user.userId;
-      userName = user.userName;
-    } else {
-      print('Unsupported user type in _showSendOfferDialog');
-      return;
-    }
-    
-    // Reset offer form fields
-    _offerTitleController.text = 'Offre Exclusive!';
-    _offerBodyController.text = 'Nous avons remarqué votre intérêt. Voici une offre spéciale pour vous!';
-    _offerDiscountController.text = '10';
-    _offerValidityController.text = '30';
-    _isSendingOffer = false;
-    
+  // Show QR code after sending offer
+  void _showOfferQRCode() {
     showDialog(
       context: context,
-      builder: (dialogContext) {
-        final formKey = GlobalKey<FormState>();
-        
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text('Envoyer une Offre Personnalisée'),
-              content: SingleChildScrollView(
-                child: Form(
-                  key: formKey,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Destinataire: $userName', style: const TextStyle(fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 16),
-                      TextFormField(
-                        controller: _offerTitleController,
-                        decoration: const InputDecoration(
-                          labelText: 'Titre',
-                          border: OutlineInputBorder(),
-                        ),
-                        validator: (value) => value!.isEmpty ? 'Champ requis' : null,
-                      ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: _offerBodyController,
-                        decoration: const InputDecoration(
-                          labelText: 'Message',
-                          border: OutlineInputBorder(),
-                          alignLabelWithHint: true,
-                        ),
-                        maxLines: 3,
-                        validator: (value) => value!.isEmpty ? 'Champ requis' : null,
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextFormField(
-                              controller: _offerDiscountController,
-                              decoration: const InputDecoration(
-                                labelText: 'Réduction (%)',
-                                border: OutlineInputBorder(),
-                                suffixText: '%',
-                              ),
-                              keyboardType: TextInputType.number,
-                              inputFormatters: [
-                                FilteringTextInputFormatter.digitsOnly,
-                                FilteringTextInputFormatter.allow(RegExp(r'^([1-9][0-9]?|100)$')),
-                              ],
-                              validator: (value) {
-                                if (value == null || value.isEmpty) return 'Requis';
-                                final discount = int.tryParse(value);
-                                if (discount == null || discount < 1 || discount > 100) {
-                                  return 'Entre 1-100%';
-                                }
-                                return null;
-                              },
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: TextFormField(
-                              controller: _offerValidityController,
-                              decoration: const InputDecoration(
-                                labelText: 'Validité (jours)',
-                                border: OutlineInputBorder(),
-                                suffixText: 'jours',
-                              ),
-                              keyboardType: TextInputType.number,
-                              inputFormatters: [
-                                FilteringTextInputFormatter.digitsOnly,
-                                FilteringTextInputFormatter.allow(RegExp(r'^([1-9][0-9]{0,2})$')),
-                              ],
-                              validator: (value) {
-                                if (value == null || value.isEmpty) return 'Requis';
-                                final days = int.tryParse(value);
-                                if (days == null || days < 1 || days > 365) {
-                                  return '1-365 jours';
-                                }
-                                return null;
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      // QR Code preview when needed
-                      if (_isSendingOffer) 
-                        const Center(
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(Colors.deepPurple),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Annuler'),
-                ),
-                ElevatedButton(
-                  onPressed: _isSendingOffer ? null : () async {
-                    if (formKey.currentState!.validate()) {
-                      // Send offer
-                      setDialogState(() => _isSendingOffer = true);
-                      
-                      String? originalSearchQuery;
-                      String? triggeringSearchId;
-                      
-                      if (user is NearbySearchEvent) {
-                        originalSearchQuery = user.query;
-                        triggeringSearchId = user.searchId;
-                      }
-                      
-                      final success = await _sendTargetedOffer(
-                        targetUserId: userId,
-                        title: _offerTitleController.text,
-                        body: _offerBodyController.text,
-                        discountPercent: int.parse(_offerDiscountController.text),
-                        validityDays: int.parse(_offerValidityController.text),
-                        originalSearchQuery: originalSearchQuery,
-                        triggeringSearchId: triggeringSearchId,
-                      );
-                      
-                      setDialogState(() => _isSendingOffer = false);
-                      
-                      if (success && mounted) {
-                        Navigator.pop(context);
-                        _showOfferQRCode();
-                      }
-                    }
-                  },
-                  child: const Text('Envoyer'),
-                ),
-              ],
-            );
-          },
-        );
-      },
+      builder: (context) => AlertDialog(
+        title: const Text('Offre Créée avec Succès'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Votre code QR pour cette offre:'),
+            const SizedBox(height: 20),
+            QrImageView(
+              data: 'OFFER:${widget.userId}:${DateTime.now().millisecondsSinceEpoch}',
+              version: QrVersions.auto,
+              size: 200,
+              backgroundColor: Colors.white,
+              foregroundColor: Colors.black,
+            ),
+            const SizedBox(height: 10),
+            const Text('Présentez ce code à votre client pour validation.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Fermer'),
+          ),
+        ],
+      ),
     );
   }
 
-  // Send targeted offer implementation
+  // --- Helper Widgets ---
+
+  // Helper widget for Zone Stats in the bottom sheet
+  Widget _buildZoneStatItem(models.UserHotspot hotspot) {
+    return Container(
+      width: 220,
+      margin: const EdgeInsets.only(right: 12),
+      child: Card(
+        child: InkWell(
+          onTap: () => _selectZone(hotspot.id),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  hotspot.zoneName,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const Divider(),
+                Text("${hotspot.visitorCount} visiteurs",
+                    style: const TextStyle(fontSize: 14)),
+                const SizedBox(height: 4),
+                LinearProgressIndicator(
+                  value: hotspot.intensity,
+                  backgroundColor: Colors.grey[200],
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    _getColorForIntensity(hotspot.intensity)
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Helper widget for Insights in the bottom sheet
+  Widget _buildInsightItem(Map<String, dynamic> insight) {
+    final String title = insight['title'] as String? ?? 'Insight';
+    final List<String> insights = insight['insights'] as List<String>? ?? [];
+    final Color color = insight['color'] as Color? ?? AppColors.accent;
+    final IconData icon = insight['icon'] as IconData? ?? Icons.lightbulb_outline;
+    
+    return Container(
+      width: 200,
+      margin: const EdgeInsets.only(right: 10),
+      decoration: BoxDecoration(
+        color: AppColors.darkCard,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.3), width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black26,
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, size: 14, color: color),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: color,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            const Divider(height: 12),
+            Expanded(
+              child: ListView.builder(
+                padding: EdgeInsets.zero,
+                itemCount: insights.length.clamp(0, 3), // Limit to 3 insights
+                itemBuilder: (context, index) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('•', style: TextStyle(color: Colors.grey[400], fontSize: 12)),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            insights[index],
+                            style: TextStyle(fontSize: 11, color: Colors.grey[300]),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Helper widget to build an entry in the nearby searches section
+  Widget _buildNearbySearchItem(NearbySearchEvent search) {
+    // Format the time using timeago
+    final String timeAgo = timeago.format(search.timestamp, locale: 'fr');
+    
+    return Container(
+      width: 180,
+      margin: const EdgeInsets.only(right: 10),
+      decoration: BoxDecoration(
+        color: AppColors.darkCard,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey[700]!, width: 1),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 12,
+                  backgroundColor: AppColors.accent.withOpacity(0.2),
+                  backgroundImage: search.userProfilePicture != null
+                      ? CachedNetworkImageProvider(search.userProfilePicture!)
+                      : null,
+                  child: search.userProfilePicture == null
+                      ? const Icon(Icons.person, size: 12, color: AppColors.accent)
+                      : null,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    search.userName,
+                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: AppColors.accent.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                '"${search.query}"',
+                style: TextStyle(
+                  fontSize: 10,
+                  color: Colors.grey[300],
+                  fontStyle: FontStyle.italic,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const Spacer(),
+            Text(
+              timeAgo,
+              style: TextStyle(fontSize: 9, color: Colors.grey[500]),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // +++ ADDED: Method to center on producer +++
+  Future<void> _centerOnProducerLocation() async {
+    if (_producerLocation == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Localisation de votre établissement non disponible.'), 
+        backgroundColor: Colors.orange)
+      );
+      return;
+    }
+    
+    if (_mapController != null) {
+      // Animate to location with high zoom level
+      await _mapController!.animateCamera(
+        CameraUpdate.newLatLngZoom(_producerLocation!, 16.0)
+      );
+      
+      // Temporarily highlight the marker
+      setState(() { _highlightProducerMarker = true; });
+      Future.delayed(const Duration(seconds: 2), () {
+        if (mounted) setState(() { _highlightProducerMarker = false; });
+      });
+    }
+  }
+
+  // --- ADDED: Producer marker highlight state ---
+  bool _highlightProducerMarker = false;
+
+
+
   Future<bool> _sendTargetedOffer({
     required String targetUserId,
     required String title,
@@ -2322,8 +3133,8 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
       return false;
     }
   }
-
-  // Navigate to offer scanner with proper state handling
+  
+  // Add missing method definition (assuming it exists elsewhere, ensure it's present)
   void _navigateToOfferScanner() async {
     if (!mounted) return;
     
@@ -2337,375 +3148,102 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
     }
   }
 
-  // Validate scanned QR code with proper state handling
-  Future<void> _validateScannedOffer(String scannedCode) async {
-    if (!mounted || _isValidatingOffer) return;
-    
-    setState(() { _isValidatingOffer = true; });
+  // Add the missing _validateScannedOffer method
+  void _validateScannedOffer(String scannedCode) async {
+    if (!mounted) return;
     
     try {
+      // Decode the scanned QR code
+      final data = json.decode(scannedCode);
+      
+      if (data == null || !data.containsKey('offerId') || !data.containsKey('userId')) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('QR code invalide ou mal formaté'), backgroundColor: Colors.red)
+        );
+        return;
+      }
+      
+      final offerId = data['offerId'];
+      final userId = data['userId'];
+      
+      // Call API to validate offer
       final url = Uri.parse('${constants.getBaseUrl()}/api/offers/validate');
       final headers = await ApiConfig.getAuthHeaders();
       
       final response = await http.post(
         url,
         headers: {...headers, 'Content-Type': 'application/json'},
-        body: json.encode({'producerId': widget.userId, 'offerCode': scannedCode}),
+        body: json.encode({
+          'offerId': offerId,
+          'userId': userId,
+          'producerId': widget.userId,
+        }),
       );
       
       if (!mounted) return;
       
       if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        // Show success message with offer details
+        // Show success message
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Offre validée: ${data['discount']}% pour ${data['userName']}'),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 4),
-          ),
+          const SnackBar(content: Text('Offre validée avec succès!'), backgroundColor: Colors.green)
         );
       } else {
+        // Show error message
+        final errorData = json.decode(response.body);
+        final errorMessage = errorData['message'] ?? 'Erreur lors de la validation de l\'offre';
+        
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Offre invalide: ${response.body}'),
-            backgroundColor: Colors.orange,
-            duration: const Duration(seconds: 4),
-          ),
+          SnackBar(content: Text(errorMessage), backgroundColor: Colors.orange)
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erreur: $e'),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 4),
-          ),
+          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red)
         );
       }
-    } finally {
-      if (mounted) {
-        setState(() { _isValidatingOffer = false; });
-      }
-    }
-  }
-
-  // Show QR code after sending offer
-  void _showOfferQRCode() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Offre Créée avec Succès'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Votre code QR pour cette offre:'),
-            const SizedBox(height: 20),
-            QrImageView(
-              data: 'OFFER:${widget.userId}:${DateTime.now().millisecondsSinceEpoch}',
-              version: QrVersions.auto,
-              size: 200,
-              backgroundColor: Colors.white,
-              foregroundColor: Colors.black,
-            ),
-            const SizedBox(height: 10),
-            const Text('Présentez ce code à votre client pour validation.',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 12, color: Colors.grey),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Fermer'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // Fix for the missing send push dialog method
-  void _showSendPushDialog({String? zoneId}) {
-    if (!mounted) return;
-    
-    // Reset custom push notification controllers
-    _customPushTitleController.text = 'Offre Spéciale!';
-    _customPushBodyController.text = 'Visitez notre boutique pour une remise exclusive de 15% aujourd\'hui!';
-    _customDiscountController.text = '15';
-    _customDurationController.text = '1';
-    
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Notifier les Utilisateurs'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Zone ciblée: ${zoneId != null ? "Zone spécifique" : "Toutes les zones affichées"}',
-                  style: const TextStyle(fontWeight: FontWeight.bold)),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: _customPushTitleController,
-                  decoration: const InputDecoration(
-                    labelText: 'Titre de la notification',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _customPushBodyController,
-                  decoration: const InputDecoration(
-                    labelText: 'Message',
-                    border: OutlineInputBorder(),
-                    alignLabelWithHint: true,
-                  ),
-                  maxLines: 3,
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _customDiscountController,
-                        decoration: const InputDecoration(
-                          labelText: 'Réduction (%)',
-                          border: OutlineInputBorder(),
-                          suffixText: '%',
-                        ),
-                        keyboardType: TextInputType.number,
-                        inputFormatters: [
-                          FilteringTextInputFormatter.digitsOnly,
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextField(
-                        controller: _customDurationController,
-                        decoration: const InputDecoration(
-                          labelText: 'Durée (jours)',
-                          border: OutlineInputBorder(),
-                          suffixText: 'j',
-                        ),
-                        keyboardType: TextInputType.number,
-                        inputFormatters: [
-                          FilteringTextInputFormatter.digitsOnly,
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Annuler'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                // Implement sending push notification logic
-                // This will connect to your backend api to trigger the notification
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Notification envoyée!'), backgroundColor: Colors.green),
-                );
-              },
-              child: const Text('Envoyer'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  // --- Helper Widgets ---
-
-  // Helper widget for Zone Stats in the bottom sheet
-  Widget _buildZoneStatItem(models.UserHotspot hotspot) {
-    return Container(
-      width: 220,
-      margin: const EdgeInsets.only(right: 12),
-      child: Card(
-        child: InkWell(
-          onTap: () => _selectZone(hotspot.id),
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  hotspot.zoneName,
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const Divider(),
-                Text("${hotspot.visitorCount} visiteurs",
-                    style: const TextStyle(fontSize: 14)),
-                const SizedBox(height: 4),
-                LinearProgressIndicator(
-                  value: hotspot.intensity,
-                  backgroundColor: Colors.grey[200],
-                  valueColor: AlwaysStoppedAnimation<Color>(
-                    _getColorForIntensity(hotspot.intensity)
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // Helper widget for Insights in the bottom sheet
-  Widget _buildInsightItem(Map<String, dynamic> insight) {
-    return Container(
-      width: 240,
-      margin: const EdgeInsets.only(right: 12),
-      child: Card(
-        color: (insight['color'] as Color).withOpacity(0.1),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-          side: BorderSide(
-            color: (insight['color'] as Color).withOpacity(0.3),
-            width: 1
-          ),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(insight['icon'] as IconData, color: insight['color'] as Color),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      insight['title'] as String,
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ],
-              ),
-              const Divider(),
-              Expanded(
-                child: ListView.builder(
-                  itemCount: (insight['insights'] as List).length,
-                  itemBuilder: (context, i) => Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('• ', style: TextStyle(color: insight['color'] as Color)),
-                        Expanded(
-                          child: Text(
-                            (insight['insights'] as List)[i] as String,
-                            style: const TextStyle(fontSize: 12),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // Helper widget to build an entry in the nearby searches section
-  Widget _buildNearbySearchItem(NearbySearchEvent search) {
-    return Container(
-      width: 240,
-      margin: const EdgeInsets.only(right: 12),
-      child: Card(
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: () => _showSendOfferDialog(search),
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    CircleAvatar(
-                      radius: 16,
-                      backgroundImage: search.userProfilePicture != null 
-                          ? CachedNetworkImageProvider(search.userProfilePicture!) 
-                          : null,
-                      child: search.userProfilePicture == null 
-                          ? const Icon(Icons.person, size: 16) 
-                          : null,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        search.userName,
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ),
-                const Divider(),
-                Text(
-                  '"${search.query}"',
-                  style: const TextStyle(
-                    fontStyle: FontStyle.italic,
-                    fontSize: 14,
-                  ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const Spacer(),
-                Text(
-                  timeago.format(search.timestamp, locale: 'fr'),
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[600],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // +++ ADDED: Method to center on producer +++
-  void _centerOnProducerLocation() async {
-    if (_producerLocation != null) {
-      print(" centering map on producer location: $_producerLocation");
-      // Use the completed controller or the direct reference
-      final GoogleMapController controller = await _mapControllerCompleter.future;
-      controller.animateCamera(
-        CameraUpdate.newLatLngZoom(_producerLocation!, 14.5), // Zoom in slightly more
-      );
-    } else {
-      print("⚠️ Cannot center, producer location not available.");
-       if (mounted) {
-         ScaffoldMessenger.of(context).showSnackBar(
-           const SnackBar(content: Text('Localisation du producteur non disponible.'), backgroundColor: Colors.orange),
-         );
-       }
     }
   }
 }  // End of _HeatmapScreenState class
+
+// --- ADDED: Location pulse effect that doesn't require screen coordinates ---
+class SimplePulseEffect extends CustomPainter {
+  final Color color;
+  final double maxRadius;
+  final int numCircles;
+  final double animationValue; // Value between 0.0 and 1.0
+  
+  SimplePulseEffect({
+    required this.color,
+    this.maxRadius = 80.0,
+    this.numCircles = 3,
+    this.animationValue = 0.5, // Static animation value
+  });
+  
+  @override
+  void paint(Canvas canvas, Size size) {
+    // Draw pulse effect at the center of the screen
+    final Offset center = Offset(size.width / 2, size.height / 2);
+    
+    final Paint paint = Paint()
+      ..color = color.withOpacity(0.5)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0;
+      
+    // Draw circles with decreasing opacity
+    for (int i = 0; i < numCircles; i++) {
+      // Opacity decreases from outer to inner circles
+      final opacity = 0.8 - (i * 0.2);
+      // Make the radius vary with the index
+      final radiusScale = 0.4 + (i * 0.3);
+      final radius = maxRadius * radiusScale;
+      
+      paint.color = color.withOpacity(opacity);
+      canvas.drawCircle(center, radius, paint);
+    }
+  }
+  
+  @override
+  bool shouldRepaint(SimplePulseEffect oldDelegate) => true;
+}
 

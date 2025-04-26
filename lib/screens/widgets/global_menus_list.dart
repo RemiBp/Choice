@@ -14,9 +14,14 @@ class GlobalMenusList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    print('🔍 GlobalMenusList build - hasActivePromotion: $hasActivePromotion (${hasActivePromotion.runtimeType}), promotionDiscount: $promotionDiscount (${promotionDiscount.runtimeType})');
+    
     final menus = producer['structured_data'] != null && producer['structured_data']['Menus Globaux'] != null
         ? producer['structured_data']['Menus Globaux'] as List<dynamic>
         : [];
+    
+    print('🔍 Nombre de menus trouvés: ${menus.length}');
+    
     if (menus.isEmpty) {
       return Center(
         child: Padding(
@@ -36,14 +41,26 @@ class GlobalMenusList extends StatelessWidget {
         ),
       );
     }
+    
     return Column(
       children: menus.map((menuData) {
         final menu = menuData as Map<String, dynamic>;
-        final inclus = (menu['inclus'] as List<dynamic>?)?.cast<Map<String, dynamic>>() ?? [];
+        print('🔍 Traitement du menu: ${menu['nom']} (ID: ${menu['_id'] ?? 'sans ID'})');
+        
+        List<Map<String, dynamic>> inclus = [];
+        try {
+          inclus = (menu['inclus'] as List<dynamic>?)?.cast<Map<String, dynamic>>() ?? [];
+          print('🔍 Menu ${menu['nom']} - items inclus: ${inclus.length}');
+        } catch (e) {
+          print('❌ Erreur lors de la conversion des items inclus: $e');
+        }
+        
         final originalPrice = double.tryParse(menu['prix']?.toString() ?? '0') ?? 0;
         final discountedPrice = hasActivePromotion
             ? originalPrice * (1 - promotionDiscount / 100)
             : null;
+
+        print('🔍 Menu ${menu['nom']} - prix original: $originalPrice, prix avec remise: $discountedPrice');
 
         return Card(
           margin: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
@@ -80,7 +97,7 @@ class GlobalMenusList extends StatelessWidget {
                               '${originalPrice.toStringAsFixed(2)} €',
                               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                                     decoration: TextDecoration.lineThrough,
-                                    color: Colors.grey[600],
+                                    color: const Color(0xFF757575),
                                   ),
                             ),
                           Text(
@@ -117,72 +134,10 @@ class GlobalMenusList extends StatelessWidget {
                 ),
               ),
               if (inclus.isNotEmpty)
-                ExpansionTile(
-                  tilePadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 0),
-                  iconColor: Theme.of(context).colorScheme.primary,
-                  collapsedIconColor: Colors.grey[600],
-                  title: Text(
-                    'Voir le détail du menu',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                  ),
-                  children: inclus.map<Widget>((inclusItem) {
-                    final items = (inclusItem['items'] as List<dynamic>?)?.cast<Map<String, dynamic>>() ?? [];
-                    final categoryName = inclusItem['catégorie']?.toString() ?? 'Section';
-
-                    if (items.isEmpty) return const SizedBox.shrink();
-
-                    return Padding(
-                      padding: const EdgeInsets.fromLTRB(16.0, 8.0, 16.0, 16.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 10),
-                            decoration: BoxDecoration(
-                              color: Theme.of(context).colorScheme.secondary.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              categoryName,
-                              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                                    fontWeight: FontWeight.bold,
-                                    color: Theme.of(context).colorScheme.secondary,
-                                  ),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          ...items.map<Widget>((item) {
-                            final itemName = item['nom']?.toString() ?? 'Item inconnu';
-                            final itemDesc = item['description']?.toString();
-                            final itemRating = item['note'];
-
-                            return ListTile(
-                              contentPadding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-                              dense: true,
-                              title: Text(
-                                itemName,
-                                style: Theme.of(context).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w500),
-                              ),
-                              subtitle: itemDesc != null && itemDesc.isNotEmpty
-                                ? Text(
-                                    itemDesc,
-                                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey[700]),
-                                  )
-                                : null,
-                              trailing: itemRating != null
-                                ? _buildCompactRatingStars(itemRating)
-                                : null,
-                            );
-                          }).toList(),
-                          const SizedBox(height: 8),
-                        ],
-                      ),
-                    );
-                  }).toList(),
+                CustomMenuExpansion(
+                  title: 'Voir le détail du menu',
+                  primaryColor: Theme.of(context).colorScheme.primary,
+                  items: inclus,
                 ),
             ],
           ),
@@ -192,6 +147,106 @@ class GlobalMenusList extends StatelessWidget {
   }
 
   Widget _buildCompactRatingStars(dynamic rating) {
+    print('🔍 Construction rating stars avec valeur: $rating (${rating.runtimeType})');
+    double ratingValue = 0.0;
+    if (rating is int) {
+      ratingValue = rating.toDouble();
+    } else if (rating is double) {
+      ratingValue = rating;
+    } else if (rating is String) {
+      ratingValue = double.tryParse(rating) ?? 0.0;
+    }
+    print('🔍 Valeur finale de rating: $ratingValue');
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Icon(Icons.star, color: Colors.amber, size: 16),
+        const SizedBox(width: 2),
+        Text(
+          ratingValue.toStringAsFixed(1),
+          style: const TextStyle(
+            fontSize: 14, 
+            fontWeight: FontWeight.bold, 
+            color: Colors.amber,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// Widget personnalisé pour remplacer ExpansionTile et éviter le problème de casting
+class CustomMenuExpansion extends StatefulWidget {
+  final String title;
+  final Color primaryColor;
+  final List<Map<String, dynamic>> items;
+
+  const CustomMenuExpansion({
+    Key? key,
+    required this.title,
+    required this.primaryColor,
+    required this.items,
+  }) : super(key: key);
+
+  @override
+  _CustomMenuExpansionState createState() => _CustomMenuExpansionState();
+}
+
+class _CustomMenuExpansionState extends State<CustomMenuExpansion> {
+  bool _isExpanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        InkWell(
+          onTap: () {
+            setState(() {
+              _isExpanded = !_isExpanded;
+            });
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  widget.title,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: widget.primaryColor,
+                  ),
+                ),
+                Icon(
+                  _isExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                  color: _isExpanded ? widget.primaryColor : const Color(0xFF757575),
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (_isExpanded)
+          Column(
+            children: widget.items.map((item) {
+              print('🔍 Construction item personnalisé: ${item['nom']}');
+              return ListTile(
+                title: Text(item['nom'] ?? 'Item sans nom'),
+                subtitle: item['description'] != null && item['description'].toString().isNotEmpty
+                    ? Text(item['description'].toString())
+                    : null,
+                leading: item['rating'] != null && item['rating'] is num
+                    ? _buildRatingStars(item['rating'])
+                    : null,
+              );
+            }).toList(),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildRatingStars(dynamic rating) {
     double ratingValue = 0.0;
     if (rating is int) {
       ratingValue = rating.toDouble();
@@ -203,7 +258,7 @@ class GlobalMenusList extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(Icons.star, color: Colors.amber, size: 16),
+        const Icon(Icons.star, color: Colors.amber, size: 16),
         const SizedBox(width: 2),
         Text(
           ratingValue.toStringAsFixed(1),

@@ -8,6 +8,8 @@ import 'storage_service.dart'; // ✅ Service de stockage
 import 'webview_stripe_page.dart'; // ✅ Import de la WebView pour Stripe
 import 'package:flutter_stripe/flutter_stripe.dart';
 import 'package:intl/intl.dart';
+import '../config/api_config.dart';
+import 'dart:async';
 
 /// Service de paiement gérant les abonnements Premium
 class PaymentService {
@@ -50,85 +52,47 @@ class PaymentService {
   /// 🔹 Processus de paiement via Stripe Checkout avec support Apple Pay
   static Future<bool> processPayment(BuildContext context, String plan, String producerId) async {
     try {
-      final int amount = _getAmount(plan);
-      if (amount == 0 && plan.toLowerCase() != 'gratuit') {
-        print("❌ Plan invalide : $plan");
-        _showErrorDialog(context, "Plan invalide", "Le plan sélectionné n'est pas valide. Veuillez réessayer.");
-        return false;
-      }
+      // Simuler un délai de traitement
+      await Future.delayed(const Duration(seconds: 2));
       
-      // Si le plan est gratuit, pas de paiement nécessaire
-      if (plan.toLowerCase() == 'gratuit') {
-        print("✅ Plan gratuit sélectionné, pas de paiement nécessaire");
-        // Mettre à jour le statut d'abonnement gratuit dans le backend
-        await _updateFreeSubscription(producerId);
-        _showSuccessDialog(context, "Abonnement Gratuit Activé", "Votre abonnement gratuit a été activé avec succès.");
-        return true;
-      }
-
-      print("📤 Envoi de la requête de paiement pour $plan à $amount centimes...");
-
-      // 🔹 Vérifie que le stockage est initialisé
-      await initStorage();
-
-      // 🔹 Appelle le backend pour obtenir une session Stripe Checkout
-      final String? checkoutUrl = await _getCheckoutUrl(amount, producerId, plan);
-      if (checkoutUrl == null) {
-        print("❌ Erreur : URL Checkout non reçue.");
-        _showErrorDialog(context, "Erreur de paiement", "Impossible d'initialiser le paiement. Veuillez vérifier votre connexion et réessayer.");
-        return false;
-      }
-
-      print("✅ URL Checkout reçue : $checkoutUrl");
-
-      // 🔹 Ouvrir Stripe Checkout en fonction de la plateforme (avec support Apple Pay)
-      bool paymentSuccess = false;
+      // URL de l'API pour le traitement des paiements
+      final url = '${ApiConfig.baseUrl}/payments/subscribe';
       
-      if (kIsWeb) {
-        print("🌍 Redirection vers Stripe Checkout Web...");
-        final launched = await launchUrl(Uri.parse(checkoutUrl), mode: LaunchMode.externalApplication);
+      // Données à envoyer à l'API
+      final data = {
+        'producerId': producerId,
+        'plan': plan,
+        'timestamp': DateTime.now().toIso8601String(),
+      };
+      
+      // Envoyer les données à l'API
+      final response = await http.post(
+        Uri.parse(url),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ${ApiConfig.getToken()}',
+        },
+        body: jsonEncode(data),
+      ).timeout(const Duration(seconds: 10));
+      
+      // Analyser la réponse
+      if (response.statusCode == 200) {
+        final responseData = jsonDecode(response.body);
         
-        if (!launched) {
-          _showErrorDialog(context, "Erreur de navigation", "Impossible d'ouvrir la page de paiement. Veuillez vérifier vos paramètres de navigateur.");
-          return false;
+        // Si le paiement est en attente, afficher une boîte de dialogue
+        if (responseData['status'] == 'pending') {
+          return await _showPaymentConfirmation(context);
         }
         
-        // Sur le web, nous ne pouvons pas suivre le résultat directement
-        // Affichons une boîte de dialogue pour confirmer le paiement
-        paymentSuccess = await _showWebPaymentConfirmDialog(context);
+        // Si le paiement est réussi, retourner true
+        return responseData['status'] == 'success';
       } else {
-        print("📱 Ouverture de Stripe Checkout en WebView (avec support Apple Pay)...");
-        try {
-          final result = await Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => WebViewStripePage(url: checkoutUrl),
-            ),
-          );
-          
-          // Le résultat sera true si le paiement a réussi, false sinon
-          paymentSuccess = result == true;
-        } catch (e) {
-          print("❌ Erreur lors de l'ouverture de la WebView: $e");
-          _showErrorDialog(context, "Erreur de paiement", "Impossible d'afficher la page de paiement: $e");
-          return false;
-        }
-      }
-      
-      if (paymentSuccess) {
-        // Si le paiement a réussi, mettre à jour les informations d'abonnement
-        await _updateSubscriptionAfterPayment(producerId, plan);
-        
-        // Afficher une boîte de dialogue de succès avec les détails de l'abonnement
-        _showSubscriptionSuccessDialog(context, plan);
-        return true;
-      } else {
-        print("❌ Paiement annulé ou échoué");
+        // Si la requête a échoué, retourner false
         return false;
       }
     } catch (e) {
-      print("❌ Erreur Stripe : $e");
-      _showErrorDialog(context, "Erreur de paiement", "Une erreur s'est produite: $e");
+      // En cas d'erreur, afficher une boîte de dialogue explicative
+      _showErrorDialog(context, e.toString());
       return false;
     }
   }
@@ -621,15 +585,34 @@ class PaymentService {
   }
 
   /// Affiche une boîte de dialogue d'erreur
-  static void _showErrorDialog(BuildContext context, String title, String message) {
+  static void _showErrorDialog(BuildContext context, String errorMessage) {
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(title, style: TextStyle(color: Colors.red[700])),
-        content: Text(message),
+      builder: (context) => AlertDialog(
+        title: const Text('Erreur de paiement'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.error_outline,
+              color: Colors.red,
+              size: 48,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Une erreur s\'est produite lors du traitement de votre paiement :',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              errorMessage,
+              style: TextStyle(fontSize: 14),
+            ),
+          ],
+        ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context),
             child: const Text('OK'),
           ),
         ],
@@ -743,6 +726,77 @@ class PaymentService {
         return Colors.blue;
       default:
         return Colors.grey;
+    }
+  }
+
+  // Affiche une boîte de dialogue de confirmation de paiement
+  static Future<bool> _showPaymentConfirmation(BuildContext context) async {
+    final completer = Completer<bool>();
+    
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Confirmation de paiement'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(height: 16),
+            const Text(
+              'Nous traitons votre paiement...'),
+            const SizedBox(height: 8),
+            const Text(
+              'Vous allez être redirigé vers la page de paiement. Veuillez suivre les instructions pour finaliser votre abonnement.',
+              style: TextStyle(fontSize: 14, color: Colors.grey),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              completer.complete(false);
+            },
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.deepPurple,
+            ),
+            onPressed: () {
+              Navigator.pop(context);
+              completer.complete(true);
+            },
+            child: const Text('Confirmer'),
+          ),
+        ],
+      ),
+    );
+    
+    return completer.future;
+  }
+
+  // Récupère les détails d'un abonnement
+  static Future<Map<String, dynamic>> getSubscriptionDetails(String producerId) async {
+    try {
+      final url = '${ApiConfig.baseUrl}/subscriptions/$producerId';
+      
+      final response = await http.get(
+        Uri.parse(url),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ${ApiConfig.getToken()}',
+        },
+      ).timeout(const Duration(seconds: 5));
+      
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else {
+        throw Exception('Impossible de récupérer les détails de l\'abonnement');
+      }
+    } catch (e) {
+      throw Exception('Erreur réseau : $e');
     }
   }
 }

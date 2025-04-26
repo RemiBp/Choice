@@ -136,7 +136,9 @@ class FilteredItemsList extends StatelessWidget {
         Theme(
           data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
           child: ExpansionTile(
+            key: PageStorageKey('category_$categoryName'),
             initiallyExpanded: isFirst, // Expand the first category by default
+            maintainState: true,
             tilePadding: const EdgeInsets.symmetric(horizontal: 16.0), // Adjust padding
             title: Row(
               children: [
