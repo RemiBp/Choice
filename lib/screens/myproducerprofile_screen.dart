@@ -1061,7 +1061,17 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
             }
             
             // Existing successful build logic starts here
-            // final producer = snapshot.data!;
+            final producer = snapshot.data!;
+            
+            // --- DEBUG Print statements --- 
+            print("--- DEBUG: Inside FutureBuilder ---");
+            print("DEBUG: Raw producer data snippet: ${producer.toString().substring(0, producer.toString().length > 300 ? 300 : producer.toString().length)}..."); 
+            final rawPromoActive = producer.containsKey('promotion_active') ? producer['promotion_active'] : producer['promotion']?['active'];
+            print("DEBUG: Raw promo value (promotion_active or promotion.active): $rawPromoActive (Type: ${rawPromoActive?.runtimeType})");
+            final bool promoActiveValue = safeGetBool(producer, 'promotion_active');
+            print("DEBUG: Value after safeGetBool('promotion_active'): $promoActiveValue");
+            print("-------------------------------------");
+            // --- END DEBUG --- 
             
             // --- Type Error Check: Ensure producer data used in bool contexts is valid --- 
             final bool isProducerVerified = safeGetBool(producer, 'verified'); // Example
@@ -1102,7 +1112,7 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
                                   'user_ratings_total': producer['user_ratings_total'],
                                 },
                                 // Pass boolean flags explicitly checking for null/true
-                                hasActivePromotion: safeGetBool(producer, 'promotion_active') == true, // Example using safeGetBool
+                                hasActivePromotion: promoActiveValue,
                                 promotionDiscount: (producer['promotion']?['discountPercentage'] as num?)?.toDouble() ?? 0.0,
                                 onEdit: () => _showEditProfileDialog(producer),
                                 onPromotion: () {

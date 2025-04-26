@@ -24,6 +24,12 @@ class ProfileHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // --- DEBUG Print statement --- 
+    print("--- DEBUG: ProfileHeader build ---");
+    print("DEBUG: Received hasActivePromotion: $hasActivePromotion (Type: ${hasActivePromotion.runtimeType})");
+    print("---------------------------------");
+    // --- END DEBUG ---
+    
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 24.0, horizontal: 16.0),
       decoration: BoxDecoration(
