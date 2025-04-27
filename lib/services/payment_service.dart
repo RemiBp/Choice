@@ -70,7 +70,7 @@ class PaymentService {
         Uri.parse(url),
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer ${ApiConfig.getToken()}',
+          'Authorization': 'Bearer ${ApiConfig.apiToken}',
         },
         body: jsonEncode(data),
       ).timeout(const Duration(seconds: 10));
@@ -786,7 +786,7 @@ class PaymentService {
         Uri.parse(url),
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer ${ApiConfig.getToken()}',
+          'Authorization': 'Bearer ${ApiConfig.apiToken}',
         },
       ).timeout(const Duration(seconds: 5));
       

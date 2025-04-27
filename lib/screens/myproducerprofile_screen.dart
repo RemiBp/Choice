@@ -27,7 +27,6 @@ import 'transaction_history_screen.dart'; // Import for TransactionHistoryScreen
 import 'widgets/profile_header.dart';
 import 'widgets/filtered_items_list.dart';
 import 'widgets/global_menus_list.dart';
-import 'widgets/custom_menu_expansion.dart'; // Import for CustomMenuExpansion
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/services.dart';
 import '../widgets/feed/post_card.dart'; // Import for PostCard
@@ -2990,8 +2989,6 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
                   
                   // Contenu du menu avec les items inclus
                   ExpansionTile(
-                    key: PageStorageKey('menu_detail'),
-                    maintainState: true,
                     title: const Text(
                       'Voir le détail',
                       style: TextStyle(
@@ -4855,35 +4852,54 @@ class _MenuManagementScreenState extends State<MenuManagementScreen> {
           final category = entry.key;
           final items = entry.value ?? [];
 
-          return CustomMenuExpansion(
-            title: category,
-            primaryColor: Theme.of(context).colorScheme.primary,
-            items: items.map((item) => item as Map<String, dynamic>).toList(),
-            onItemTap: (itemIndex) {
-              final item = items[itemIndex];
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => EditItemScreen(
-                    producerId: widget.producerId,
-                    item: item,
-                    onSave: (updatedItem) {
-                      setState(() {
-                        independentItems[category]![itemIndex] = updatedItem;
-                      });
-                    },
+          return ExpansionTile(
+            title: Text(category, style: const TextStyle(fontWeight: FontWeight.bold)),
+            children: items.asMap().entries.map((entry) {
+              final itemIndex = entry.key;
+              final item = entry.value;
+
+              return Card(
+                child: ListTile(
+                  title: Text(item["nom"] ?? "Nom inconnu"),
+                  subtitle: Text("Prix : ${item["prix"] ?? "N/A"}"),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.edit, color: Colors.blue),
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => EditItemScreen(
+                                producerId: widget.producerId,
+                                item: item,
+                                onSave: (updatedItem) {
+                                  setState(() {
+                                    independentItems[category]![itemIndex] = updatedItem;
+                                  });
+                                },
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.delete, color: Colors.red),
+                        onPressed: () {
+                          setState(() {
+                            independentItems[category]!.removeAt(itemIndex);
+                            if (independentItems[category]!.isEmpty) {
+                              independentItems.remove(category);
+                            }
+                          });
+                        },
+                      ),
+                    ],
                   ),
                 ),
               );
-            },
-            onItemDelete: (itemIndex) {
-              setState(() {
-                independentItems[category]!.removeAt(itemIndex);
-                if (independentItems[category]!.isEmpty) {
-                  independentItems.remove(category);
-                }
-              });
-            },
+            }).toList(),
           );
         }).toList(),
         ElevatedButton(
