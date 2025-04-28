@@ -41,7 +41,7 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
   final GrowthAnalyticsService _analyticsService = GrowthAnalyticsService();
   final ProducerTypeService _producerTypeService = ProducerTypeService();
   final PremiumFeatureService _premiumFeatureService = PremiumFeatureService();
-  late TabController _tabController;
+  // late TabController _tabController; // No longer needed
   
   GrowthOverview? _overview;
   GrowthTrends? _trends;
@@ -102,14 +102,14 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    // _tabController = TabController(length: 3, vsync: this); // No longer needed
     _producerType = widget.producerType ?? ProducerType.restaurant;
     _loadInitialData();
   }
   
   @override
   void dispose() {
-    _tabController.dispose();
+    // _tabController.dispose(); // No longer needed
     super.dispose();
   }
   
@@ -417,17 +417,36 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
       child: Column(
         children: [
           _buildHeader(),
-          if (!isLoading) _buildSubscriptionBanner(),
-          _buildPeriodSelector(),
+          if (!isLoading) _buildSubscriptionBanner(), // Keep banner under header
+          _buildPeriodSelector(), // Keep period selector
           Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                _buildOverviewTab(_overview, isLoading),
-                _buildTrendsTab(_trends, isLoading),
-                _buildRecommendationsTab(_recommendations, isLoading),
-              ],
-            ),
+            child: isLoading
+                ? Center(child: LoadingIndicator(message: loadingMessage))
+                : SingleChildScrollView( // Main scroll view for all content
+                    padding: EdgeInsets.all(16.0),
+                    child: Column(
+                       crossAxisAlignment: CrossAxisAlignment.start,
+                       children: [
+                          // --- Overview Section --- 
+                          _buildSectionHeader("growth_reach.tab_overview".tr()),
+                          SizedBox(height: 16),
+                          _buildOverviewSection(_overview),
+                          SizedBox(height: 32), // Space between sections
+                          
+                          // --- Trends Section --- 
+                          _buildSectionHeader("growth_reach.tab_trends".tr()),
+                          SizedBox(height: 16),
+                          _buildTrendsSection(_trends),
+                          SizedBox(height: 32), // Space between sections
+
+                          // --- Recommendations Section --- 
+                          _buildSectionHeader("growth_reach.tab_recommendations".tr()),
+                          SizedBox(height: 16),
+                          _buildRecommendationsSection(_recommendations),
+                          SizedBox(height: 32), // Bottom padding
+                       ],
+                    ),
+                  ),
           ),
         ],
       ),
@@ -439,10 +458,19 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
     final primaryColor = theme.primaryColor;
     final onPrimaryColor = theme.colorScheme.onPrimary;
 
+    // Reduce bottom padding as TabBar is removed
     return Container(
-      padding: EdgeInsets.fromLTRB(16, 12, 16, 0),
+      padding: EdgeInsets.fromLTRB(16, 12, 16, 12), 
       decoration: BoxDecoration(
         color: primaryColor,
+        // Optional: Add a subtle shadow or keep it flat
+         boxShadow: [
+            BoxShadow(
+               color: Colors.black.withOpacity(0.1),
+               blurRadius: 4,
+               offset: Offset(0, 2),
+            )
+         ]
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -499,20 +527,12 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
               )
             ],
           ),
-          SizedBox(height: 12),
-          TabBar(
-            controller: _tabController,
-            indicatorColor: onPrimaryColor,
-            indicatorWeight: 3,
-            labelColor: onPrimaryColor,
-            unselectedLabelColor: onPrimaryColor.withOpacity(0.7),
-            labelStyle: TextStyle(fontWeight: FontWeight.bold),
-            tabs: [
-              Tab(text: "growth_reach.tab_overview".tr()),
-              Tab(text: "growth_reach.tab_trends".tr()),
-              Tab(text: "growth_reach.tab_recommendations".tr()),
-            ],
-          ),
+          // SizedBox(height: 12), // Remove space for TabBar
+          // Remove TabBar
+          /* TabBar(
+            controller: _tabController, 
+            ...
+          ), */
         ],
       ),
     );
@@ -649,147 +669,130 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
     );
   }
   
-  Widget _buildOverviewTab(GrowthOverview? overview, bool isLoading) {
+  Widget _buildOverviewSection(GrowthOverview? overview) {
     bool canAccessDemographics = _premiumFeaturesAccess['audience_demographics'] ?? false;
     bool canAccessPredictions = _premiumFeaturesAccess['growth_predictions'] ?? false;
 
-    return SingleChildScrollView(
-      padding: EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildSectionHeader("growth_reach.kpi_header".tr()),
-          SizedBox(height: 16),
-          isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : (overview != null
-                  ? _buildKpiGrid(overview.kpis)
-                  : _buildNoDataAvailable("growth_reach.no_overview_data".tr())),
-          SizedBox(height: 24),
+    // Removed SingleChildScrollView and Padding, handled by the main scroll view now
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Section moved out: _buildSectionHeader("growth_reach.kpi_header".tr()),
+        // SizedBox(height: 16),
+        // Use placeholder based on main isLoading flag passed to _buildContent
+        (_overview != null
+                ? _buildKpiGrid(_overview!.kpis)
+                : _buildNoDataAvailable("growth_reach.no_overview_data".tr())),
+        SizedBox(height: 24),
 
-          if (!isLoading && overview != null)
-            _buildEngagementSummaryCard(overview.engagementSummary),
-          if (!isLoading && overview != null) SizedBox(height: 24),
+        if (_overview != null)
+          _buildEngagementSummaryCard(_overview!.engagementSummary),
+        if (_overview != null) SizedBox(height: 24),
 
-          _buildSectionHeader("growth_reach.demographics_header".tr()),
-          SizedBox(height: 16),
-          isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : (_premiumFeaturesAccess['audience_demographics'] ?? false
-                  ? (_demographics != null
-                      ? _buildDemographicsContent(_demographics)
-                      : _buildDataLoadingError("growth_reach.error_loading_demographics".tr()))
-                  : _buildPremiumFeatureTeaser(
-                      title: "growth_reach.demographics_title".tr(),
-                      description: "growth_reach.demographics_desc".tr(),
-                      featureId: 'audience_demographics',
-                      icon: Icons.people_alt_outlined,
-                      color: Colors.indigo,
-                      producerId: widget.producerId,
-                      child: Container(height: 150, child: Center(child: Icon(Icons.bar_chart, size: 50, color: Colors.grey.shade400))),
-                    )),
-          SizedBox(height: 24),
+        _buildSectionHeader("growth_reach.demographics_header".tr()),
+        SizedBox(height: 16),
+         (_premiumFeaturesAccess['audience_demographics'] ?? false
+                ? (_demographics != null
+                    ? _buildDemographicsContent(_demographics)
+                    : _buildDataLoadingError("growth_reach.error_loading_demographics".tr()))
+                : _buildPremiumFeatureTeaser(
+                    title: "growth_reach.demographics_title".tr(),
+                    description: "growth_reach.demographics_desc".tr(),
+                    featureId: 'audience_demographics',
+                    icon: Icons.people_alt_outlined,
+                    color: Colors.indigo,
+                    producerId: widget.producerId,
+                    child: Container(height: 150, child: Center(child: Icon(Icons.bar_chart, size: 50, color: Colors.grey.shade400))), // Placeholder content
+                  )),
+        SizedBox(height: 24),
 
-          _buildSectionHeader("growth_reach.predictions_header".tr()),
-          SizedBox(height: 16),
-          isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : (_premiumFeaturesAccess['growth_predictions'] ?? false
-                  ? (_predictions != null
-                      ? _buildPredictionsContent(_predictions)
-                      : _buildDataLoadingError("growth_reach.error_loading_predictions".tr()))
-                  : _buildPremiumFeatureTeaser(
-                      title: "growth_reach.predictions_title".tr(),
-                      description: "growth_reach.predictions_desc".tr(),
-                      featureId: 'growth_predictions',
-                      icon: Icons.online_prediction_outlined,
-                      color: Colors.purple,
-                      producerId: widget.producerId,
-                      child: Container(height: 150, child: Center(child: Icon(Icons.trending_up, size: 50, color: Colors.grey.shade400))),
-                    )),
-          SizedBox(height: 24),
-        ],
-      ),
+        _buildSectionHeader("growth_reach.predictions_header".tr()),
+        SizedBox(height: 16),
+         (_premiumFeaturesAccess['growth_predictions'] ?? false
+                ? (_predictions != null
+                    ? _buildPredictionsContent(_predictions)
+                    : _buildDataLoadingError("growth_reach.error_loading_predictions".tr()))
+                : _buildPremiumFeatureTeaser(
+                    title: "growth_reach.predictions_title".tr(),
+                    description: "growth_reach.predictions_desc".tr(),
+                    featureId: 'growth_predictions',
+                    icon: Icons.online_prediction_outlined,
+                    color: Colors.purple,
+                    producerId: widget.producerId,
+                    child: Container(height: 150, child: Center(child: Icon(Icons.trending_up, size: 50, color: Colors.grey.shade400))), // Placeholder content
+                  )),
+        // No bottom SizedBox needed here, handled by main column spacing
+      ],
     );
   }
   
-  Widget _buildTrendsTab(GrowthTrends? trends, bool isLoading) {
+  Widget _buildTrendsSection(GrowthTrends? trends) {
     bool hasAnalyticsAccess = _premiumFeaturesAccess['advanced_analytics'] ?? false;
 
-    return SingleChildScrollView(
-      padding: EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildSectionHeader("growth_reach.trends_header".tr()),
-          SizedBox(height: 16),
-          isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : (trends != null
-                  ? _buildTrendChartsContent(context)
-                  : _buildNoDataAvailable("growth_reach.no_trends_data".tr())),
-          SizedBox(height: 24),
+    // Removed SingleChildScrollView and Padding
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Section moved out: _buildSectionHeader("growth_reach.trends_header".tr()),
+        // SizedBox(height: 16),
+        // Use placeholder based on main isLoading flag passed to _buildContent
+        (_trends != null
+                ? _buildTrendChartsContent(context) // This now returns a list of cards
+                : _buildNoDataAvailable("growth_reach.no_trends_data".tr())),
+        SizedBox(height: 24),
 
-          _buildSectionHeader("growth_reach.competitors_header".tr()),
-          SizedBox(height: 16),
-          isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : (hasAnalyticsAccess
-                  ? (_competitorAnalysis != null
-                      ? _buildCompetitorAnalysisContent(context)
-                      : _buildDataLoadingError("growth_reach.error_loading_competitors".tr()))
-                  : _buildPremiumFeatureTeaser(
-                      title: "growth_reach.competitors_title".tr(),
-                      description: "growth_reach.competitors_desc".tr(),
-                      featureId: 'advanced_analytics',
-                      icon: Icons.analytics_outlined,
-                      color: Colors.teal,
-                      producerId: widget.producerId,
-                      child: Container(height: 150, child: Center(child: Icon(Icons.compare_arrows, size: 50, color: Colors.grey.shade400))),
-                    )),
-          SizedBox(height: 24),
-        ],
-      ),
+        _buildSectionHeader("growth_reach.competitors_header".tr()),
+        SizedBox(height: 16),
+         (hasAnalyticsAccess
+                ? (_competitorAnalysis != null
+                    ? _buildCompetitorAnalysisContent(context)
+                    : _buildDataLoadingError("growth_reach.error_loading_competitors".tr()))
+                : _buildPremiumFeatureTeaser(
+                    title: "growth_reach.competitors_title".tr(),
+                    description: "growth_reach.competitors_desc".tr(),
+                    featureId: 'advanced_analytics',
+                    icon: Icons.analytics_outlined,
+                    color: Colors.teal,
+                    producerId: widget.producerId,
+                    child: Container(height: 150, child: Center(child: Icon(Icons.compare_arrows, size: 50, color: Colors.grey.shade400))), // Placeholder content
+                  )),
+        // No bottom SizedBox needed here
+      ],
     );
   }
   
-  Widget _buildRecommendationsTab(GrowthRecommendations? recommendations, bool isLoading) {
+  Widget _buildRecommendationsSection(GrowthRecommendations? recommendations) {
     bool hasCampaignAccess = _premiumFeaturesAccess['simple_campaigns'] ?? false;
 
-    return SingleChildScrollView(
-      padding: EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildSectionHeader("growth_reach.recommendations_header".tr()),
-          SizedBox(height: 16),
-          isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : (recommendations == null || recommendations.recommendations.isEmpty)
-                  ? _buildNoDataAvailable("growth_reach.no_recommendations_data".tr())
-                  : _buildRecommendationsList(recommendations.recommendations),
-          SizedBox(height: 24),
+    // Removed SingleChildScrollView and Padding
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Section moved out: _buildSectionHeader("growth_reach.recommendations_header".tr()),
+        // SizedBox(height: 16),
+        // Use placeholder based on main isLoading flag
+        (recommendations == null || recommendations.recommendations.isEmpty)
+                ? _buildNoDataAvailable("growth_reach.no_recommendations_data".tr())
+                : _buildRecommendationsList(recommendations.recommendations),
+        SizedBox(height: 24),
 
-          _buildSectionHeader("growth_reach.campaigns_header".tr()),
-          SizedBox(height: 16),
-          isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : (hasCampaignAccess
-                  ? (_loadingCampaigns
-                      ? Center(child: CircularProgressIndicator())
-                      : _buildCampaignsContent())
-                  : _buildPremiumFeatureTeaser(
-                      title: "growth_reach.campaigns_title".tr(),
-                      description: "growth_reach.campaigns_desc".tr(),
-                      featureId: 'simple_campaigns',
-                      icon: Icons.campaign_outlined,
-                      color: Colors.green,
-                      producerId: widget.producerId,
-                      child: Container(height: 150, child: Center(child: Icon(Icons.volume_up_outlined, size: 50, color: Colors.grey.shade400))),
-                    )),
-          SizedBox(height: 24),
-        ],
-      ),
+        _buildSectionHeader("growth_reach.campaigns_header".tr()),
+        SizedBox(height: 16),
+         (hasCampaignAccess
+                ? (_loadingCampaigns
+                    ? Center(child: Padding(padding: EdgeInsets.all(16.0), child: LoadingIndicator()))
+                    : _buildCampaignsContent())
+                : _buildPremiumFeatureTeaser(
+                    title: "growth_reach.campaigns_title".tr(),
+                    description: "growth_reach.campaigns_desc".tr(),
+                    featureId: 'simple_campaigns',
+                    icon: Icons.campaign_outlined,
+                    color: Colors.green,
+                    producerId: widget.producerId,
+                    child: Container(height: 150, child: Center(child: Icon(Icons.volume_up_outlined, size: 50, color: Colors.grey.shade400))), // Placeholder content
+                  )),
+         // No bottom SizedBox needed here
+      ],
     );
   }
   
@@ -825,14 +828,17 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
   }
   
   String _formatNumber(double number) {
-    return NumberFormat.compact().format(number);
+    return NumberFormat.compact(locale: 'fr_FR').format(number);
   }
   
   String _formatPercent(double percent, {bool includeSign = false}) {
     final format = NumberFormat("##0.0'%'", "fr_FR");
-    String formatted = format.format(percent / 100);
+    if (percent == 0) return "0%";
+    String formatted = format.format(percent.abs() / 100);
     if (includeSign && percent > 0) {
       formatted = "+$formatted";
+    } else if (includeSign && percent < 0) {
+      formatted = "-$formatted";
     }
     return formatted;
   }
@@ -892,7 +898,14 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
   
   Widget _buildTrendChartsContent(BuildContext context) {
     if (_isLoading) {
-      return const Center(child: LoadingIndicator());
+      // Use the chart placeholder while loading
+      return ListView( 
+        padding: EdgeInsets.zero,
+        children: _trendMetrics.map((_) => Padding(
+          padding: const EdgeInsets.only(bottom: 16.0),
+          child: _buildChartPlaceholder(),
+        )).toList(),
+      );
     }
     if (_error != null || _trends == null) {
       return ErrorMessage(message: _error ?? 'Impossible de charger les tendances.');
@@ -900,33 +913,41 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
 
     final trendsMap = _trends!.trends;
     if (trendsMap.isEmpty) {
-      return const Center(child: Text("Aucune donnée de tendance disponible."));
+      return _buildNoDataAvailable("growth_reach.no_trends_data".tr());
     }
 
-    double minY = 0;
-    double maxY = 0;
-
-    final firstMetricData = trendsMap.values.firstWhere((list) => list.isNotEmpty, orElse: () => []);
-    if (firstMetricData.isNotEmpty) {
-      minY = firstMetricData.map((e) => e.value).reduce(math.min).toDouble();
-      maxY = firstMetricData.map((e) => e.value).reduce(math.max).toDouble();
-    } else {
-      maxY = 1;
-      minY = 0;
+    // Common helper to parse and format date safely
+    String _formatBottomTitle(List<TimePoint> dataPoints, int index) {
+      if (index >= 0 && index < dataPoints.length) {
+         try {
+            final date = DateTime.parse(dataPoints[index].date);
+            // Adjust format based on period? For now, use day/month
+            return DateFormat('dd/MM', 'fr_FR').format(date);
+         } catch (e) {
+            // Fallback if date parsing fails
+            return 'P${index + 1}'; 
+         }
+      } 
+      return '';
     }
-    if (maxY == minY) maxY += 1;
-    double paddingY = (maxY - minY) * 0.1;
-    minY = (minY - paddingY < 0 && minY >= 0) ? 0 : minY - paddingY;
-    maxY += paddingY;
+    
+    final List<String> metricsToShow = _trendMetrics.where((m) => trendsMap.containsKey(m) && trendsMap[m]!.isNotEmpty).toList();
 
-
-    return ListView(
-      children: trendsMap.entries.map((entry) {
-        String metricKey = entry.key;
-        List<TimePoint> dataPoints = entry.value;
+    return ListView.separated(
+      padding: EdgeInsets.zero, // Padding is handled by the cards now
+      itemCount: metricsToShow.length,
+      separatorBuilder: (context, index) => SizedBox(height: 16),
+      itemBuilder: (context, index) {
+        String metricKey = metricsToShow[index];
+        List<TimePoint> dataPoints = trendsMap[metricKey]!;
 
         List<FlSpot> spots = dataPoints.asMap().entries.map((e) {
-          return FlSpot(e.key.toDouble(), e.value.value.toDouble());
+          // Ensure y is never negative if the metric logically can't be
+          double yValue = e.value.value.toDouble();
+          if (['followers', 'profileViews', 'conversions'].contains(metricKey)) {
+             yValue = math.max(0, yValue);
+          }
+          return FlSpot(e.key.toDouble(), yValue);
         }).toList();
 
         double chartMinY = 0;
@@ -934,126 +955,209 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
         if (spots.isNotEmpty) {
            chartMinY = spots.map((spot) => spot.y).reduce(math.min);
            chartMaxY = spots.map((spot) => spot.y).reduce(math.max);
+           // Ensure minY is not negative for non-negative metrics
+           if (['followers', 'profileViews', 'conversions'].contains(metricKey)) {
+              chartMinY = math.max(0, chartMinY);
+           }
         }
-        if (chartMaxY == chartMinY) chartMaxY += 1;
-        double chartPaddingY = (chartMaxY - chartMinY) * 0.1;
+        // Ensure there's always some vertical space, handle case where min == max
+        if (chartMaxY <= chartMinY) chartMaxY = chartMinY + 1;
+        double chartPaddingY = (chartMaxY - chartMinY) * 0.15; // Increased padding
         chartMinY = (chartMinY - chartPaddingY < 0 && chartMinY >= 0) ? 0 : chartMinY - chartPaddingY;
         chartMaxY += chartPaddingY;
 
-        return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 8.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'trends_title.${metricKey}'.tr(),
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 16),
-              SizedBox(
-                height: 250,
-                child: LineChart(
-                  LineChartData(
-                    minY: chartMinY,
-                    maxY: chartMaxY,
-                    gridData: const FlGridData(show: true),
-                    titlesData: FlTitlesData(
-                      leftTitles: AxisTitles(
-                        sideTitles: SideTitles(
-                          showTitles: true,
-                          reservedSize: 40,
-                          getTitlesWidget: (value, meta) {
-                            return SideTitleWidget(
-                              meta: meta,
-                              space: 0,
-                              child: Text(
-                                NumberFormat.compact().format(value),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(fontSize: 10),
-                              ),
-                            );
-                          },
+        final primaryColor = Theme.of(context).primaryColor;
+        final lineColor = primaryColor;
+        final belowBarColor = primaryColor.withOpacity(0.2); // Slightly stronger gradient
+        final gridColor = Colors.grey.shade300;
+        final touchTooltipBgColor = Colors.blueGrey.shade800;
+        final titleStyle = Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold);
+        final axisLabelStyle = Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey.shade600);
+
+        return Card(
+          elevation: 2,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          clipBehavior: Clip.antiAlias, // Prevent chart overflow
+          child: Padding(
+             padding: const EdgeInsets.fromLTRB(16, 16, 16, 12), // Adjusted padding
+             child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'trends_title.${metricKey}'.tr(),
+                    style: titleStyle,
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    height: 250,
+                    child: LineChart(
+                      LineChartData(
+                        minY: chartMinY,
+                        maxY: chartMaxY,
+                        // More subtle grid lines
+                        gridData: FlGridData(
+                           show: true,
+                           drawVerticalLine: true,
+                           horizontalInterval: (chartMaxY - chartMinY) / 4, // Adjust interval
+                           verticalInterval: spots.length > 1 ? (spots.length / 5).ceilToDouble() : 1,
+                           getDrawingHorizontalLine: (value) {
+                              return FlLine(
+                                 color: gridColor.withOpacity(0.5),
+                                 strokeWidth: 0.8,
+                                 dashArray: [4, 4], // Make dashed
+                              );
+                           },
+                           getDrawingVerticalLine: (value) {
+                              return FlLine(
+                                 color: gridColor.withOpacity(0.3),
+                                 strokeWidth: 0.8,
+                                 dashArray: [4, 4], // Make dashed
+                              );
+                           },
                         ),
-                      ),
-                      bottomTitles: AxisTitles(
-                        sideTitles: SideTitles(
-                          showTitles: true,
-                          reservedSize: 30,
-                          interval: spots.length > 1 ? (spots.length / 5).ceilToDouble() : 1,
-                          getTitlesWidget: (value, meta) {
-                            final index = value.toInt();
-                            if (index >= 0 && index < dataPoints.length) {
+                        titlesData: FlTitlesData(
+                          // Hide top/right titles
+                          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                          // Left Axis (Y)
+                          leftTitles: AxisTitles(
+                            sideTitles: SideTitles(
+                              showTitles: true,
+                              reservedSize: 45, // Increased reserved size
+                              // interval: (chartMaxY - chartMinY) / 4, // Auto interval is usually fine
+                              getTitlesWidget: (value, meta) {
+                                // Don't show title for min value if it's adjusted padding
+                                if (value == meta.min) return Container();
                                 return SideTitleWidget(
-                                  meta: meta,
-                                  space: 0,
+                                  meta: meta, 
+                                  space: 8.0,
                                   child: Text(
-                                    'P${index + 1}',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(fontSize: 10),
+                                    _formatNumber(value), // Use compact number format
+                                    style: axisLabelStyle,
+                                    textAlign: TextAlign.right,
                                   ),
                                 );
-                            }
-                            return const Text('');
-                          },
+                              },
+                            ),
+                            // Add Y-axis title
+                            axisNameWidget: Text('Valeur', style: axisLabelStyle),
+                            axisNameSize: 20,
+                          ),
+                          // Bottom Axis (X)
+                          bottomTitles: AxisTitles(
+                            sideTitles: SideTitles(
+                              showTitles: true,
+                              reservedSize: 35, // Increased reserved size
+                              interval: spots.length > 1 ? (spots.length / 5).ceilToDouble() : 1,
+                              getTitlesWidget: (value, meta) {
+                                final index = value.toInt();
+                                // Only show labels for actual data points
+                                if (index >= 0 && index < dataPoints.length) {
+                                  // Show fewer labels if too crowded
+                                  if (spots.length > 10 && index % 2 != 0 && index != spots.length -1) {
+                                     return Container(); 
+                                  }
+                                  return SideTitleWidget(
+                                    meta: meta,
+                                    space: 8.0,
+                                    child: Text(
+                                      _formatBottomTitle(dataPoints, index), // Use formatted date
+                                      style: axisLabelStyle,
+                                    ),
+                                  );
+                                }
+                                return Container();
+                              },
+                            ),
+                            // Add X-axis title
+                            axisNameWidget: Text('Période', style: axisLabelStyle), 
+                            axisNameSize: 20,
+                          ),
                         ),
-                      ),
-                      topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                      rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                    ),
-                    borderData: FlBorderData(show: true, border: Border.all(color: Colors.grey.shade300)),
-                    lineTouchData: LineTouchData(
-                         touchTooltipData: LineTouchTooltipData(
-                                getTooltipColor: (touchedSpot) => Colors.blueGrey.withOpacity(0.8),
-                                getTooltipItems: (List<LineBarSpot> touchedBarSpots) {
-                                  return touchedBarSpots.map((barSpot) {
-                                    final flSpot = barSpot;
-                                    final dataIndex = flSpot.x.toInt();
-                                    String bottomText = '';
-                                     if (dataIndex >= 0 && dataIndex < dataPoints.length) {
-                                         bottomText = dataPoints[dataIndex].date;
-                                     }
-
-                                    return LineTooltipItem(
-                                      '${NumberFormat.compact().format(flSpot.y)}\n',
-                                      const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                                      children: [
-                                         TextSpan(
-                                           text: bottomText,
-                                           style: TextStyle(
-                                             color: Colors.white.withOpacity(0.8),
-                                             fontWeight: FontWeight.normal,
-                                             fontSize: 12,
-                                           ),
-                                         ),
-                                      ],
-                                    );
-                                  }).toList();
-                                },
+                        // Hide border or make it subtle
+                        borderData: FlBorderData(show: false),
+                        // Enhanced Tooltip
+                        lineTouchData: LineTouchData(
+                          handleBuiltInTouches: true, // Enable tap, drag etc.
+                          getTouchedSpotIndicator: (LineChartBarData barData, List<int> spotIndexes) {
+                             return spotIndexes.map((index) {
+                                return TouchedSpotIndicatorData(
+                                  FlLine(color: primaryColor.withOpacity(0.5), strokeWidth: 1, dashArray: [4, 4]),
+                                  FlDotData(
+                                    show: true,
+                                    getDotPainter: (spot, percent, barData, index) =>
+                                        FlDotCirclePainter(radius: 6, color: lineColor, strokeWidth: 2, strokeColor: Colors.white),
+                                  ),
+                                );
+                             }).toList();
+                           },
+                          touchTooltipData: LineTouchTooltipData(
+                            tooltipRoundedRadius: 8,
+                            getTooltipColor: (touchedSpot) => touchTooltipBgColor,
+                            getTooltipItems: (List<LineBarSpot> touchedBarSpots) {
+                              return touchedBarSpots.map((barSpot) {
+                                final flSpot = barSpot;
+                                final dataIndex = flSpot.x.toInt();
+                                String dateText = _formatBottomTitle(dataPoints, dataIndex);
+                                                                
+                                return LineTooltipItem(
+                                  '${_formatNumber(flSpot.y)} \n',
+                                  TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                                  children: [
+                                    TextSpan(
+                                      text: dateText,
+                                      style: TextStyle(
+                                        color: Colors.white.withOpacity(0.8),
+                                        fontWeight: FontWeight.normal,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                  textAlign: TextAlign.left, 
+                                );
+                              }).toList();
+                            },
+                          ),
+                        ),
+                        // Line Style
+                        lineBarsData: [
+                          LineChartBarData(
+                            spots: spots,
+                            isCurved: true,
+                            curveSmoothness: 0.4, // Adjust smoothness
+                            color: lineColor,
+                            barWidth: 4, // Slightly thicker line
+                            isStrokeCapRound: true,
+                            // Show subtle dots on data points
+                            dotData: FlDotData(
+                              show: true,
+                              getDotPainter: (spot, percent, barData, index) => 
+                                 FlDotCirclePainter(radius: 3, color: lineColor.withOpacity(0.8), strokeWidth: 0)
+                            ),
+                            // Enhanced gradient below line
+                            belowBarData: BarAreaData(
+                              show: true,
+                              gradient: LinearGradient(
+                                colors: [
+                                   belowBarColor.withOpacity(0.5), 
+                                   belowBarColor.withOpacity(0.0),
+                                ],
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
                               ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      // Add duration for animation on data change (optional)
+                      // swapAnimationDuration: Duration(milliseconds: 250),
                     ),
-                     lineBarsData: [
-                       LineChartBarData(
-                         spots: spots,
-                         isCurved: true,
-                         color: Theme.of(context).primaryColor,
-                         barWidth: 3,
-                         isStrokeCapRound: true,
-                         dotData: const FlDotData(show: false),
-                         belowBarData: BarAreaData(
-                           show: true,
-                           color: Theme.of(context).primaryColor.withOpacity(0.1),
-                         ),
-                       ),
-                     ],
                   ),
-                ),
-              ),
-            ],
+                ],
+             ),
           ),
         );
-      }).toList(),
+      },
     );
   }
   
@@ -1108,34 +1212,98 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
      if (demographics == null) {
         return _buildNoDataAvailable("growth_reach.no_demographics_data".tr());
      }
+     
+     final theme = Theme.of(context);
+     final List<Color> pieChartColors = [ // Define a color palette
+       theme.primaryColor,
+       Colors.teal.shade300,
+       Colors.blue.shade300,
+       Colors.purple.shade300,
+       Colors.orange.shade300,
+       Colors.pink.shade200,
+       Colors.amber.shade400,
+     ];
+
+     // Prepare data for pie charts
+     final ageData = _preparePieData(demographics.ageDistribution, pieChartColors);
+     final genderData = _preparePieData(demographics.genderDistribution, pieChartColors);
 
      return Card(
-        elevation: 2,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        elevation: 1.5, // Consistent elevation
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)), // Consistent rounding
+        clipBehavior: Clip.antiAlias,
         child: Padding(
            padding: const EdgeInsets.all(16.0),
            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                 Text(
-                    "growth_reach.demographics_age_title".tr(),
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                 ),
-                 SizedBox(height: 8),
-                 _buildDistributionChart(demographics.ageDistribution),
-                 SizedBox(height: 20),
-                 Text(
-                    "growth_reach.demographics_gender_title".tr(),
-                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                 ),
-                 SizedBox(height: 8),
-                 _buildDistributionChart(demographics.genderDistribution),
-                  SizedBox(height: 20),
-                 Text(
-                    "growth_reach.demographics_location_title".tr(),
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                 ),
-                 SizedBox(height: 8),
+                 // Age Distribution - Row with Chart and Legend
+                 _buildSectionHeader("growth_reach.demographics_age_title".tr()),
+                 SizedBox(height: 16),
+                 (ageData.isEmpty)
+                    ? Text("growth_reach.not_available".tr(), style: TextStyle(color: Colors.grey))
+                    : Row(
+                       children: [
+                          Expanded(
+                             flex: 2,
+                             child: SizedBox(
+                                height: 150,
+                                child: PieChart(
+                                   PieChartData(
+                                      sections: ageData,
+                                      centerSpaceRadius: 40, // Make it a donut chart
+                                      sectionsSpace: 2,
+                                      pieTouchData: PieTouchData(enabled: false), // Disable touch for simplicity
+                                      borderData: FlBorderData(show: false),
+                                   ),
+                                   swapAnimationDuration: Duration(milliseconds: 150), // Optional if data updates
+                                   swapAnimationCurve: Curves.linear,
+                                ),
+                             ),
+                          ),
+                          SizedBox(width: 16),
+                          Expanded(
+                             flex: 3,
+                             child: _buildLegend(demographics.ageDistribution, pieChartColors),
+                          ),
+                       ],
+                    ),
+                 SizedBox(height: 24),
+                 
+                 // Gender Distribution - Row with Chart and Legend
+                 _buildSectionHeader("growth_reach.demographics_gender_title".tr()),
+                 SizedBox(height: 16),
+                 (genderData.isEmpty)
+                    ? Text("growth_reach.not_available".tr(), style: TextStyle(color: Colors.grey))
+                    : Row(
+                       children: [
+                          Expanded(
+                             flex: 2,
+                             child: SizedBox(
+                                height: 120, // Smaller chart for gender
+                                child: PieChart(
+                                   PieChartData(
+                                      sections: genderData,
+                                      centerSpaceRadius: 30,
+                                      sectionsSpace: 2,
+                                      pieTouchData: PieTouchData(enabled: false),
+                                      borderData: FlBorderData(show: false),
+                                   ),
+                                ),
+                             ),
+                          ),
+                          SizedBox(width: 16),
+                          Expanded(
+                             flex: 3,
+                             child: _buildLegend(demographics.genderDistribution, pieChartColors),
+                          ),
+                       ],
+                    ),
+                 SizedBox(height: 24),
+                 
+                 // Top Locations
+                 _buildSectionHeader("growth_reach.demographics_location_title".tr()),
+                 SizedBox(height: 16),
                  _buildTopLocations(demographics.topLocations),
               ],
            ),
@@ -1143,77 +1311,110 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
      );
   }
   
-  Widget _buildDistributionChart(Map<String, double> distribution) {
-     if (distribution.isEmpty) return Text("growth_reach.not_available".tr());
+  // Helper to prepare PieChartSectionData
+  List<PieChartSectionData> _preparePieData(Map<String, double> distribution, List<Color> colors) {
+     if (distribution.isEmpty) return [];
+
+     final totalValue = distribution.values.fold(0.0, (sum, item) => sum + item);
+     if (totalValue <= 0) return [];
 
      final sortedEntries = distribution.entries.toList()
-        ..sort((a, b) => b.value.compareTo(a.value));
+       ..sort((a, b) => b.value.compareTo(a.value)); // Sort for consistent color assignment
 
-      final totalValue = distribution.values.fold(0.0, (sum, item) => sum + item);
-      if (totalValue <= 0) return Text("growth_reach.not_available".tr());
+     return sortedEntries.asMap().entries.map((entry) {
+        int index = entry.key;
+        String key = entry.value.key;
+        double value = entry.value.value;
+        double percentage = (value / totalValue) * 100;
+        final color = colors[index % colors.length]; // Cycle through colors
 
-      return Column(
-         children: sortedEntries.map((entry) {
-            double percentage = (entry.value / totalValue) * 100;
-            return Padding(
-               padding: const EdgeInsets.symmetric(vertical: 4.0),
-               child: Row(
-                  children: [
-                     Expanded(
-                        flex: 2,
-                        child: Text(
-                           entry.key,
-                           style: TextStyle(fontSize: 13),
-                           overflow: TextOverflow.ellipsis,
-                           maxLines: 2,
-                        ),
-                     ),
-                     Expanded(
-                        flex: 3,
-                        child: LinearPercentIndicator(
-                           percent: percentage / 100,
-                           lineHeight: 16.0,
-                            center: Text(
-                               _formatPercent(percentage),
-                               style: TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold),
-                            ),
-                           backgroundColor: Colors.grey.shade300,
-                           progressColor: Theme.of(context).primaryColor.withOpacity(0.8),
-                           barRadius: Radius.circular(8),
-                        ),
-                     ),
-                  ],
+        return PieChartSectionData(
+           value: value, 
+           title: '${percentage.toStringAsFixed(0)}%', // Show percentage on slice
+           radius: 40, // Adjust radius
+           color: color,
+           titleStyle: TextStyle(
+              fontSize: 10, 
+              fontWeight: FontWeight.bold, 
+              color: Colors.white, // Or calculate contrast color
+              shadows: [Shadow(color: Colors.black.withOpacity(0.5), blurRadius: 2)]
+           ),
+           // Optional: Add border or other effects
+        );
+     }).toList();
+  }
+
+  // Helper to build legend
+  Widget _buildLegend(Map<String, double> distribution, List<Color> colors) {
+     if (distribution.isEmpty) return SizedBox.shrink();
+     
+     final totalValue = distribution.values.fold(0.0, (sum, item) => sum + item);
+     if (totalValue <= 0) return SizedBox.shrink();
+     
+     final sortedEntries = distribution.entries.toList()
+       ..sort((a, b) => b.value.compareTo(a.value));
+
+     return Column(
+       crossAxisAlignment: CrossAxisAlignment.start,
+       mainAxisSize: MainAxisSize.min, // Take minimum space needed
+       children: sortedEntries.asMap().entries.map((entry) {
+         int index = entry.key;
+         String key = entry.value.key;
+         double value = entry.value.value;
+         double percentage = (value / totalValue) * 100;
+         final color = colors[index % colors.length];
+
+         return Padding(
+           padding: const EdgeInsets.symmetric(vertical: 3.0),
+           child: Row(
+             children: [
+               Container(
+                 width: 10, height: 10,
+                 decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: color,
+                 ),
                ),
-            );
-         }).toList(),
-      );
+               SizedBox(width: 8),
+               Flexible(
+                 child: Text(
+                   '$key (${percentage.toStringAsFixed(1)}%)', 
+                   style: TextStyle(fontSize: 12),
+                   overflow: TextOverflow.ellipsis,
+                 ),
+               ),
+             ],
+           ),
+         );
+       }).toList(),
+     );
   }
   
   Widget _buildTopLocations(List<Map<String, dynamic>> locations) {
       if (locations.isEmpty) return Text("growth_reach.not_available".tr());
 
-      return ListView.builder(
-         shrinkWrap: true,
-         physics: NeverScrollableScrollPhysics(),
-         itemCount: locations.length,
-         itemBuilder: (context, index) {
-            final loc = locations[index];
-            final name = loc['city'] ?? loc['region'] ?? loc['country'] ?? 'Inconnu';
-            final percentage = (loc['percentage'] ?? 0.0).toDouble();
-            return Padding(
-               padding: const EdgeInsets.symmetric(vertical: 3.0),
-               child: Row(
-                 children: [
-                   Expanded(
-                     child: Text(
-                       "• $name (${_formatPercent(percentage)})",
-                       style: TextStyle(fontSize: 14),
-                     ),
+      // Using a Column instead of ListView for simplicity within the Card
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: locations.take(5).map((loc) { // Limit to top 5
+           final name = loc['city'] ?? loc['region'] ?? loc['country'] ?? 'Inconnu';
+           final percentage = (loc['percentage'] ?? 0.0).toDouble();
+           return Padding(
+             padding: const EdgeInsets.symmetric(vertical: 4.0),
+             child: Row(
+               children: [
+                 Icon(Icons.location_pin, size: 16, color: Colors.grey.shade600),
+                 SizedBox(width: 8),
+                 Expanded(
+                   child: Text(
+                     "$name (${_formatPercent(percentage)})",
+                     style: TextStyle(fontSize: 14),
                    ),
-                 ],
-               ),
-            );
-         },
+                 ),
+               ],
+             ),
+           );
+         }).toList(),
       );
   }
   
@@ -1221,67 +1422,108 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
      if (predictions == null || predictions.predictions.isEmpty) {
         return _buildNoDataAvailable("growth_reach.no_predictions_data".tr());
      }
+     
+     final theme = Theme.of(context);
 
      return Card(
-        elevation: 2,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        elevation: 1.5, // Consistent elevation
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)), // Consistent rounding
+        clipBehavior: Clip.antiAlias,
         child: Padding(
-           padding: const EdgeInsets.all(16.0),
+           padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0), // Adjust padding
            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: predictions.predictions.entries.map((entry) {
                   String label;
+                  IconData predIcon;
                   switch(entry.key) {
-                      case 'predictedFollowers': label = 'growth_reach.prediction_followers'.tr(); break;
-                      case 'predictedViews': label = 'growth_reach.prediction_views'.tr(); break;
-                      case 'predictedConversions': label = 'growth_reach.prediction_conversions'.tr(); break;
-                      default: label = entry.key;
+                      case 'predictedFollowers': 
+                         label = 'growth_reach.prediction_followers'.tr(); 
+                         predIcon = Icons.people_alt_outlined;
+                         break;
+                      case 'predictedViews': 
+                         label = 'growth_reach.prediction_views'.tr(); 
+                         predIcon = Icons.visibility_outlined;
+                         break;
+                      case 'predictedConversions': 
+                         label = 'growth_reach.prediction_conversions'.tr(); 
+                         predIcon = Icons.monetization_on_outlined;
+                         break;
+                      default: 
+                         label = entry.key; 
+                         predIcon = Icons.analytics_outlined;
                   }
                  final prediction = entry.value;
-                 final Color confidenceColor = prediction.confidence == 'high' ? Colors.green : (prediction.confidence == 'medium' ? Colors.orange : Colors.red);
+                 
+                 // Confidence Visualization
+                 double confidenceValue = 0.0;
+                 Color confidenceColor = Colors.grey;
+                 String confidenceText = 'growth_reach.prediction_confidence_low'.tr();
+                 switch (prediction.confidence) {
+                    case 'high': 
+                       confidenceValue = 1.0; 
+                       confidenceColor = Colors.green.shade600;
+                       confidenceText = 'growth_reach.prediction_confidence_high'.tr();
+                       break;
+                    case 'medium': 
+                       confidenceValue = 0.6; 
+                       confidenceColor = Colors.orange.shade600;
+                       confidenceText = 'growth_reach.prediction_confidence_medium'.tr();
+                       break;
+                    case 'low':
+                    default: 
+                       confidenceValue = 0.25; 
+                       confidenceColor = Colors.red.shade600;
+                       confidenceText = 'growth_reach.prediction_confidence_low'.tr();
+                       break;
+                 }
 
                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8.0),
+                    padding: const EdgeInsets.symmetric(vertical: 12.0), // More vertical space
                     child: Row(
-                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                       crossAxisAlignment: CrossAxisAlignment.start,
+                       crossAxisAlignment: CrossAxisAlignment.center, // Center items vertically
                        children: [
+                          Icon(predIcon, size: 20, color: theme.primaryColor.withOpacity(0.8)),
+                          SizedBox(width: 12),
                           Expanded(
-                             flex: 2,
-                             child: Text(
-                               label,
-                               style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
+                             child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                   Text(
+                                      label,
+                                      style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
+                                   ),
+                                   SizedBox(height: 2),
+                                   Text(
+                                      _formatNumber(prediction.value),
+                                      style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold, color: theme.primaryColor),
+                                   ),
+                                ],
                              ),
                           ),
-                          SizedBox(width: 8),
-                          Flexible(
-                            flex: 1,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                               children: [
-                                 Text(
-                                    _formatNumber(prediction.value),
-                                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                                    textAlign: TextAlign.end,
-                                 ),
-                                 SizedBox(height: 2),
-                                 Row(
-                                     mainAxisSize: MainAxisSize.min,
-                                     mainAxisAlignment: MainAxisAlignment.end,
-                                     children: [
-                                       Icon(Icons.shield_outlined, size: 12, color: confidenceColor),
-                                       SizedBox(width: 4),
-                                       Flexible(
-                                         child: Text(
-                                            'growth_reach.prediction_confidence'.tr(args: [prediction.confidence]),
-                                            style: TextStyle(fontSize: 11, color: confidenceColor),
-                                            textAlign: TextAlign.end,
-                                         ),
-                                       ),
-                                     ],
-                                  ),
-                               ],
-                            ),
+                          SizedBox(width: 12),
+                          // Confidence Indicator
+                          Column(
+                             crossAxisAlignment: CrossAxisAlignment.end,
+                             children: [
+                                Container(
+                                   width: 60, // Fixed width for the indicator bar
+                                   child: LinearPercentIndicator(
+                                      percent: confidenceValue,
+                                      lineHeight: 6.0,
+                                      backgroundColor: Colors.grey.shade300,
+                                      progressColor: confidenceColor,
+                                      barRadius: Radius.circular(3),
+                                      padding: EdgeInsets.zero,
+                                   ),
+                                ),
+                                SizedBox(height: 4),
+                                Text(
+                                   confidenceText,
+                                   style: theme.textTheme.bodySmall?.copyWith(fontSize: 10, color: confidenceColor),
+                                   textAlign: TextAlign.end,
+                                ),
+                             ],
                           ),
                        ],
                     ),
@@ -1420,82 +1662,102 @@ class _GrowthAndReachScreenState extends State<GrowthAndReachScreen> with Single
   Widget _buildRecommendationCard(Recommendation rec) {
      IconData icon;
      Color color;
+     String priorityText;
      switch (rec.priority) {
-        case 'high': icon = Icons.priority_high; color = Colors.red.shade600; break;
-        case 'medium': icon = Icons.flag_outlined; color = Colors.orange.shade700; break;
+        case 'high': 
+           icon = Icons.priority_high; 
+           color = Colors.red.shade600; 
+           priorityText = "growth_reach.priority_high".tr();
+           break;
+        case 'medium': 
+           icon = Icons.flag_outlined; 
+           color = Colors.orange.shade700; 
+           priorityText = "growth_reach.priority_medium".tr();
+           break;
         case 'low':
-        default: icon = Icons.lightbulb_outline; color = Colors.blue.shade600; break;
+        default: 
+           icon = Icons.lightbulb_outline; 
+           color = Colors.blue.shade600; 
+           priorityText = "growth_reach.priority_low".tr();
+           break;
      }
 
      String buttonText;
+     IconData buttonIcon;
      VoidCallback? onPressedAction;
 
       switch (rec.action.type) {
         case 'boost_post':
           buttonText = 'growth_reach.rec_action_boost'.tr();
+          buttonIcon = Icons.rocket_launch_outlined;
           onPressedAction = () { _showSnackbar('Action Bientôt disponible: Booster Post ${rec.action.postId}'); };
           break;
         case 'navigate_to_messaging':
           buttonText = 'growth_reach.rec_action_message'.tr();
+          buttonIcon = Icons.send_outlined;
           onPressedAction = () => Navigator.pushNamed(context, '/messaging');
           break;
          case 'navigate_to_profile_edit':
            buttonText = 'growth_reach.rec_action_edit_profile'.tr();
+           buttonIcon = Icons.edit_outlined;
            onPressedAction = () => Navigator.pushNamed(context, '/profile/me');
            break;
         case 'create_campaign':
            buttonText = 'growth_reach.rec_action_create_campaign'.tr();
+           buttonIcon = Icons.campaign_outlined;
            onPressedAction = () => _showCampaignCreatorDialog();
            break;
         default:
           buttonText = 'growth_reach.rec_action_learn_more'.tr();
-          onPressedAction = null;
+          buttonIcon = Icons.info_outline;
+          onPressedAction = null; // Or open a help link?
      }
 
+     final theme = Theme.of(context);
+
      return Card(
-        elevation: 2,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        child: Padding(
-           padding: const EdgeInsets.all(16.0),
-           child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                 Row(
-                    children: [
-                       Icon(icon, color: color, size: 20),
-                       SizedBox(width: 8),
-                       Expanded(
-                          child: Text(
-                            rec.title,
-                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                          ),
-                       ),
-                    ],
-                 ),
-                 SizedBox(height: 8),
-                 Text(
-                    rec.description,
-                    style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
-                 ),
-                 SizedBox(height: 12),
-                  if (onPressedAction != null)
-                     Align(
-                       alignment: Alignment.centerRight,
-                       child: ElevatedButton.icon(
-                         icon: Icon(Icons.arrow_forward, size: 16),
-                         label: Text(buttonText),
-                         onPressed: onPressedAction,
-                         style: ElevatedButton.styleFrom(
-                           backgroundColor: color,
-                           foregroundColor: Colors.white,
-                           textStyle: TextStyle(fontSize: 13),
-                           padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                         ),
-                       ),
-                     ),
-              ],
-           ),
+        elevation: 1.5, // Slightly reduced elevation
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)), // Consistent rounding
+        margin: EdgeInsets.zero, // Margin handled by ListView.separated
+        clipBehavior: Clip.antiAlias, // Clip content
+        child: ListTile(
+          contentPadding: EdgeInsets.symmetric(vertical: 12.0, horizontal: 16.0),
+          // Leading icon with colored background
+          leading: CircleAvatar(
+             radius: 20,
+             backgroundColor: color.withOpacity(0.15),
+             child: Icon(icon, color: color, size: 22),
+          ),
+          // Title of the recommendation
+          title: Text(
+             rec.title,
+             style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+             maxLines: 2,
+             overflow: TextOverflow.ellipsis,
+          ),
+          // Description below the title
+          subtitle: Padding(
+            padding: const EdgeInsets.only(top: 4.0),
+            child: Text(
+               rec.description,
+               style: theme.textTheme.bodySmall?.copyWith(color: theme.textTheme.bodySmall?.color?.withOpacity(0.7)),
+               maxLines: 3,
+               overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          // Trailing action button (if available)
+          trailing: onPressedAction == null ? null : 
+             Tooltip(
+               message: buttonText, // Show full text on hover/long press
+               child: IconButton(
+                  icon: Icon(buttonIcon, color: color, size: 24),
+                  onPressed: onPressedAction,
+                  visualDensity: VisualDensity.compact, // Reduce padding around icon
+                  splashRadius: 24, // Control splash size
+               ), 
+             ),
+          isThreeLine: true, // Allow subtitle to take more space
+          dense: false, // Adjust vertical density if needed
         ),
      );
   }
@@ -1982,83 +2244,166 @@ class _KpiCardWidget extends StatelessWidget {
 
   // Format number in compact form
   String _formatNumber(double number) {
-    return NumberFormat.compact().format(number);
+    return NumberFormat.compact(locale: 'fr_FR').format(number);
   }
   
   // Format percent with optional sign
   String _formatPercent(double percent, {bool includeSign = false}) {
     final format = NumberFormat("##0.0'%'", "fr_FR");
-    String formatted = format.format(percent / 100);
+    if (percent == 0) return "0%";
+    String formatted = format.format(percent.abs() / 100);
     if (includeSign && percent > 0) {
       formatted = "+$formatted";
+    } else if (includeSign && percent < 0) {
+      formatted = "-$formatted";
     }
     return formatted;
+  }
+
+  // Placeholder for a simple sparkline chart
+  Widget _buildSparkline(BuildContext context, bool isPositive) {
+    // TODO: Replace with actual sparkline implementation if data is available
+    final Color lineColor = isPositive ? Colors.green.shade300 : Colors.red.shade300;
+    return Container(
+      height: 20, // Adjust height as needed
+      child: CustomPaint(
+        painter: _SparklinePainter(isPositive: isPositive, color: lineColor),
+        size: Size(double.infinity, 20),
+      ),
+      margin: const EdgeInsets.only(bottom: 6.0),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final bool isPositive = kpi.isPositiveChange;
+    // Use slightly less saturated colors for better contrast/modern feel
+    final bool isPositive = kpi.changePercent >= 0; // Consider 0% as neutral/positive visually
     final Color changeColor = isPositive ? Colors.green.shade700 : Colors.red.shade700;
     final IconData changeIcon = isPositive ? Icons.arrow_upward : Icons.arrow_downward;
 
     return Card(
       elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      // Slightly more rounded corners
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      // Add subtle gradient or background color? (Optional)
+      // color: theme.cardColor.withOpacity(0.95),
+      clipBehavior: Clip.antiAlias, // Ensure content respects border radius
       child: Padding(
         padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              style: TextStyle(
-                fontSize: 14,
-                color: theme.textTheme.bodySmall?.color ?? Colors.grey.shade600,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            SizedBox(height: 8),
-            Text(
-              _formatNumber(kpi.current),
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: theme.textTheme.titleLarge?.color ?? Colors.black,
-              ),
-            ),
-            SizedBox(height: 8),
-            Row(
-              children: [
-                Icon(changeIcon, size: 16, color: changeColor),
-                SizedBox(width: 4),
-                Flexible(
-                  child: Text(
-                    _formatNumber(kpi.change.abs()),
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
-                      color: changeColor,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
+        // Use IntrinsicHeight to make the column expand vertically if needed
+        child: IntrinsicHeight(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Title - slightly smaller, less prominent color
+              Text(
+                title,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.textTheme.bodySmall?.color ?? Colors.grey.shade700,
                 ),
-                SizedBox(width: 4),
-                Flexible(
-                  child: Text(
-                    "(${_formatPercent(kpi.changePercent, includeSign: true)})",
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: changeColor.withOpacity(0.9),
-                    ),
-                    overflow: TextOverflow.ellipsis,
+                 maxLines: 1,
+                 overflow: TextOverflow.ellipsis,
+              ),
+              SizedBox(height: 8),
+              // Main Value - larger, bolder
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  _formatNumber(kpi.current),
+                  style: theme.textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: theme.textTheme.titleLarge?.color ?? Colors.black,
                   ),
+                   maxLines: 1,
                 ),
-              ],
-            )
-          ],
+              ),
+              // Spacer to push the trend info to the bottom
+              Spacer(),
+              // Placeholder for the Sparkline
+              _buildSparkline(context, isPositive),
+              // Trend Info Row
+              Row(
+                children: [
+                  // Only show icon if there's a non-zero change
+                  if (kpi.changePercent != 0)
+                     Icon(changeIcon, size: 16, color: changeColor)
+                  else // Placeholder for alignment when no icon
+                     SizedBox(width: 16),
+                  SizedBox(width: 4),
+                  // Change Value (Absolute)
+                  Flexible(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        // Only show absolute change if non-zero
+                        kpi.changePercent != 0 ? _formatNumber(kpi.change.abs()) : '-',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: changeColor,
+                        ),
+                        maxLines: 1,
+                      ),
+                    ),
+                  ),
+                  SizedBox(width: 6),
+                  // Change Percentage
+                  Flexible(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        // Format percentage, include sign only if non-zero
+                        "(${_formatPercent(kpi.changePercent, includeSign: kpi.changePercent != 0)})",
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: changeColor.withOpacity(0.9),
+                        ),
+                        maxLines: 1,
+                      ),
+                    ),
+                  ),
+                ],
+              )
+            ],
+          ),
         ),
       ),
     );
   }
+}
+
+// Simple Custom Painter for the Sparkline Placeholder
+class _SparklinePainter extends CustomPainter {
+  final bool isPositive;
+  final Color color;
+
+  _SparklinePainter({required this.isPositive, required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+
+    final path = Path();
+    // Simple V shape for downward trend, or inverse V for upward
+    if (isPositive) {
+      path.moveTo(0, size.height * 0.7);
+      path.lineTo(size.width * 0.3, size.height * 0.2);
+      path.lineTo(size.width * 0.6, size.height * 0.5);
+      path.lineTo(size.width, size.height * 0.1);
+    } else {
+      path.moveTo(0, size.height * 0.3);
+      path.lineTo(size.width * 0.3, size.height * 0.8);
+      path.lineTo(size.width * 0.6, size.height * 0.5);
+      path.lineTo(size.width, size.height * 0.9);
+    }
+
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

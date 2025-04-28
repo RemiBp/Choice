@@ -341,7 +341,6 @@ class _SubscriptionLevelInfoScreenState extends State<SubscriptionLevelInfoScree
                               MaterialPageRoute(
                                 builder: (context) => SubscriptionScreen(
                                   producerId: widget.producerId,
-                                  highlightedLevel: widget.level,
                                 ),
                               ),
                             );

@@ -1341,7 +1341,7 @@ class _ProducerScreenState extends State<ProducerScreen> with SingleTickerProvid
 
                           // Followers Count (Tappable)
                           GestureDetector(
-                             onTap: () => _navigateToRelationDetails('Abonnés', _followerIds),
+                             onTap: () => _navigateToRelationDetails('followers'),
                              child: Row(
                                children: [
                                  const Icon(Icons.people_outline, size: 16, color: Colors.teal),
@@ -1357,7 +1357,7 @@ class _ProducerScreenState extends State<ProducerScreen> with SingleTickerProvid
 
                            // Following Count (Tappable)
                            GestureDetector(
-                             onTap: () => _navigateToRelationDetails('Abonnements', _followingIds),
+                             onTap: () => _navigateToRelationDetails('following'),
                              child: Row(
                                 children: [
                                  const Icon(Icons.person_add_alt_1_outlined, size: 16, color: Colors.teal),
@@ -1585,8 +1585,8 @@ class _ProducerScreenState extends State<ProducerScreen> with SingleTickerProvid
                     Row(
                        mainAxisAlignment: MainAxisAlignment.spaceAround,
                        children: [
-                          _buildCountChip('Intéressés', _interestedCount, Icons.emoji_objects_outlined, Colors.orange, () => _navigateToRelationDetails('Intéressés', _interestedUserIds)),
-                          _buildCountChip('Choix', _choicesCount, Icons.check_circle_outline, Colors.green, () => _navigateToRelationDetails('Choix', _choiceUserIds)),
+                          _buildCountChip('Intéressés', _interestedCount, Icons.emoji_objects_outlined, Colors.orange, () => _navigateToRelationDetails('interested')),
+                          _buildCountChip('Choix', _choicesCount, Icons.check_circle_outline, Colors.green, () => _navigateToRelationDetails('choices')),
                        ],
                     )
                  ],
@@ -3155,53 +3155,18 @@ class _ProducerScreenState extends State<ProducerScreen> with SingleTickerProvid
   }
 
   // Navigate to relation details screen (adapted from MyProducerProfileScreen)
-  void _navigateToRelationDetails(String title, List<String> ids) async {
-     if (ids.isEmpty) {
-        print('ℹ️ No IDs provided for "$title". Cannot navigate.');
-        ScaffoldMessenger.of(context).showSnackBar(
-           SnackBar(content: Text('Aucun profil à afficher pour "$title".')),
-        );
-        return;
-     }
-
-     // Show loading indicator while fetching profiles
-     showDialog(
-       context: context,
-       barrierDismissible: false,
-       builder: (context) => const Center(child: CircularProgressIndicator()),
-     );
-
-     try {
-       final validProfiles = await _validateProfiles(ids);
-       Navigator.pop(context); // Close loading indicator
-
-       if (validProfiles.isNotEmpty && context.mounted) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => RelationDetailsScreen(
-                title: title,
-                profiles: validProfiles,
-              ),
-            ),
-          );
-       } else {
-          print('❌ Aucun profil valide trouvé pour les IDs de "$title".');
-          if (context.mounted) {
-             ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Aucun profil valide trouvé pour "$title".')),
-             );
-          }
-       }
-     } catch (e) {
-        Navigator.pop(context); // Close loading indicator on error
-        print('❌ Error validating profiles for "$title": $e');
-        if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-               SnackBar(content: Text('Erreur lors de la récupération des profils pour "$title".')),
-            );
-        }
-     }
+  void _navigateToRelationDetails(String relationType) {
+    // Removed profile validation - screen fetches its own data
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => RelationDetailsScreen(
+          // Pass producerId and relationType
+          producerId: widget.producerId, 
+          relationType: relationType,
+        ),
+      ),
+    );
   }
 
   // --- Shimmer Widgets ---

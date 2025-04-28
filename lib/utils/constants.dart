@@ -129,12 +129,9 @@ bool isMobile() {
 }
 
 // Modifier l'URL par défaut pour utiliser Dicebear (un service d'avatar par défaut)
-String getDefaultAvatarUrl(String userId) {
-  // Utiliser kDebugMode pour vérifier si on est en mode debug
-  if (kDebugMode) {
-    // Peut-être utiliser une URL différente pour le debug si nécessaire
-  }
-  return 'https://api.dicebear.com/6.x/initials/png?seed=$userId';
+String getDefaultAvatarUrl() {
+  // Return a generic placeholder URL
+  return 'https://via.placeholder.com/150'; 
 }
 
 // Constantes pour l'application

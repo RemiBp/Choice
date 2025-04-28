@@ -5,6 +5,8 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../utils.dart';
 import 'package:intl/intl.dart';
+import '../utils/constants.dart' as constants;
+import 'edit_item_screen.dart'; // Assurez-vous que ce fichier sera créé
 
 // Models (Assuming basic structure, adjust if you have detailed models)
 class MenuItem {
@@ -126,708 +128,498 @@ class MenuManagementScreen extends StatefulWidget {
   State<MenuManagementScreen> createState() => _MenuManagementScreenState();
 }
 
-class _MenuManagementScreenState extends State<MenuManagementScreen> with SingleTickerProviderStateMixin {
-  bool _isLoading = true;
-  List<Menu> _globalMenus = [];
-  Map<String, List<MenuItem>> _independentItems = {}; // Store items directly under category name
-  List<String> _categories = []; // List of category names
+class _MenuManagementScreenState extends State<MenuManagementScreen> {
+  List<Map<String, dynamic>> globalMenus = [];
+  Map<String, List<Map<String, dynamic>>> independentItems = {};
+  bool isLoading = true;
 
-  // Store original data for comparison and pending changes
-  List<Menu>? _originalGlobalMenus;
-  Map<String, List<MenuItem>>? _originalIndependentItems;
-
-  // System for pending changes
-  bool _pendingApproval = false;
-  DateTime? _modificationDate;
-
-  late TabController _tabController;
-  
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
-    _loadData();
-    _checkPendingModifications();
-  }
-  
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
+    _fetchMenuData();
   }
 
-  Future<void> _loadData() async {
-    setState(() => _isLoading = true);
+  /// Récupère les données du menu depuis le backend
+  Future<void> _fetchMenuData() async {
+    final url = Uri.parse('${constants.getBaseUrl()}/api/producers/${widget.producerId}');
     try {
-      await Future.wait([
-        _fetchStructuredData(),
-        // _checkPendingModifications(), // Check separately or after fetch
-      ]);
-    } catch (e) {
-       if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-             SnackBar(content: Text('Erreur de chargement: ${e.toString()}')),
-          );
-       }
-    } finally {
-       if (mounted) {
-          setState(() => _isLoading = false);
-       }
-    }
-  }
-
-  Future<void> _fetchStructuredData() async {
-      final url = Uri.parse('${getBaseUrl()}/api/producers/${widget.producerId}');
       final response = await http.get(url);
-      
-    if (!mounted) return;
-      
+
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-      final structuredData = data['structured_data'];
+        print("Données du backend : $data");
 
-      List<Menu> globalMenus = [];
-      Map<String, List<MenuItem>> independentItems = {};
-      List<String> categories = [];
+        // Initialiser avec des structures vides si les données n'existent pas
+        final structuredData = data?['structured_data'] as Map<String, dynamic>? ?? {}; 
 
-      if (structuredData != null && structuredData is Map) {
-        // Parse Global Menus
+        // Vérification et traitement des menus globaux
+        List<Map<String, dynamic>> safeGlobalMenus = [];
         if (structuredData['Menus Globaux'] is List) {
-          globalMenus = (structuredData['Menus Globaux'] as List)
-              .where((m) => m is Map<String, dynamic>)
-              .map((m) => Menu.fromJson(m as Map<String, dynamic>))
-              .toList();
+            safeGlobalMenus = List<Map<String, dynamic>>.from(
+                structuredData['Menus Globaux'].whereType<Map<String, dynamic>>()
+            );
+        } else {
+            print("⚠️ 'Menus Globaux' non trouvé ou n'est pas une liste.");
         }
 
-        // Parse Independent Items
+        // Vérification des items indépendants et regroupement par catégorie
+        Map<String, List<Map<String, dynamic>>> groupedItems = {};
         if (structuredData['Items Indépendants'] is List) {
-          final itemsData = structuredData['Items Indépendants'] as List;
-          final Set<String> categorySet = {};
-          for (var categoryData in itemsData) {
-            if (categoryData is Map<String, dynamic>) {
-              final categoryName = categoryData['catégorie']?.toString() ?? 'Autres';
-              categorySet.add(categoryName);
-              if (categoryData['items'] is List) {
-                final itemsList = (categoryData['items'] as List)
-                    .where((i) => i is Map<String, dynamic>)
-                    .map((i) => MenuItem.fromJson(i as Map<String, dynamic>..['catégorie'] = categoryName)) // Add category here if needed elsewhere
-                    .toList();
-                independentItems.putIfAbsent(categoryName, () => []).addAll(itemsList);
-              }
+          for (var categoryData in structuredData['Items Indépendants']) {
+            if (categoryData is! Map<String, dynamic>) continue;
+
+            final categoryName = categoryData['catégorie']?.toString().trim();
+            final itemsList = categoryData['items'];
+            
+            // S'assurer que categoryName n'est pas null ou vide
+            if (categoryName == null || categoryName.isEmpty) {
+                print("⚠️ Catégorie sans nom trouvée: $categoryData");
+                continue; // Ignorer cette catégorie ou lui donner un nom par défaut
+            }
+
+            if (itemsList is List) {
+                final items = List<Map<String, dynamic>>.from(itemsList.whereType<Map<String, dynamic>>());
+                groupedItems.putIfAbsent(categoryName, () => <Map<String, dynamic>>[]).addAll(items);
+            } else {
+                print("⚠️ 'items' dans la catégorie '$categoryName' n'est pas une liste.");
             }
           }
-          categories = categorySet.toList()..sort();
-          }
+        } else {
+            print("⚠️ 'Items Indépendants' non trouvé ou n'est pas une liste.");
         }
-        
-        setState(() {
-        _globalMenus = globalMenus;
-        _independentItems = independentItems;
-        _categories = categories;
-        // Store originals for comparison
-        _originalGlobalMenus = List<Menu>.from(globalMenus.map((m) => Menu.fromJson(jsonDecode(jsonEncode(m.toJson()))))); // Deep copy
-        _originalIndependentItems = Map<String, List<MenuItem>>.from(independentItems.map((key, value) => MapEntry(key, List<MenuItem>.from(value.map((item) => MenuItem.fromJson(jsonDecode(jsonEncode(item.toJson())))))))); // Deep copy
-        });
+
+        if (mounted) {
+          setState(() {
+            globalMenus = safeGlobalMenus;
+            independentItems = groupedItems;
+            isLoading = false;
+          });
+        }
       } else {
-      throw Exception('Erreur API (${response.statusCode}) lors de la récupération des données structurées');
+          if (mounted) {
+              _showError("Erreur lors de la récupération des données (${response.statusCode}).");
+              setState(() => isLoading = false); // Arrêter le chargement en cas d'erreur
+          }
+      }
+    } catch (e) {
+        if (mounted) {
+            _showError("Erreur réseau : $e");
+            setState(() => isLoading = false); // Arrêter le chargement en cas d'erreur
+        }
     }
   }
 
-  Future<void> _checkPendingModifications() async {
-     // Simplified check for demo purposes
-     // In a real app, fetch this status from the backend
-     // setState(() {
-     //   _pendingApproval = ...; // Fetch status
-     //   _modificationDate = ...; // Fetch date
-     // });
-  }
 
-  // --- Save Logic ---
-  Future<void> _saveChanges() async {
-     setState(() => _isLoading = true);
-     try {
-        final url = Uri.parse('${getBaseUrl()}/api/producers/${widget.producerId}/menu'); // Correct endpoint? Verify
+  void _submitUpdates() async {
+    final url = Uri.parse('${constants.getBaseUrl()}/api/producers/${widget.producerId}/update-items');
 
-        // Prepare data in the expected backend format
-        final List<Map<String, dynamic>> itemsIndependantsPayload = [];
-        _independentItems.forEach((categoryName, itemsList) {
-           itemsIndependantsPayload.add({
-             'catégorie': categoryName,
-             // Ensure items have necessary fields expected by backend, excluding temp fields if any
-             'items': itemsList.map((item) => item.toJson()).toList(), 
-           });
-        });
-
-        final payload = {
-           'structured_data': {
-             'Menus Globaux': _globalMenus.map((menu) => menu.toJson()).toList(),
-             'Items Indépendants': itemsIndependantsPayload,
-           },
-           'pending_approval': true, // Mark changes as pending
-           'last_modified': DateTime.now().toIso8601String(),
-           // Add history tracking if needed by backend
+    // Convertir independentItems en la structure attendue par le backend
+    final List<Map<String, dynamic>> independentItemsPayload = independentItems.entries.map((entry) {
+        return {
+            'catégorie': entry.key,
+            'items': entry.value
         };
+    }).toList();
 
-        final response = await http.post( // Use POST or PUT depending on API design
-          url,
-          headers: {'Content-Type': 'application/json'},
-          body: json.encode(payload),
-        );
+    final updatedData = {
+      "Menus Globaux": globalMenus,
+      "Items Indépendants": independentItemsPayload, // Utiliser le payload converti
+    };
 
-        if (!mounted) return;
+    print("📤 Données envoyées pour mise à jour : ${jsonEncode(updatedData)}");
 
-        if (response.statusCode == 200 || response.statusCode == 201) {
-      setState(() {
-        _pendingApproval = true;
-             _modificationDate = DateTime.now();
-             // Update original data to reflect saved state
-            _originalGlobalMenus = List<Menu>.from(_globalMenus.map((m) => Menu.fromJson(jsonDecode(jsonEncode(m.toJson())))));
-            _originalIndependentItems = Map<String, List<MenuItem>>.from(_independentItems.map((key, value) => MapEntry(key, List<MenuItem>.from(value.map((item) => MenuItem.fromJson(jsonDecode(jsonEncode(item.toJson()))))))));
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-                 content: Text('Modifications enregistrées. En attente de validation.'),
-                 backgroundColor: Colors.green,
-        ),
+    try {
+      final response = await http.put(
+        url,
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode(updatedData),
       );
-        } else {
-           throw Exception('Erreur API (${response.statusCode}): ${response.body}');
+
+      if (response.statusCode == 200) {
+        print("✅ Menus et items mis à jour avec succès !");
+        if (mounted) {
+            _showSuccess("Mise à jour réussie");
         }
+      } else {
+        print("❌ Erreur lors de la mise à jour : ${response.body}");
+        if (mounted) {
+            _showError("Erreur lors de la mise à jour : ${response.statusCode}");
+        }
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-           SnackBar(content: Text('Erreur sauvegarde: ${e.toString()}'), backgroundColor: Colors.red),
-        );
-     } finally {
-       if (mounted) {
-          setState(() => _isLoading = false);
-       }
-     }
+      print("❌ Erreur réseau : $e");
+        if (mounted) {
+            _showError("Erreur réseau : $e");
+        }
+    }
   }
 
-  // --- Dialogs for Adding/Editing ---
-
-  // Show Dialog for Adding/Editing a Global Menu
-  Future<void> _showEditMenuDialog({Menu? existingMenu}) async {
-    final bool isEditing = existingMenu != null;
-    final _formKey = GlobalKey<FormState>();
-    final _nameController = TextEditingController(text: existingMenu?.name ?? '');
-    final _descriptionController = TextEditingController(text: existingMenu?.description ?? '');
-    final _priceController = TextEditingController(text: existingMenu?.price.toString() ?? '');
-    // Potentially manage included items here if needed within the dialog
-
-    await showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(isEditing ? 'Modifier le Menu' : 'Ajouter un Menu Global'),
-        content: SingleChildScrollView( // Make dialog scrollable
-           child: Form(
-             key: _formKey,
-             child: Column(
-               mainAxisSize: MainAxisSize.min,
-               children: [
-                 TextFormField(
-                   controller: _nameController,
-                   decoration: const InputDecoration(labelText: 'Nom du Menu', hintText: 'Ex: Menu Déjeuner'),
-                   validator: (value) => (value?.trim().isEmpty ?? true) ? 'Nom requis' : null,
-                 ),
-                 const SizedBox(height: 16),
-                 TextFormField(
-                   controller: _descriptionController,
-                   decoration: const InputDecoration(labelText: 'Description (Optionnel)', hintText: 'Courte description du menu'),
-                   maxLines: 2,
-                 ),
-                 const SizedBox(height: 16),
-                 TextFormField(
-                   controller: _priceController,
-                   decoration: const InputDecoration(labelText: 'Prix (€)', hintText: 'Ex: 15.90'),
-                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                   validator: (value) {
-                     if (value == null || value.trim().isEmpty) return 'Prix requis';
-                     if (double.tryParse(value.replaceAll(',', '.')) == null) return 'Prix invalide';
-                     return null;
-                   },
-                 ),
-                 // Add controls for 'inclus' items if complex editing is needed here
-                 // For simplicity, assume 'inclus' is managed elsewhere or not in this basic dialog
-               ],
-             ),
-           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Annuler'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              if (_formKey.currentState!.validate()) {
-                final newMenuData = {
-                  'id': existingMenu?.id ?? DateTime.now().millisecondsSinceEpoch.toString(), // Generate new ID or use existing
-                  'nom': _nameController.text.trim(),
-                  'description': _descriptionController.text.trim(),
-                  'prix': _priceController.text.replaceAll(',', '.'),
-                  'inclus': existingMenu?.includedCategories.map((c) => c.toJson()).toList() ?? [], // Preserve existing included items
-                };
-              
-              setState(() {
-                  if (isEditing) {
-                    final index = _globalMenus.indexWhere((m) => m.id == existingMenu.id);
-                    if (index != -1) {
-                      _globalMenus[index] = Menu.fromJson(newMenuData);
-                    }
-                  } else {
-                    _globalMenus.add(Menu.fromJson(newMenuData));
-                  }
-                });
-                Navigator.pop(context); // Close dialog
-              }
-            },
-            child: const Text('Sauvegarder'),
-          ),
-        ],
-      ),
+  /// Affiche un message d'erreur
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: Colors.red),
     );
   }
-  
 
-  // Show Dialog for Adding/Editing an Independent Item
-  Future<void> _showEditItemDialog({MenuItem? existingItem, String? initialCategory}) async {
-     final bool isEditing = existingItem != null;
-     final _formKey = GlobalKey<FormState>();
-     final _nameController = TextEditingController(text: existingItem?.name ?? '');
-     final _descriptionController = TextEditingController(text: existingItem?.description ?? '');
-     final _priceController = TextEditingController(text: existingItem?.price.toString() ?? '');
-     String selectedCategory = existingItem?.category ?? initialCategory ?? (_categories.isNotEmpty ? _categories.first : 'Autres');
-     final _newCategoryController = TextEditingController();
-     bool isCreatingNewCategory = false;
+  /// Affiche un message de succès
+  void _showSuccess(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: Colors.green),
+    );
+  }
 
-     await showDialog(
-        context: context,
-        // Use StatefulBuilder to manage category selection state within the dialog
-        builder: (context) => StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-               title: Text(isEditing ? 'Modifier l'Article' : 'Ajouter un Article'),
-               content: SingleChildScrollView(
-                 child: Form(
-                    key: _formKey,
-                    child: Column(
-                       mainAxisSize: MainAxisSize.min,
-                       children: [
-                         TextFormField(
-                           controller: _nameController,
-                           decoration: const InputDecoration(labelText: 'Nom de l'article', hintText: 'Ex: Salade César'),
-                           validator: (value) => (value?.trim().isEmpty ?? true) ? 'Nom requis' : null,
-                         ),
-                         const SizedBox(height: 16),
-                         TextFormField(
-                           controller: _descriptionController,
-                           decoration: const InputDecoration(labelText: 'Description (Optionnel)', hintText: 'Ingrédients, allergènes...'),
-                           maxLines: 2,
-                         ),
-                         const SizedBox(height: 16),
-                         TextFormField(
-                           controller: _priceController,
-                           decoration: const InputDecoration(labelText: 'Prix (€)', hintText: 'Ex: 8.50'),
-                           keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                           validator: (value) {
-                             if (value == null || value.trim().isEmpty) return 'Prix requis';
-                             if (double.tryParse(value.replaceAll(',', '.')) == null) return 'Prix invalide';
-                             return null;
-                           },
-                         ),
-                         const SizedBox(height: 16),
-                         // Category Selection or Creation
-                         if (!isCreatingNewCategory)
-                           DropdownButtonFormField<String>(
-                             value: _categories.contains(selectedCategory) ? selectedCategory : (_categories.isNotEmpty ? _categories.first : null),
-                             items: [
-                               ..._categories.map((cat) => DropdownMenuItem(value: cat, child: Text(cat))),
-                               const DropdownMenuItem(value: '__new__', child: Text('+ Nouvelle catégorie...')),
-                             ],
-                             onChanged: (value) {
-                               if (value == '__new__') {
-                                 setDialogState(() => isCreatingNewCategory = true);
-                               } else if (value != null) {
-                                 setDialogState(() => selectedCategory = value);
-                               }
-                             },
-                             decoration: const InputDecoration(labelText: 'Catégorie'),
-                              validator: (value) => (value == null && !isCreatingNewCategory) ? 'Catégorie requise' : null,
-                           )
-                         else
-          Row(
-            children: [
-              Expanded(
-                                 child: TextFormField(
-                                    controller: _newCategoryController,
-                                    decoration: const InputDecoration(labelText: 'Nouvelle catégorie'),
-                                    validator: (value) => (value?.trim().isEmpty ?? true) ? 'Nom requis' : null,
-                                    onChanged: (value) => setDialogState(() => selectedCategory = value.trim()), // Update selectedCategory live
-                                 ),
-                               ),
-                               IconButton(
-                                 icon: const Icon(Icons.close),
-                                 tooltip: 'Annuler nouvelle catégorie',
-                                 onPressed: () => setDialogState(() => isCreatingNewCategory = false),
-              ),
-            ],
+  /// Gestion des menus globaux
+  void _addGlobalMenu() {
+    setState(() {
+      globalMenus.add({
+        "nom": "Nouveau Menu", // Nom par défaut
+        "prix": "0.0", // Prix par défaut
+        // La structure "inclus" doit correspondre à ce qu'attend le backend
+        // Si "inclus" doit être une liste d'objets { catégorie, items }, initialisez-la comme telle.
+        // Si c'est juste une liste de strings, changez la structure.
+        "inclus": [], 
+      });
+    });
+  }
+
+  void _deleteGlobalMenu(int index) {
+    setState(() {
+      globalMenus.removeAt(index);
+    });
+  }
+
+  /// Gestion des items indépendants
+  void _addIndependentCategory() {
+    // Demander le nom de la nouvelle catégorie à l'utilisateur
+    showDialog(
+      context: context,
+      builder: (context) {
+        final TextEditingController categoryController = TextEditingController();
+        return AlertDialog(
+          title: const Text('Nouvelle Catégorie'),
+          content: TextField(
+            controller: categoryController,
+            decoration: const InputDecoration(hintText: 'Nom de la catégorie'),
           ),
-                         // TODO: Add fields for photoUrl, nutrition if needed
-                       ],
-                    ),
-                 ),
-               ),
-               actions: [
-                 TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('Annuler'),
-                 ),
-                 ElevatedButton(
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Annuler'),
+            ),
+            TextButton(
               onPressed: () {
-                       if (_formKey.currentState!.validate()) {
-                          final finalCategory = (isCreatingNewCategory ? _newCategoryController.text.trim() : selectedCategory);
-                          if (finalCategory.isEmpty) {
-                             ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Le nom de la catégorie ne peut pas être vide.')),
-                             );
-                             return;
-                          }
+                final categoryName = categoryController.text.trim();
+                if (categoryName.isNotEmpty && !independentItems.containsKey(categoryName)) {
+                    setState(() {
+                        independentItems[categoryName] = []; // Ajouter la nouvelle catégorie vide
+                    });
+                    Navigator.pop(context);
+                } else if (categoryName.isEmpty) {
+                    _showError("Le nom de la catégorie ne peut pas être vide.");
+                } else {
+                     _showError("Cette catégorie existe déjà.");
+                }
+              },
+              child: const Text('Ajouter'),
+            ),
+          ],
+        );
+      },
+    );
+  }
 
-                          final newItemData = {
-                             'id': existingItem?.id ?? DateTime.now().millisecondsSinceEpoch.toString(),
-                             'nom': _nameController.text.trim(),
-                             'description': _descriptionController.text.trim(),
-                             'prix': _priceController.text.replaceAll(',', '.'),
-                             'catégorie': finalCategory, // Use final determined category
-                             // 'nutrition': ...,
-                             // 'photo': ...,
-                          };
 
-                          final newItem = MenuItem.fromJson(newItemData);
+  void _addIndependentItem(String category) {
+    setState(() {
+      independentItems[category]?.add({
+        "nom": "Nouvel Item", // Nom par défaut
+        "description": "",
+        "prix": "0.0", // Prix par défaut
+      });
+    });
+  }
 
-                setState(() {
-                             // Remove from old category if editing and category changed
-                             if (isEditing && existingItem.category != finalCategory) {
-                                _independentItems[existingItem.category]?.removeWhere((item) => item.id == existingItem.id);
-                                if (_independentItems[existingItem.category]?.isEmpty ?? false) {
-                                   _independentItems.remove(existingItem.category);
-                                    _categories.remove(existingItem.category);
-                                }
-                             }
+  void _deleteIndependentItem(String category, int itemIndex) {
+    setState(() {
+      independentItems[category]?.removeAt(itemIndex);
+      // Optionnel: supprimer la catégorie si elle devient vide
+      // if (independentItems[category]?.isEmpty ?? false) {
+      //   independentItems.remove(category);
+      // }
+    });
+  }
 
-                             // Add or update in the new/correct category
-                             _independentItems.putIfAbsent(finalCategory, () => []);
-                             final categoryList = _independentItems[finalCategory]!;
-
-                             if (isEditing) {
-                                final index = categoryList.indexWhere((item) => item.id == existingItem.id);
-                                if (index != -1) {
-                                   categoryList[index] = newItem;
-                                } else { // If it wasn't found (e.g., category changed), add it
-                                   categoryList.add(newItem);
-                                }
-                             } else {
-                                categoryList.add(newItem);
-                             }
-
-                             // Add new category to list if created
-                             if (!_categories.contains(finalCategory)) {
-                                _categories.add(finalCategory);
-                                _categories.sort();
-                             }
+  void _deleteIndependentCategory(String category) {
+      showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+              title: const Text('Confirmer la suppression'),
+              content: Text('Voulez-vous vraiment supprimer la catégorie "$category" et tous ses items ?'),
+              actions: [
+                  TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')),
+                  TextButton(
+                      onPressed: () {
+                          setState(() {
+                              independentItems.remove(category);
                           });
-                          Navigator.pop(context); // Close dialog
-                       }
-                    },
-                    child: const Text('Sauvegarder'),
-                 ),
-               ],
-            );
-          }
-        ),
+                          Navigator.pop(context);
+                      },
+                      child: const Text('Supprimer', style: TextStyle(color: Colors.red)),
+                  ),
+              ],
+          ),
       );
-    }
-    
-  // --- Delete Actions ---
-  Future<void> _deleteMenu(Menu menuToDelete) async {
-     final confirm = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-           title: const Text('Confirmer la suppression'),
-           content: Text('Voulez-vous vraiment supprimer le menu "${menuToDelete.name}" ?'),
-           actions: [
-             TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Annuler')),
-             TextButton(
-               onPressed: () => Navigator.pop(context, true),
-               child: const Text('Supprimer', style: TextStyle(color: Colors.red)),
-                            ),
-                        ],
-                      ),
-     );
-
-     if (confirm == true) {
-        setState(() {
-           _globalMenus.removeWhere((menu) => menu.id == menuToDelete.id);
-        });
-        // Optionally trigger server update immediately or rely on main save button
-        // await _saveChanges(); 
-     }
   }
 
-  Future<void> _deleteItem(MenuItem itemToDelete, String category) async {
-    final confirm = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-           title: const Text('Confirmer la suppression'),
-           content: Text('Voulez-vous vraiment supprimer l'article "${itemToDelete.name}" de la catégorie "$category" ?'),
-           actions: [
-             TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Annuler')),
-             TextButton(
-               onPressed: () => Navigator.pop(context, true),
-               child: const Text('Supprimer', style: TextStyle(color: Colors.red)),
-                    ),
-                  ],
-                ),
-     );
-
-     if (confirm == true) {
-       setState(() {
-         _independentItems[category]?.removeWhere((item) => item.id == itemToDelete.id);
-         if (_independentItems[category]?.isEmpty ?? false) {
-           _independentItems.remove(category);
-           _categories.remove(category);
-         }
-       });
-        // Optionally trigger server update immediately or rely on main save button
-        // await _saveChanges(); 
-     }
-  }
-
-  // --- Build Method ---
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final primaryColor = theme.colorScheme.primary;
-    final secondaryColor = theme.colorScheme.secondary;
-
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Gestion Menu & Articles"),
-        backgroundColor: primaryColor,
-        foregroundColor: theme.colorScheme.onPrimary,
-        bottom: TabBar(
-          controller: _tabController,
-          labelColor: theme.colorScheme.onPrimary,
-          unselectedLabelColor: theme.colorScheme.onPrimary.withOpacity(0.7),
-          indicatorColor: theme.colorScheme.onPrimary,
-          tabs: const [
-            Tab(text: 'Menus Globaux'),
-            Tab(text: 'Articles Indépendants'),
-          ],
-        ),
+        title: const Text("Gestion des Menus"),
         actions: [
           IconButton(
-            icon: Icon(Icons.save, color: theme.colorScheme.onPrimary),
-            onPressed: _isLoading ? null : _saveChanges,
+            icon: const Icon(Icons.save),
+            onPressed: _submitUpdates,
             tooltip: "Enregistrer les modifications",
           )
         ],
       ),
-      body: _isLoading
+      body: isLoading
           ? const Center(child: CircularProgressIndicator())
-          : Column(
-                  children: [
-                if (_pendingApproval) _buildPendingApprovalBanner(),
-                Expanded(
-                  child: TabBarView(
-                    controller: _tabController,
-                      children: [
-                      _buildGlobalMenusTab(theme, primaryColor),
-                      _buildIndependentItemsTab(theme, secondaryColor),
-                    ],
-                          ),
-                        ),
-                      ],
-                    ),
-    );
-  }
-
-  // --- UI Builder Methods ---
-
-  Widget _buildPendingApprovalBanner() {
-    return Material(
-      color: Colors.orange.shade100,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-                                        child: Row(
-                                          children: [
-            Icon(Icons.warning_amber_rounded, color: Colors.orange.shade800),
-            const SizedBox(width: 12),
-                                            Expanded(
-                                              child: Text(
-                'Des modifications sont en attente de validation (sous 24h).',
-                style: TextStyle(color: Colors.orange.shade900, fontWeight: FontWeight.w500),
-                                                ),
-                                              ),
-                                          ],
-                                        ),
-      ),
-    );
-  }
-
-  // Builder for the Global Menus Tab
-  Widget _buildGlobalMenusTab(ThemeData theme, Color primaryColor) {
-    return Scaffold( // Use Scaffold for FAB
-      body: _globalMenus.isEmpty
-          ? Center(child: Text('Aucun menu global défini.', style: theme.textTheme.titleMedium))
-          : ListView.builder(
-              padding: const EdgeInsets.all(12),
-              itemCount: _globalMenus.length,
-              itemBuilder: (context, index) {
-                final menu = _globalMenus[index];
-                return Card(
-            elevation: 2,
-                  margin: const EdgeInsets.only(bottom: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  child: ListTile(
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    title: Text(menu.name, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-                    subtitle: Text('${menu.price.toStringAsFixed(2)} €${menu.description.isNotEmpty ? '\n${menu.description}' : ''}', maxLines: 2, overflow: TextOverflow.ellipsis),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                        IconButton(
-                          icon: Icon(Icons.edit_outlined, color: primaryColor, size: 20),
-                          tooltip: 'Modifier le menu',
-                          onPressed: () => _showEditMenuDialog(existingMenu: menu),
-                        ),
-                        IconButton(
-                          icon: Icon(Icons.delete_outline, color: theme.colorScheme.error, size: 20),
-                          tooltip: 'Supprimer le menu',
-                          onPressed: () => _deleteMenu(menu),
-                        ),
-                      ],
-                    ),
-                    // Optional: Add onTap to view included items if needed
+                  _buildGlobalMenusSection(),
+                  const SizedBox(height: 20),
+                  _buildIndependentItemsSection(),
+                  const SizedBox(height: 20),
+                  // Bouton pour ajouter une catégorie indépendante
+                  ElevatedButton(
+                      onPressed: _addIndependentCategory,
+                      child: const Text("Ajouter une Catégorie Indépendante"),
                   ),
-                );
-              },
+                ],
+              ),
             ),
-      floatingActionButton: FloatingActionButton.extended(
-        icon: const Icon(Icons.add),
-        label: const Text('Ajouter Menu'),
-        backgroundColor: primaryColor,
-        foregroundColor: theme.colorScheme.onPrimary,
-        onPressed: () => _showEditMenuDialog(),
-      ),
     );
   }
 
-  // Builder for the Independent Items Tab
-  Widget _buildIndependentItemsTab(ThemeData theme, Color secondaryColor) {
-     final categoriesToDisplay = _categories.isNotEmpty ? _categories : _independentItems.keys.toList()..sort();
+  Widget _buildGlobalMenusSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text("Menus Globaux", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        if (globalMenus.isEmpty)
+            const Padding(
+                padding: EdgeInsets.symmetric(vertical: 16.0),
+                child: Text("Aucun menu global défini.", style: TextStyle(color: Colors.grey)),
+            )
+        else
+            ...globalMenus.asMap().entries.map((entry) {
+              final menuIndex = entry.key;
+              final menu = entry.value;
+              final menuName = menu["nom"]?.toString() ?? "Menu sans nom";
+              final menuPrice = menu["prix"]?.toString() ?? "N/A";
+              final menuId = menu["_id"]?.toString(); // Récupérer l'ID du menu s'il existe
 
-    return Scaffold( // Use Scaffold for FAB
-      body: categoriesToDisplay.isEmpty
-          ? Center(child: Text('Aucun article indépendant défini.', style: theme.textTheme.titleMedium))
-          : ListView.builder(
-              padding: const EdgeInsets.all(8),
-              itemCount: categoriesToDisplay.length,
-              itemBuilder: (context, index) {
-                final categoryName = categoriesToDisplay[index];
-                final itemsInCategory = _independentItems[categoryName] ?? [];
-
-                // Use ExpansionTile for categories
-                return Card( // Card around ExpansionTile for better separation
-                  margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
-                  elevation: 1,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  clipBehavior: Clip.antiAlias,
+              return Card(
+                margin: const EdgeInsets.symmetric(vertical: 8.0),
                 child: ExpansionTile(
-                    key: PageStorageKey(categoryName), // Preserve state on scroll
-                    backgroundColor: secondaryColor.withOpacity(0.03),
-                    collapsedBackgroundColor: Colors.white,
-                    iconColor: secondaryColor,
-                    collapsedIconColor: Colors.grey[600],
-                  title: Text(
-                      categoryName,
-                      style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, color: secondaryColor),
-                    ),
-                    subtitle: Text('${itemsInCategory.length} article(s)'),
-                    childrenPadding: const EdgeInsets.only(bottom: 8, left: 8, right: 8),
-                    children: itemsInCategory.map((item) {
-                      return ListTile(
-                         dense: true,
-                         contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 0),
-                         title: Text(item.name, style: theme.textTheme.bodyLarge),
-                         subtitle: Text('${item.price.toStringAsFixed(2)} €${item.description.isNotEmpty ? '\n${item.description}' : ''}', maxLines: 2, overflow: TextOverflow.ellipsis),
-                         trailing: Row(
-                           mainAxisSize: MainAxisSize.min,
+                  // Clé unique pour conserver l'état d'expansion
+                  key: PageStorageKey('globalMenu_$menuIndex'), 
+                  title: Text(menuName),
+                  subtitle: Text("Prix: $menuPrice"),
+                  initiallyExpanded: false, // Commencer replié
+                  childrenPadding: const EdgeInsets.all(16.0),
+                  expandedCrossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                             IconButton(
-                               icon: Icon(Icons.edit_outlined, color: secondaryColor, size: 20),
-                               tooltip: 'Modifier l'article',
-                               onPressed: () => _showEditItemDialog(existingItem: item),
-                             ),
-                             IconButton(
-                               icon: Icon(Icons.delete_outline, color: theme.colorScheme.error, size: 20),
-                               tooltip: 'Supprimer l'article',
-                               onPressed: () => _deleteItem(item, categoryName),
-                             ),
-                           ],
-                         ),
-                      );
-                    }).toList(),
-                  ),
-                        );
+                    // Champs pour éditer nom et prix (pourraient être dans EditItemScreen)
+                    TextFormField(
+                      initialValue: menuName,
+                      decoration: const InputDecoration(labelText: "Nom du Menu"),
+                      onChanged: (value) {
+                        setState(() {
+                          globalMenus[menuIndex]["nom"] = value;
+                        });
                       },
                     ),
-       floatingActionButton: FloatingActionButton.extended(
-         icon: const Icon(Icons.add),
-         label: const Text('Ajouter Article'),
-         backgroundColor: secondaryColor,
-         foregroundColor: theme.colorScheme.onSecondary,
-         onPressed: () => _showEditItemDialog(),
-      ),
+                    TextFormField(
+                      initialValue: menuPrice,
+                      decoration: const InputDecoration(labelText: "Prix du Menu"),
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      onChanged: (value) {
+                        setState(() {
+                          globalMenus[menuIndex]["prix"] = value;
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 16),
+                    // Boutons d'action
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.delete, color: Colors.red),
+                          tooltip: "Supprimer ce menu",
+                          onPressed: () => _deleteGlobalMenu(menuIndex),
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton(
+                          icon: const Icon(Icons.edit, color: Colors.blue),
+                          tooltip: "Modifier les détails/items inclus",
+                          onPressed: () {
+                            // Vérifier si menuId existe avant de naviguer
+                            if (menuId != null) {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => EditItemScreen(
+                                    producerId: widget.producerId,
+                                    item: menu, // Passer tout l'objet menu
+                                    itemId: menuId, // Passer l'ID spécifique
+                                    itemType: 'menu', // Indiquer que c'est un menu
+                                    onSave: (updatedMenu) {
+                                      // Mise à jour locale après sauvegarde dans EditItemScreen
+                                      setState(() {
+                                        globalMenus[menuIndex] = updatedMenu;
+                                      });
+                                    },
+                                  ),
+                                ),
+                              ).then((_) {
+                                  // Optionnel: rafraîchir les données après retour
+                                  // _fetchMenuData(); 
+                              });
+                            } else {
+                                _showError("Impossible de modifier : ID du menu manquant.");
+                            }
+                          },
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              );
+            }).toList(),
+        // Bouton pour ajouter un nouveau menu global
+        Padding(
+            padding: const EdgeInsets.only(top: 8.0),
+            child: ElevatedButton.icon(
+                onPressed: _addGlobalMenu,
+                icon: const Icon(Icons.add),
+                label: const Text("Ajouter un Menu Global"),
+            ),
+        ),
+      ],
     );
   }
-}
 
-class RestaurantStatsScreen extends StatelessWidget {
-  final String producerId;
-  
-  const RestaurantStatsScreen({Key? key, required this.producerId}) : super(key: key);
-  
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Statistiques du Restaurant'),
-        backgroundColor: Colors.deepOrange,
-      ),
-      body: Center(
-        child: Text('Statistiques pour le restaurant ID: $producerId'),
-      ),
-    );
-  }
-}
+  Widget _buildIndependentItemsSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text("Items Indépendants", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        if (independentItems.isEmpty)
+             const Padding(
+                padding: EdgeInsets.symmetric(vertical: 16.0),
+                child: Text("Aucune catégorie d'items indépendants définie.", style: TextStyle(color: Colors.grey)),
+            )
+        else
+            ...independentItems.entries.map((entry) {
+              final category = entry.key;
+              final items = entry.value;
 
-class ClientsListScreen extends StatelessWidget {
-  final String producerId;
-  
-  const ClientsListScreen({Key? key, required this.producerId}) : super(key: key);
-  
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Liste des Clients'),
-        backgroundColor: Colors.deepOrange,
-      ),
-      body: Center(
-        child: Text('Liste des clients pour le restaurant ID: $producerId'),
-      ),
+              return Card(
+                margin: const EdgeInsets.symmetric(vertical: 8.0),
+                child: ExpansionTile(
+                  key: PageStorageKey('independentCategory_$category'), // Clé unique
+                  title: Text(category, style: const TextStyle(fontWeight: FontWeight.w600)),
+                  initiallyExpanded: false,
+                  trailing: IconButton(
+                      icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                      tooltip: "Supprimer cette catégorie",
+                      onPressed: () => _deleteIndependentCategory(category),
+                  ),
+                  childrenPadding: const EdgeInsets.only(bottom: 8.0, left: 16.0, right: 16.0),
+                  children: [
+                    if (items.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 8.0),
+                          child: Text("Aucun item dans cette catégorie.", style: TextStyle(color: Colors.grey)),
+                        )
+                    else
+                       ...items.asMap().entries.map((itemEntry) {
+                        final itemIndex = itemEntry.key;
+                        final item = itemEntry.value;
+                        final itemName = item["nom"] ?? "Item sans nom";
+                        final itemPrice = item["prix"]?.toString() ?? "N/A";
+                        final itemId = item["_id"]?.toString(); // Récupérer l'ID de l'item
+
+                        return ListTile(
+                          title: Text(itemName),
+                          subtitle: Text("Prix : $itemPrice"),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.edit, color: Colors.blue),
+                                tooltip: "Modifier cet item",
+                                onPressed: () {
+                                   if (itemId != null) {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (context) => EditItemScreen(
+                                            producerId: widget.producerId,
+                                            item: item,
+                                            itemId: itemId, // Passer l'ID
+                                            itemType: 'item', // Indiquer que c'est un item
+                                            onSave: (updatedItem) {
+                                              setState(() {
+                                                // Assurer que la catégorie existe toujours
+                                                if (independentItems.containsKey(category)) {
+                                                  independentItems[category]![itemIndex] = updatedItem;
+                                                }
+                                              });
+                                            },
+                                          ),
+                                        ),
+                                      ).then((_) { 
+                                          // Optionnel: rafraîchir 
+                                          // _fetchMenuData(); 
+                                      });
+                                    } else {
+                                        _showError("Impossible de modifier : ID de l'item manquant.");
+                                    }
+                                },
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.delete, color: Colors.red),
+                                tooltip: "Supprimer cet item",
+                                onPressed: () => _deleteIndependentItem(category, itemIndex),
+                              ),
+                            ],
+                          ),
+                           // Optionnel: onTap pour voir les détails si nécessaire
+                           // onTap: () { /* Naviguer vers une vue détaillée ? */ },
+                        );
+                      }).toList(),
+                    // Bouton pour ajouter un item à cette catégorie
+                    Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton.icon(
+                            onPressed: () => _addIndependentItem(category),
+                            icon: const Icon(Icons.add, size: 16),
+                            label: const Text("Ajouter un item"),
+                        ),
+                    ),
+                  ],
+                ),
+              );
+            }).toList(),
+      ],
     );
   }
 } 
