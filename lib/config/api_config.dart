@@ -9,6 +9,9 @@ class ApiConfig {
   // Pour les fichiers médias
   static String mediaUrl = 'https://api.choiceapp.fr/uploads';
   
+  // Token d'API pour l'authentification des services
+  static String apiToken = 'your_api_token_here';
+  
   // Endpoint pour l'authentification
   static String loginEndpoint = '/api/auth/login';
   static String registerEndpoint = '/api/auth/register';

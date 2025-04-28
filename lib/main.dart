@@ -79,6 +79,7 @@ import 'utils.dart'; // Import utils directly
 import 'package:intl/date_symbol_data_local.dart'; // <-- Ajout de l'import pour intl
 
 import 'screens/wellness_producer_screen.dart';
+import 'examples/expansion_panel_examples.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
@@ -473,6 +474,7 @@ class _ChoiceAppState extends State<ChoiceApp> {
             initialZoom: initialZoom,
           );
         },
+        '/expansion_panel_examples': (context) => const ExpansionPanelExamples(),
       },
       onGenerateRoute: (settings) {
         // Gérer les routes dynamiques avec paramètres
