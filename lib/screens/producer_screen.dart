@@ -3157,16 +3157,16 @@ class _ProducerScreenState extends State<ProducerScreen> with SingleTickerProvid
   // Navigate to relation details screen (adapted from MyProducerProfileScreen)
   void _navigateToRelationDetails(String relationType) {
     // Removed profile validation - screen fetches its own data
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => RelationDetailsScreen(
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => RelationDetailsScreen(
           // Pass producerId and relationType
           producerId: widget.producerId, 
           relationType: relationType,
         ),
       ),
-    );
+            );
   }
 
   // --- Shimmer Widgets ---

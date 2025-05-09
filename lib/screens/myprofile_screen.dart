@@ -609,7 +609,7 @@ class _MyProfileScreenState extends State<MyProfileScreen> with AutomaticKeepAli
                           leadingWidget = CircleAvatar(
                             backgroundColor: Colors.grey[200],
                             backgroundImage: (profilePic != null && profilePic is String && profilePic.isNotEmpty)
-                                ? CachedNetworkImageProvider(profilePic)
+                                ? getImageProvider(profilePic)
                                 : null,
                             child: (profilePic == null || !(profilePic is String) || profilePic.isEmpty)
                                 ? const Icon(Icons.person, color: Colors.grey)
@@ -1587,11 +1587,11 @@ class _ProfileHeader extends StatelessWidget {
                  Positioned.fill(
                    child: Opacity(
                      opacity: 0.15,
-                     child: CachedNetworkImage(
-                         imageUrl: profileImageUrl,
-                         fit: BoxFit.cover,
-                         errorWidget: (ctx, url, err) => Container(color: Colors.teal.shade300),
-                      ),
+                     child: Image(
+                       image: getImageProvider(profileImageUrl)!,
+                       fit: BoxFit.cover,
+                       errorBuilder: (ctx, url, err) => Container(color: Colors.teal.shade300),
+                     ),
                    ),
                  ),
               // Contenu principal du header
@@ -1614,7 +1614,7 @@ class _ProfileHeader extends StatelessWidget {
                          radius: 37,
                          backgroundColor: Colors.grey[300],
                          backgroundImage: (profileImageUrl != null && profileImageUrl.isNotEmpty)
-                              ? CachedNetworkImageProvider(profileImageUrl)
+                              ? getImageProvider(profileImageUrl)
                               : null,
                          child: (profileImageUrl == null || profileImageUrl.isEmpty)
                               ? const Icon(Icons.person, size: 40, color: Colors.white)
@@ -1823,14 +1823,19 @@ class _ProfileStats extends StatelessWidget {
                              child: SizedBox(
                                width: 50,
                                height: 50,
-                               child: Image.network(
-                                 favoriteChoice['image'] ?? 'https://via.placeholder.com/50',
-                                 fit: BoxFit.cover,
-                                 errorBuilder: (ctx, error, stackTrace) => Container(
-                                   color: Colors.grey.shade200,
-                                   child: const Icon(Icons.image_not_supported, color: Colors.grey),
-                                 ),
-                               ),
+                               child: (favoriteChoice['image'] != null && favoriteChoice['image'].isNotEmpty)
+                                   ? Image(
+                                       image: getImageProvider(favoriteChoice['image'])!,
+                                       fit: BoxFit.cover,
+                                       errorBuilder: (ctx, error, stackTrace) => Container(
+                                         color: Colors.grey.shade200,
+                                         child: const Icon(Icons.image_not_supported, color: Colors.grey),
+                                       ),
+                                     )
+                                   : Container(
+                                       color: Colors.grey.shade200,
+                                       child: const Icon(Icons.image_not_supported, color: Colors.grey),
+                                     ),
                              ),
                            ),
                            const SizedBox(width: 12),
@@ -2226,11 +2231,10 @@ class _ProfileTabs extends StatelessWidget {
                    children: [
                      Expanded(
                        child: (imageUrl != null && imageUrl.isNotEmpty && !hasError)
-                          ? CachedNetworkImage(
-                              imageUrl: imageUrl,
+                          ? Image(
+                              image: getImageProvider(imageUrl)!,
                               fit: BoxFit.cover,
-                              errorWidget: (ctx, url, err) => _buildPlaceholderImage(Colors.grey[200]!, icon, 'Erreur image'),
-                              placeholder: (ctx, url) => Container(color: Colors.grey[100]),
+                              errorBuilder: (ctx, error, stackTrace) => _buildPlaceholderImage(Colors.grey[200]!, icon, 'Erreur image'),
                             )
                           : Container(
                               color: iconColor.withOpacity(0.1),
@@ -2366,11 +2370,10 @@ class _ProfileTabs extends StatelessWidget {
                    children: [
                      Expanded(
                        child: (imageUrl != null && imageUrl.isNotEmpty && !hasError)
-                          ? CachedNetworkImage(
-                              imageUrl: imageUrl,
+                          ? Image(
+                              image: getImageProvider(imageUrl)!,
                               fit: BoxFit.cover,
-                              errorWidget: (ctx, url, err) => _buildPlaceholderImage(Colors.grey[200]!, icon, 'Erreur image'),
-                              placeholder: (ctx, url) => Container(color: Colors.grey[100]),
+                              errorBuilder: (ctx, error, stackTrace) => _buildPlaceholderImage(Colors.grey[200]!, icon, 'Erreur image'),
                             )
                           : Container(
                               color: iconColor.withOpacity(0.1),
@@ -2550,7 +2553,7 @@ class _ProfileTabs extends StatelessWidget {
              leading: CircleAvatar(
                 radius: 20,
                 backgroundColor: Colors.grey[200],
-                backgroundImage: (authorPhoto != null && authorPhoto.isNotEmpty) ? CachedNetworkImageProvider(authorPhoto) : null,
+                backgroundImage: (authorPhoto != null && authorPhoto.isNotEmpty) ? getImageProvider(authorPhoto) : null,
                 child: (authorPhoto == null || authorPhoto.isEmpty) ? const Icon(Icons.person, size: 20, color: Colors.grey) : null,
              ),
              title: Text(authorName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
@@ -2561,13 +2564,12 @@ class _ProfileTabs extends StatelessWidget {
            ),
            // Image
            if (imageUrl != null && imageUrl.isNotEmpty)
-             CachedNetworkImage(
-               imageUrl: imageUrl,
+             Image(
+               image: getImageProvider(imageUrl)!,
                fit: BoxFit.cover,
                height: 250,
                width: double.infinity,
-               placeholder: (ctx, url) => Container(height: 250, color: Colors.grey[200], child: const Center(child: CircularProgressIndicator(strokeWidth: 2))),
-               errorWidget: (ctx, url, err) => Container(height: 250, color: Colors.grey[100], child: const Icon(Icons.image_not_supported_outlined, color: Colors.grey, size: 40)),
+               errorBuilder: (ctx, error, stackTrace) => Container(height: 250, color: Colors.grey[100], child: const Icon(Icons.image_not_supported_outlined, color: Colors.grey, size: 40)),
              ),
            // Contenu texte
            Padding(
@@ -2852,7 +2854,7 @@ class _CommentsBottomSheetState extends State<_CommentsBottomSheet> {
                                     child: CircleAvatar(
                                        radius: 18,
                                        backgroundColor: Colors.grey[200],
-                                       backgroundImage: (userPhoto != null && userPhoto.isNotEmpty) ? CachedNetworkImageProvider(userPhoto) : null,
+                                       backgroundImage: (userPhoto != null && userPhoto.isNotEmpty) ? getImageProvider(userPhoto) : null,
                                        child: (userPhoto == null || userPhoto.isEmpty) ? const Icon(Icons.person, size: 18, color: Colors.grey) : null,
                                     ),
                                  ),

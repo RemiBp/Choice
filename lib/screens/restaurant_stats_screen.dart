@@ -31,7 +31,7 @@ class RestaurantStatsScreen extends StatelessWidget {
                 'Accédez bientôt à des statistiques détaillées sur vos ventes, vos clients, la popularité de vos plats et bien plus encore.',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 16, color: Colors.grey[600], height: 1.5),
-              ),
+                ),
                const SizedBox(height: 32),
               ElevatedButton.icon(
                   onPressed: () => Navigator.pop(context),
@@ -39,7 +39,7 @@ class RestaurantStatsScreen extends StatelessWidget {
                   label: const Text("Retour"),
                   style: ElevatedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                  ),
+        ),
               )
             ],
           ),

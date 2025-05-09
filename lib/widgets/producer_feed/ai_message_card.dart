@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../models/dialogic_ai_message.dart';
+import '../../utils.dart'; // Import utils for getImageProvider
 
 // Placeholder AI Message Card Widget
 class AIMessageCard extends StatelessWidget {

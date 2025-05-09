@@ -14,6 +14,9 @@ import '../widgets/comment_tile.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../utils.dart' show getImageProvider;
+import 'producer_screen.dart';
+import 'wellness_producer_screen.dart';
+import 'profile_screen.dart';
 
 class PostDetailScreen extends StatefulWidget {
   final String postId;
@@ -345,40 +348,79 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                         // Post header with author info
                         Padding(
                           padding: const EdgeInsets.all(16),
-                          child: Row(
-                            children: [
-                              CircleAvatar(
-                                radius: 24,
-                                backgroundImage: _postData.authorAvatar?.isNotEmpty == true
-                                  ? getImageProvider(_postData.authorAvatar!) ?? const AssetImage('assets/images/default_avatar.png')
-                                  : const AssetImage('assets/images/default_avatar.png'),
-                                child: _postData.authorAvatar == null || _postData.authorAvatar!.isEmpty
-                                  ? Icon(Icons.person, color: Colors.grey[400])
-                                  : null,
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      _postData.authorName ?? 'Utilisateur',
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 16,
+                          child: GestureDetector(
+                            onTap: () {
+                              // Navigation logic similar to feed_screen.dart
+                              if (_postData.isProducerPost ?? false) {
+                                if (_postData.isLeisureProducer ?? false) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text('Cette fonction n\'est pas disponible actuellement.')),
+                                  );
+                                  return Navigator.pop(context);
+                                } else if (_postData.isWellnessProducer ?? false) {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => WellnessProducerScreen(
+                                        producerId: _postData.authorId ?? '',
                                       ),
                                     ),
-                                    Text(
-                                      _formatTimestamp(_postData.postedAt ?? DateTime.now()),
-                                      style: TextStyle(
-                                        color: Colors.grey[600],
-                                        fontSize: 14,
+                                  );
+                                } else {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => ProducerScreen(
+                                        producerId: _postData.authorId ?? '',
+                                        userId: widget.userId,
                                       ),
                                     ),
-                                  ],
+                                  );
+                                }
+                              } else {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => ProfileScreen(userId: _postData.authorId ?? ''),
+                                  ),
+                                );
+                              }
+                            },
+                            child: Row(
+                              children: [
+                                CircleAvatar(
+                                  radius: 24,
+                                  backgroundImage: _postData.authorAvatar?.isNotEmpty == true
+                                    ? getImageProvider(_postData.authorAvatar!) ?? const AssetImage('assets/images/default_avatar.png')
+                                    : const AssetImage('assets/images/default_avatar.png'),
+                                  child: _postData.authorAvatar == null || _postData.authorAvatar!.isEmpty
+                                    ? Icon(Icons.person, color: Colors.grey[400])
+                                    : null,
                                 ),
-                              ),
-                            ],
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        _postData.authorName ?? 'Utilisateur',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 16,
+                                        ),
+                                      ),
+                                      Text(
+                                        _formatTimestamp(_postData.postedAt ?? DateTime.now()),
+                                        style: TextStyle(
+                                          color: Colors.grey[600],
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                         
@@ -497,25 +539,6 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                                 ),
                                 
                                 const SizedBox(width: 24),
-                                
-                                // Choice count (if producer post)
-                                Row(
-                                  children: [
-                                    Icon(
-                                      Icons.check_box,
-                                      color: Colors.green[700],
-                                      size: 18,
-                                    ),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      '${_postData.choiceCount}',
-                                      style: TextStyle(
-                                        color: Colors.grey[700],
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ],
-                                ),
                               ],
                               
                               const Spacer(),
@@ -565,7 +588,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                                 ),
                               ),
                               
-                              if (_postData.isProducerPost ?? false) ...[
+                              if (_postData.isProducerPost ?? false)
                                 Expanded(
                                   child: _buildActionButton(
                                     icon: (_postData.isInterested ?? false)
@@ -578,20 +601,6 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                                     onPressed: _handleInterested,
                                   ),
                                 ),
-                                
-                                Expanded(
-                                  child: _buildActionButton(
-                                    icon: (_postData.isChoice ?? false)
-                                        ? Icons.check_box
-                                        : Icons.check_box_outline_blank,
-                                    label: 'Choice',
-                                    color: (_postData.isChoice ?? false)
-                                        ? Colors.green[700]!
-                                        : Colors.grey[700]!,
-                                    onPressed: _handleChoice,
-                                  ),
-                                ),
-                              ],
                               
                               Expanded(
                                 child: _buildActionButton(
@@ -913,45 +922,6 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
           interestedCount: isCurrentlyInterested 
               ? (currentInterested > 0 ? currentInterested - 1 : 0)
               : currentInterested + 1,
-        );
-      });
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Erreur lors de l\'interaction. Veuillez réessayer.'),
-        ),
-      );
-    }
-  }
-  
-  void _handleChoice() async {
-    try {
-      // Optimistic update
-      setState(() {
-        final bool isCurrentlyChoice = _postData.isChoice ?? false;
-        
-        _postData = _postData.copyWith(
-          isChoice: !isCurrentlyChoice,
-          choiceCount: _postData.choiceCount != null 
-              ? (isCurrentlyChoice ? (_postData.choiceCount! - 1) : (_postData.choiceCount! + 1))
-              : (isCurrentlyChoice ? 0 : 1),
-        );
-      });
-      
-      // Call API
-      await _apiService.markChoice(widget.userId, _postData.id);
-    } catch (e) {
-      print('❌ Error marking choice: $e');
-      
-      // Revert on error
-      setState(() {
-        final bool isCurrentlyChoice = _postData.isChoice ?? false;
-        
-        _postData = _postData.copyWith(
-          isChoice: !isCurrentlyChoice,
-          choiceCount: _postData.choiceCount != null 
-              ? (isCurrentlyChoice ? (_postData.choiceCount! - 1) : (_postData.choiceCount! + 1))
-              : (isCurrentlyChoice ? 0 : 1),
         );
       });
       

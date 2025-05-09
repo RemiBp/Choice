@@ -1,10 +1,10 @@
 import 'dart:async';
-import 'dart:math';
+import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:http/http.dart' as http;
-import 'dart:convert';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:google_maps_cluster_manager/google_maps_cluster_manager.dart' as cluster_manager;
 import 'package:cached_network_image/cached_network_image.dart';
@@ -113,7 +113,7 @@ class NearbySearchEvent {
       // For now, returning a default but logging error.
       // Consider throwing FormatException('Invalid NearbySearchEvent JSON: $json');
       return NearbySearchEvent(
-        searchId: searchId ?? 'invalid_search_${Random().nextInt(1000)}',
+        searchId: searchId ?? 'invalid_search_${math.Random().nextInt(1000)}',
         userId: userId ?? 'invalid_user',
         query: query ?? 'invalid_query',
         timestamp: timestamp ?? DateTime.now(),
@@ -157,7 +157,7 @@ class PublicUserProfile {
        print("❌ Invalid PublicUserProfile JSON: Missing ID or Name. Data: $json");
        // Consider throwing FormatException('Invalid PublicUserProfile JSON: $json');
        return PublicUserProfile(
-         id: id ?? 'invalid_id_${Random().nextInt(1000)}',
+         id: id ?? 'invalid_id_${math.Random().nextInt(1000)}',
          name: name ?? 'Utilisateur Invalide',
          profilePicture: json['profilePicture'] as String?,
          bio: json['bio'] as String?,
@@ -225,7 +225,7 @@ class ActiveUser {
       // Consider throwing FormatException('Invalid ActiveUser JSON: $json');
       // Return an 'invalid' user for now, but this should ideally be filtered out.
       return ActiveUser(
-        userId: userId ?? 'invalid_user_${Random().nextInt(1000)}',
+        userId: userId ?? 'invalid_user_${math.Random().nextInt(1000)}',
         name: name ?? 'Utilisateur Invalide',
         location: loc ?? const LatLng(0,0), // Still need a default LatLng here for the type
         lastSeen: lastSeen ?? DateTime.now(),
@@ -1606,7 +1606,7 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
         ),
       ),
       child: Scaffold(
-        appBar: AppBar(
+      appBar: AppBar(
           title: const Text("Analyse d'Audience", 
             style: TextStyle(
               fontSize: 18, 
@@ -1615,60 +1615,61 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
             )
           ),
           elevation: 0,
-          actions: [ 
-            IconButton(
-              icon: const Icon(Icons.storefront_outlined),
-              onPressed: _centerOnProducerLocation,
-              tooltip: 'Centrer sur mon établissement',
+        actions: [ 
+          IconButton(
+            icon: const Icon(Icons.storefront_outlined),
+            onPressed: _centerOnProducerLocation,
+            tooltip: 'Centrer sur mon établissement',
               color: AppColors.accent, // Highlight this important button
-            ),
-            ..._buildAppBarActions(),
-          ],
-          // Use the stylized filter bar
+          ),
+          ..._buildAppBarActions(),
+        ],
+        // Use the stylized filter bar
           bottom: _buildFilterBar(ThemeData.dark()),
-        ),
-        
-        // FAB - Styled
-        floatingActionButton: FloatingActionButton.extended(
-          onPressed: _isLoading || _loadingError != null ? null : () => _showSendPushDialog(),
-          label: const Text('Notifier Zone'),
-          icon: const Icon(Icons.campaign_outlined),
-          tooltip: 'Envoyer une notification push aux alentours',
+      ),
+      
+      // FAB - Styled
+      floatingActionButton: FloatingActionButton.extended(
+          // MODIFIED: Make the button active as long as not actively loading
+          onPressed: _isLoading ? null : () => _showSendPushDialog(), 
+        label: const Text('Notifier Zone'),
+        icon: const Icon(Icons.campaign_outlined),
+        tooltip: 'Envoyer une notification push aux alentours',
           backgroundColor: AppColors.accentSecondary,
           foregroundColor: Colors.white,
           elevation: 6,
-        ),
-        
-        body: Stack(
-          children: [
-            // Google Map or Error Display
-            if (_loadingError == null) 
-              GoogleMap(
-                initialCameraPosition: _producerLocation != null 
+      ),
+      
+      body: Stack(
+        children: [
+          // Google Map or Error Display
+          if (_loadingError == null) 
+            GoogleMap(
+              initialCameraPosition: _producerLocation != null 
                     ? CameraPosition(target: _producerLocation!, zoom: 15) // Zoom in more
-                    : _initialCameraPosition, 
-                onMapCreated: _onMapCreated,
-                markers: allMarkers, 
+                  : _initialCameraPosition, 
+              onMapCreated: _onMapCreated,
+              markers: allMarkers, 
                 circles: _createHeatmapCircles(),
-                myLocationButtonEnabled: false, 
-                myLocationEnabled: true, 
-                mapType: MapType.normal, 
-                buildingsEnabled: true, 
-                compassEnabled: false, 
-                zoomControlsEnabled: false, 
-                trafficEnabled: false,
-                onCameraMove: (position) => _clusterManager.onCameraMove(position),
-                onCameraIdle: () => _clusterManager.updateMap(),
-              )
-            else 
-              _buildErrorDisplay(),
+              myLocationButtonEnabled: false, 
+              myLocationEnabled: true, 
+              mapType: MapType.normal, 
+              buildingsEnabled: true, 
+              compassEnabled: false, 
+              zoomControlsEnabled: false, 
+              trafficEnabled: false,
+              onCameraMove: (position) => _clusterManager.onCameraMove(position),
+              onCameraIdle: () => _clusterManager.updateMap(),
+            )
+          else 
+            _buildErrorDisplay(),
 
-            // Legend Card
-            if (_showLegend && _loadingError == null) 
-              _buildLegendCard(),
+          // Legend Card
+          if (_showLegend && _loadingError == null) 
+            _buildLegendCard(),
 
             // Toggle Insights Button
-            if (canShowBottomSheet)
+          if (canShowBottomSheet)
               Positioned(
                 bottom: _showInsightsPanel ? null : 20,
                 right: 20,
@@ -1686,44 +1687,44 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
 
             // Modified: Bottom Sheet avec option de masquage
             if (canShowBottomSheet && _showInsightsPanel)
-              DraggableScrollableSheet(
+            DraggableScrollableSheet(
                 initialChildSize: 0.15, // Reduced initial size - more subtle
                 minChildSize: 0.12,    // Reduced minimum
                 maxChildSize: 0.5,     // Reduced maximum
-                expand: false, 
-                builder: (context, scrollController) {
-                  return Container(
+              expand: false, 
+              builder: (context, scrollController) {
+                return Container(
                     decoration: const BoxDecoration(
                       color: AppColors.darkSurface, 
                       borderRadius: BorderRadius.only(
-                        topLeft: Radius.circular(24),
-                        topRight: Radius.circular(24),
-                      ),
-                      boxShadow: [
-                        BoxShadow(blurRadius: 15, color: Colors.black38, spreadRadius: 2)
-                      ],
+                      topLeft: Radius.circular(24),
+                      topRight: Radius.circular(24),
                     ),
-                    child: ListView(
-                      controller: scrollController, 
-                      padding: const EdgeInsets.only(top: 10),
-                      children: [
+                      boxShadow: [
+                      BoxShadow(blurRadius: 15, color: Colors.black38, spreadRadius: 2)
+                    ],
+                  ),
+                  child: ListView(
+                    controller: scrollController, 
+                    padding: const EdgeInsets.only(top: 10),
+                    children: [
                         // Handle
-                        Center(
-                          child: Container(
+                      Center(
+                        child: Container(
                             width: 45, height: 5, 
-                            margin: const EdgeInsets.only(bottom: 14), 
-                            decoration: BoxDecoration(
+                          margin: const EdgeInsets.only(bottom: 14), 
+                          decoration: BoxDecoration(
                               color: Colors.grey[700],
-                              borderRadius: BorderRadius.circular(3),
-                            ),
+                            borderRadius: BorderRadius.circular(3),
                           ),
                         ),
+                      ),
                         // Content sections - Insights minimized
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
                               // Insights Section - More subtle header
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1732,7 +1733,7 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
                                     children: [
                                       const Icon(Icons.lightbulb_outline, size: 16, color: Colors.amber),
                                       const SizedBox(width: 8),
-                                      Text('Insights & Opportunités', 
+                                Text('Insights & Opportunités', 
                                         style: TextStyle(
                                           fontWeight: FontWeight.w500, 
                                           fontSize: 14,
@@ -1751,22 +1752,22 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
                                 ],
                               ),
                               const SizedBox(height: 10),
-                              SizedBox(
+                            SizedBox(
                                 height: 120, // Reduced height
-                                child: (_isLoadingInsights || _zoneInsights.isEmpty) 
-                                  ? Center(
-                                      child: _isLoadingInsights 
-                                        ? const CircularProgressIndicator(strokeWidth: 2) 
-                                        : const Text("Aucun insight disponible.", 
-                                            style: TextStyle(color: Colors.grey))
-                                    )
-                                  : ListView.builder(
-                                      scrollDirection: Axis.horizontal,
-                                      itemCount: _zoneInsights.length,
-                                      itemBuilder: (context, index) => _buildInsightItem(_zoneInsights[index]),
-                                    ),
-                              ),
-                              
+                              child: (_isLoadingInsights || _zoneInsights.isEmpty) 
+                                ? Center(
+                                    child: _isLoadingInsights 
+                                      ? const CircularProgressIndicator(strokeWidth: 2) 
+                                      : const Text("Aucun insight disponible.", 
+                                          style: TextStyle(color: Colors.grey))
+                                  )
+                                : ListView.builder(
+                                    scrollDirection: Axis.horizontal,
+                                    itemCount: _zoneInsights.length,
+                                    itemBuilder: (context, index) => _buildInsightItem(_zoneInsights[index]),
+                                  ),
+                            ),
+                            
                               const SizedBox(height: 16),
                               
                               // Nearby Searches Section - More subtle header
@@ -1784,35 +1785,35 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
                                 ],
                               ),
                               const SizedBox(height: 10),
-                              SizedBox(
+                            SizedBox(
                                 height: 100, // Reduced height
-                                child: (_isFetchingSearches && _nearbySearches.isEmpty) 
-                                  ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
-                                  : _nearbySearches.isEmpty
-                                    ? const Center(
-                                        child: Text("Aucune recherche récente à proximité.", 
-                                            style: TextStyle(color: Colors.grey))
-                                      )
-                                    : ListView.builder(
-                                        scrollDirection: Axis.horizontal,
-                                        itemCount: _nearbySearches.length,
-                                        itemBuilder: (context, index) => _buildNearbySearchItem(_nearbySearches[index]),
-                                      ),
-                              ),
-                              
+                              child: (_isFetchingSearches && _nearbySearches.isEmpty) 
+                                ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
+                                : _nearbySearches.isEmpty
+                                  ? const Center(
+                                      child: Text("Aucune recherche récente à proximité.", 
+                                          style: TextStyle(color: Colors.grey))
+                                    )
+                                  : ListView.builder(
+                                      scrollDirection: Axis.horizontal,
+                                      itemCount: _nearbySearches.length,
+                                      itemBuilder: (context, index) => _buildNearbySearchItem(_nearbySearches[index]),
+                                    ),
+                            ),
+                            
                               const SizedBox(height: 16),
-                            ],
-                          ),
+                          ],
                         ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-            
-            // Loading Overlay
-            if (_isLoading && _loadingError == null)
-              _buildLoadingOverlay(),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          
+          // Loading Overlay
+          if (_isLoading && _loadingError == null)
+            _buildLoadingOverlay(),
               
             // Producer highlight animation - fixed implementation that doesn't use screen coordinates
             if (_highlightProducerMarker && _producerLocation != null)
@@ -1928,16 +1929,16 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
   void _showSendPushDialog({String? zoneId, ThemeData? theme}) {
     if (!mounted) return;
     final currentTheme = theme ?? Theme.of(context); // Already dark theme applied via Theme widget
-
+    
     // Reset controllers with instant offer defaults
     _customPushTitleController.text = 'Offre Flash ⚡';
     _customPushBodyController.text = 'Venez maintenant et profitez de -15%!';
     _customDiscountController.text = '15';
     _customDurationController.text = '2'; // Default 2 hours
 
-    int _currentStep = 0;
     bool _isTargetingZone = zoneId != null;
     bool _isSending = false; // State for loading indicator
+    int _currentPage = 0;
 
     String _getTargetDescription() {
       if (_isTargetingZone && zoneId != null) {
@@ -1947,25 +1948,25 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
         return "Tous les utilisateurs proches";
       }
     }
-
+    
     showDialog(
       context: context,
       barrierDismissible: !_isSending, // Prevent dismissing while sending
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            return AlertDialog(
-              backgroundColor: AppColors.darkCard,
+        return AlertDialog(
+              backgroundColor: Colors.white,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-              contentPadding: const EdgeInsets.all(0),
-              titlePadding: const EdgeInsets.only(top: 24, left: 24, right: 24, bottom: 10),
+              contentPadding: const EdgeInsets.all(20),
+          titlePadding: const EdgeInsets.only(top: 24, left: 24, right: 24, bottom: 10),
               title: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
+            children: [
                   Row(
                     children: [
                       Icon(Icons.campaign_rounded, color: AppColors.accentSecondary, size: 28),
-                      const SizedBox(width: 12),
+              const SizedBox(width: 12),
                       const Text('Notification Ciblée', 
                         style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)
                       ),
@@ -1973,7 +1974,7 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    _currentStep == 0 ? 'Étape 1: Rédigez votre offre' : 'Étape 2: Choisissez votre cible',
+                    _currentPage == 0 ? 'Étape 1: Rédigez votre offre' : 'Étape 2: Choisissez votre cible',
                     style: TextStyle(
                       fontSize: 14, 
                       color: AppColors.textSecondary,
@@ -1982,169 +1983,16 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
                   ),
                 ],
               ),
-              content: SizedBox(
-                width: double.maxFinite,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Stepper(
-                      currentStep: _currentStep,
-                      // Remove default controls
-                      controlsBuilder: (context, details) => Container(),
-                      type: StepperType.horizontal,
-                      steps: [
-                        Step(
-                          title: const Text('Offre'),
-                          content: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                _buildTextField(_customPushTitleController, 'Titre'),
-                                const SizedBox(height: 16),
-                                _buildTextField(_customPushBodyController, 'Message', maxLines: 3),
-                                const SizedBox(height: 16),
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: _buildTextField(
-                                        _customDiscountController, 
-                                        'Réduction (%)', 
-                                        keyboardType: TextInputType.number,
-                                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                                        suffixText: '%'
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: _buildTextField(
-                                        _customDurationController, 
-                                        'Validité (heures)', // Changed label
-                                        keyboardType: TextInputType.number,
-                                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                                        suffixText: 'h' // Changed suffix
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                          isActive: _currentStep >= 0,
-                        ),
-                        Step(
-                          title: const Text('Cible'),
-                          content: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                            child: Container(
-                              padding: const EdgeInsets.all(16),
-                              decoration: BoxDecoration(
-                                color: AppColors.darkSurface,
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(color: AppColors.accentSecondary.withOpacity(0.2)),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
-                                    'Envoyer à :',
-                                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                                    decoration: BoxDecoration(
-                                      color: AppColors.accentSecondary.withOpacity(0.1),
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(color: AppColors.accentSecondary.withOpacity(0.4)),
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        Icon(
-                                          _isTargetingZone ? Icons.location_searching_rounded : Icons.group_rounded,
-                                          color: AppColors.accentSecondary,
-                                          size: 22,
-                                        ),
-                                        const SizedBox(width: 10),
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                _getTargetDescription(),
-                                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                              Text(
-                                                _isTargetingZone 
-                                                    ? "Utilisateurs dans cette zone"
-                                                    : "Tous les utilisateurs actifs (rayon 2km)",
-                                                style: TextStyle(fontSize: 11, color: Colors.grey[400]),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  if (!_isTargetingZone) ...[
-                                    const SizedBox(height: 16),
-                                    Row(
-                                      children: [
-                                        Icon(Icons.people_alt_outlined, size: 16, color: Colors.blue[300]),
-                                        const SizedBox(width: 8),
-                                        Text('Estimé:', style: TextStyle(fontSize: 13, color: Colors.grey[400])),
-                                        const Spacer(),
-                                        Text(
-                                          "${_activeUsers.length}", // Show only current active users
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.bold, 
-                                            fontSize: 18,
-                                            color: Colors.blue[300],
-                                            shadows: [Shadow(blurRadius: 4, color: Colors.blue.withOpacity(0.3))]
-                                          ),
-                                        ),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          "utilisateur(s) en ligne",
-                                          style: TextStyle(fontSize: 12, color: Colors.grey[400]),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ],
-                              ),
-                            ),
-                          ),
-                          isActive: _currentStep >= 1,
-                        ),
-                      ],
-                      onStepTapped: _isSending ? null : (step) {
-                        setDialogState(() => _currentStep = step);
-                      },
-                    ),
-                    // Confirmation Preview Section
-                    if (_currentStep == 1)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text("Prévisualisation de la notification:", 
-                              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: AppColors.textSecondary)
-                            ),
-                            const SizedBox(height: 12),
-                            _buildNotificationPreviewCard(
-                              title: _customPushTitleController.text,
-                              body: _customPushBodyController.text,
-                              discount: _customDiscountController.text,
-                              duration: _customDurationController.text,
-                            ),
-                          ],
-                        ),
-                      ),
-                  ],
+              content: Container(
+                width: double.infinity,
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(context).size.height * 0.6,
+                  maxWidth: 400,
+                ),
+                child: SingleChildScrollView(
+                  child: _currentPage == 0 
+                      ? _buildPushStep1(setDialogState)
+                      : _buildPushStep2(setDialogState, _isTargetingZone, zoneId, _getTargetDescription()),
                 ),
               ),
               actionsPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
@@ -2152,40 +2000,60 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
               actions: _isSending
                 ? [const Center(child: CircularProgressIndicator())] // Loading indicator
                 : [
-                    TextButton(
+                TextButton(
                       onPressed: () => Navigator.pop(dialogContext),
                       child: const Text('Annuler', style: TextStyle(color: AppColors.textSecondary)),
-                    ),
-                    ElevatedButton.icon(
-                      icon: Icon(_currentStep == 0 ? Icons.arrow_forward_ios_rounded : Icons.send_rounded, size: 16),
-                      label: Text(_currentStep == 0 ? 'Suivant' : 'Envoyer Maintenant'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _currentStep == 0 ? AppColors.accent : AppColors.accentSecondary,
+                ),
+                ElevatedButton.icon(
+                      icon: Icon(_currentPage == 0 ? Icons.arrow_forward_ios_rounded : Icons.send_rounded, size: 16),
+                      label: Text(_currentPage == 0 ? 'Suivant' : 'Envoyer Maintenant'),
+                  style: ElevatedButton.styleFrom(
+                        backgroundColor: _currentPage == 0 ? AppColors.accent : AppColors.accentSecondary,
                         foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12)
-                      ),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12)
+                  ),
                       onPressed: () async {
-                        if (_currentStep == 0) {
-                          setDialogState(() => _currentStep++);
+                        // Store navigator/messenger states before async gap
+                        final NavigatorState navigator = Navigator.of(dialogContext); 
+                        final ScaffoldMessengerState scaffoldMessenger = ScaffoldMessenger.of(context);
+
+                        if (_currentPage == 0) {
+                          setDialogState(() => _currentPage = 1);
                         } else {
-                          // --- SEND NOTIFICATION --- 
                           setDialogState(() => _isSending = true);
+                          bool success = false; // Initialize success flag
                           try {
-                            final success = await _sendPushNotification(
-                              zoneId: _isTargetingZone ? zoneId : null, // Pass zoneId only if targeting zone
+                            success = await _sendPushNotification(
+                              zoneId: _isTargetingZone ? zoneId : null,
                               title: _customPushTitleController.text,
                               body: _customPushBodyController.text,
                               discountPercent: int.tryParse(_customDiscountController.text),
-                              validityHours: int.tryParse(_customDurationController.text), // Pass hours
+                              validityHours: int.tryParse(_customDurationController.text),
                             );
                             
-                            if (!mounted) return;
-                            setDialogState(() => _isSending = false);
+                          } catch (e) {
+                             print("Error sending notification: $e");
+                             // Set success to false explicitly on catch
+                             success = false;
+                             if (mounted) {
+                               // Show error using stored messenger state
+                               scaffoldMessenger.showSnackBar(
+                                 SnackBar(content: Text('Erreur inattendue: $e'), backgroundColor: Colors.red),
+                               );
+                             }
+                          } finally {
+                             // Always ensure loading state is reset, check mounted
+                             if (mounted) {
+                               setDialogState(() => _isSending = false);
+                             }
+                          }
 
+                          // Handle navigation/snackbar after await using stored states, check mounted
+                          if (mounted) { 
                             if (success) {
-                              Navigator.pop(dialogContext);
-                              ScaffoldMessenger.of(context).showSnackBar(
+                              navigator.pop(); // Use stored navigator
+                              scaffoldMessenger.showSnackBar( // Use stored messenger
                                 SnackBar(
                                   content: Row(children: const [Icon(Icons.check_circle_outline, color: Colors.white), SizedBox(width: 8), Text("Notification envoyée avec succès!")]),
                                   backgroundColor: Colors.green[600],
@@ -2193,24 +2061,194 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
                                 ),
                               );
                             } else {
-                              // Error message already shown in _sendPushNotification
+                              // Error snackbar likely already shown in _sendPushNotification or catch block
                             }
-                          } catch (e) {
-                            if (!mounted) return;
-                            setDialogState(() => _isSending = false);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Erreur inattendue: $e'), backgroundColor: Colors.red),
-                            );
                           }
-                          // --- END SEND --- 
                         }
                       },
-                    ),
-                  ],
+                ),
+              ],
             );
           },
         );
       },
+    );
+  }
+  
+  // Helper method for step 1 of the push notification dialog
+  Widget _buildPushStep1(StateSetter setState) {
+    return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  _buildTextField(_customPushTitleController, 'Titre'),
+                                  const SizedBox(height: 16),
+                                  _buildTextField(_customPushBodyController, 'Message', maxLines: 3),
+                                  const SizedBox(height: 16),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: _buildTextField(
+                                          _customDiscountController, 
+                                          'Réduction (%)', 
+                                          keyboardType: TextInputType.number,
+                                          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                                          suffixText: '%'
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: _buildTextField(
+                                          _customDurationController, 
+                                          'Validité (heures)',
+                                          keyboardType: TextInputType.number,
+                                          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                                          suffixText: 'h'
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+    );
+  }
+  
+  // Helper method for step 2 of the push notification dialog
+  Widget _buildPushStep2(StateSetter setState, bool isTargetingZone, String? zoneId, String targetDescription) {
+    return Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Text(
+                                      'Envoyer à :',
+                                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.accentSecondary.withOpacity(0.1),
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(color: AppColors.accentSecondary.withOpacity(0.4)),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                isTargetingZone ? Icons.location_searching_rounded : Icons.group_rounded,
+                                            color: AppColors.accentSecondary,
+                                            size: 22,
+                                          ),
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Text(
+                      targetDescription,
+                                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                                  overflow: TextOverflow.ellipsis,
+                                                ),
+                                                Text(
+                      isTargetingZone 
+                                                      ? "Utilisateurs dans cette zone"
+                                                      : "Tous les utilisateurs actifs (rayon 2km)",
+                                                  style: TextStyle(fontSize: 11, color: Colors.grey[400]),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+        if (!isTargetingZone) ...[
+                                      const SizedBox(height: 16),
+                                      Row(
+                                        children: [
+                                          Icon(Icons.people_alt_outlined, size: 16, color: Colors.blue[300]),
+                                          const SizedBox(width: 8),
+                                          Text('Estimé:', style: TextStyle(fontSize: 13, color: Colors.grey[400])),
+                                          const Spacer(),
+                                          Text(
+                                            "${_activeUsers.length}", // Show only current active users
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.bold, 
+                                              fontSize: 18,
+                                              color: Colors.blue[300],
+                                              shadows: [Shadow(blurRadius: 4, color: Colors.blue.withOpacity(0.3))]
+                                            ),
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            "utilisateur(s) en ligne",
+                                            style: TextStyle(fontSize: 12, color: Colors.grey[400]),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+        const SizedBox(height: 24),
+                      // Confirmation Preview Section
+        Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                "Aperçu de la notification",
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                color: AppColors.accentSecondary,
+                                ),
+                              ),
+                              SizedBox(height: 8),
+                              Container(
+                                width: double.infinity,
+                                constraints: BoxConstraints(minHeight: 80),
+                                decoration: BoxDecoration(
+                color: AppColors.accentSecondary.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: AppColors.accentSecondary, width: 2),
+                                  boxShadow: [
+                                    BoxShadow(
+                    color: AppColors.accentSecondary.withOpacity(0.25),
+                    spreadRadius: 2,
+                    blurRadius: 16,
+                    offset: Offset(0, 6),
+                                    ),
+                                  ],
+                                ),
+                                child: ListTile(
+                                  leading: CircleAvatar(
+                  backgroundColor: Colors.white,
+                                    child: Icon(
+                                      Icons.local_offer,
+                    color: AppColors.accentSecondary,
+                                    ),
+                                  ),
+                                  title: Text(
+                                    _customPushTitleController.text.isNotEmpty
+                                        ? _customPushTitleController.text
+                                        : "Titre de la notification",
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold, 
+                                      color: Colors.white,
+                    fontSize: 15,
+                                    ),
+                                  ),
+                                  subtitle: Text(
+                                    _customPushBodyController.text.isNotEmpty
+                                        ? _customPushBodyController.text
+                                        : "Contenu de la notification",
+                                    style: TextStyle(
+                    color: Colors.white.withOpacity(0.85),
+                    fontSize: 13,
+                                    ),
+                                  ),
+                                  contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                ),
+                              ),
+                            ],
+        ),
+      ],
     );
   }
 
@@ -2230,22 +2268,22 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
       controller: controller,
       decoration: InputDecoration(
         labelText: label,
-        labelStyle: const TextStyle(fontSize: 14, color: AppColors.textSecondary),
+        labelStyle: const TextStyle(fontSize: 14, color: AppColors.accentSecondary),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: AppColors.accent, width: 1.5),
+          borderSide: BorderSide(color: AppColors.accentSecondary, width: 1.5),
         ),
         filled: true,
-        fillColor: AppColors.darkSurface,
+        fillColor: AppColors.accentSecondary.withOpacity(0.13),
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         suffixText: suffixText,
-        suffixStyle: const TextStyle(color: AppColors.textSecondary)
+        suffixStyle: const TextStyle(color: AppColors.accentSecondary)
       ),
       maxLines: maxLines,
       keyboardType: keyboardType,
       inputFormatters: inputFormatters,
-      style: const TextStyle(fontSize: 15),
+      style: const TextStyle(fontSize: 15, color: Colors.black),
       validator: validator, // Pass the validator function to TextFormField
       autovalidateMode: AutovalidateMode.onUserInteraction, // Optional: validate as user types
     );
@@ -2340,7 +2378,7 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
     required String title,
     required String body,
     int? discountPercent,
-    int? validityHours, // Changed to hours
+    int? validityHours,
   }) async {
     print("🚀 Sending push notification...");
     print("   Zone ID: $zoneId");
@@ -2350,32 +2388,73 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
     print("   Validity: $validityHours hours");
 
     if (!mounted) return false;
+    
+    if (title.isEmpty || body.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Le titre et le message ne peuvent pas être vides.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return false;
+    }
 
     try {
       // Determine the correct endpoint URL
-      final url = Uri.parse('${constants.getBaseUrl()}/api/notifications/send-targeted'); // Use your actual endpoint
+      final url = Uri.parse('${constants.getBaseUrl()}/api/notifications/send-targeted');
       final headers = await ApiConfig.getAuthHeaders();
+      
+      if (headers == null || headers.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Erreur d\'authentification. Veuillez vous reconnecter.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return false;
+      }
+
+      // Prepare geographic targeting - handle missing values
+      final Map<String, dynamic> geoTarget = zoneId != null 
+          ? {'targetZoneId': zoneId}
+          : {
+              'targetCoordinates': {
+                'latitude': _producerLocation?.latitude ?? 0,
+                'longitude': _producerLocation?.longitude ?? 0,
+                'radiusKm': 2, // Default radius
+              }
+            };
+      
+      // Skip sending if no valid geographic targeting
+      if (zoneId == null && (_producerLocation?.latitude == null || _producerLocation?.longitude == null)) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Position du restaurant non disponible. Impossible d\'envoyer la notification.'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+        return false;
+      }
 
       final Map<String, dynamic> payload = {
         'producerId': widget.userId,
         'title': title,
         'body': body,
-        'data': { // Optional: Add data payload for handling clicks
+        'data': {
           'screen': 'offerDetails',
           'producerId': widget.userId,
         },
-        // --- Offer Details ---
         'offerDetails': {
           if (discountPercent != null && discountPercent > 0) 'discountPercent': discountPercent,
           if (validityHours != null && validityHours > 0) 'validityHours': validityHours,
         },
-        // --- Targeting ---
-        if (zoneId != null) 'targetZoneId': zoneId 
-        else 'targetCoordinates': { // If no zoneId, target based on producer location
-          'latitude': _producerLocation?.latitude,
-          'longitude': _producerLocation?.longitude,
-          'radiusKm': 2, // Default radius (adjust as needed)
-        }
+        ...geoTarget,
       };
 
       print("   Payload: ${json.encode(payload)}");
@@ -2392,17 +2471,21 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
       if (!mounted) return false;
 
       if (response.statusCode == 200 || response.statusCode == 201) {
-        // Success message already handled outside this function
         return true;
       } else {
         String errorMessage = 'Erreur lors de l\'envoi de la notification.';
         try {
           final errorData = json.decode(response.body);
-          errorMessage = errorData['message'] ?? 'Erreur ${response.statusCode}';
-        } catch (_) {}
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(errorMessage), backgroundColor: Colors.orange),
-        );
+          errorMessage = errorData['message'] ?? errorData['error'] ?? 'Erreur ${response.statusCode}';
+        } catch (_) {
+          errorMessage = 'Erreur ${response.statusCode}: Problème de communication avec le serveur';
+        }
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(errorMessage), backgroundColor: Colors.orange),
+          );
+        }
         return false;
       }
     } catch (e, stackTrace) {
@@ -2410,7 +2493,10 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
       print('   StackTrace: $stackTrace');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur réseau ou serveur: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Erreur réseau ou serveur: ${e.toString().substring(0, math.min(e.toString().length, 100))}'), 
+            backgroundColor: Colors.red,
+          ),
         );
       }
       return false;
@@ -2837,7 +2923,7 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
       margin: const EdgeInsets.only(right: 10),
       decoration: BoxDecoration(
         color: AppColors.darkCard,
-        borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(12),
         border: Border.all(color: color.withOpacity(0.3), width: 1),
         boxShadow: [
           BoxShadow(
@@ -2846,33 +2932,33 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
             offset: const Offset(0, 2),
           ),
         ],
-      ),
-      child: Padding(
+        ),
+        child: Padding(
         padding: const EdgeInsets.all(10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
                 Icon(icon, size: 14, color: color),
                 const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
+                  Expanded(
+                    child: Text(
                     title,
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
                       color: color,
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
-                ),
-              ],
-            ),
+                ],
+              ),
             const Divider(height: 12),
-            Expanded(
-              child: ListView.builder(
+              Expanded(
+                child: ListView.builder(
                 padding: EdgeInsets.zero,
                 itemCount: insights.length.clamp(0, 3), // Limit to 3 insights
                 itemBuilder: (context, index) {
@@ -2895,9 +2981,9 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
                     ),
                   );
                 },
+                ),
               ),
-            ),
-          ],
+            ],
         ),
       ),
     );
@@ -2916,35 +3002,35 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.grey[700]!, width: 1),
       ),
-      child: Padding(
+          child: Padding(
         padding: const EdgeInsets.all(10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
               children: [
-                CircleAvatar(
+                Row(
+                  children: [
+                    CircleAvatar(
                   radius: 12,
                   backgroundColor: AppColors.accent.withOpacity(0.2),
-                  backgroundImage: search.userProfilePicture != null
-                      ? CachedNetworkImageProvider(search.userProfilePicture!)
-                      : null,
-                  child: search.userProfilePicture == null
+                      backgroundImage: search.userProfilePicture != null 
+                          ? CachedNetworkImageProvider(search.userProfilePicture!) 
+                          : null,
+                      child: search.userProfilePicture == null 
                       ? const Icon(Icons.person, size: 12, color: AppColors.accent)
-                      : null,
-                ),
+                          : null,
+                    ),
                 const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    search.userName,
+                    Expanded(
+                      child: Text(
+                        search.userName,
                     style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
                     maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
             const SizedBox(height: 6),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -2953,18 +3039,18 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Text(
-                '"${search.query}"',
+                  '"${search.query}"',
                 style: TextStyle(
                   fontSize: 10,
                   color: Colors.grey[300],
-                  fontStyle: FontStyle.italic,
-                ),
+                    fontStyle: FontStyle.italic,
+                  ),
                 maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+                  overflow: TextOverflow.ellipsis,
               ),
-            ),
-            const Spacer(),
-            Text(
+                ),
+                const Spacer(),
+                Text(
               timeAgo,
               style: TextStyle(fontSize: 9, color: Colors.grey[500]),
             ),
@@ -2977,7 +3063,7 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
   // +++ ADDED: Method to center on producer +++
   Future<void> _centerOnProducerLocation() async {
     if (_producerLocation == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
+         ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Localisation de votre établissement non disponible.'), 
         backgroundColor: Colors.orange)
       );
@@ -3177,7 +3263,7 @@ class _HeatmapScreenState extends State<HeatmapScreen> with TickerProviderStateM
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              backgroundColor: AppColors.darkCard,
+              backgroundColor: Colors.white,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
               titlePadding: const EdgeInsets.only(top: 24, left: 24, right: 24, bottom: 12),
               contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),

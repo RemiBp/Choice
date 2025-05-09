@@ -150,7 +150,6 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
   late AnimationController _typingAnimationController;
   
   final AIService _aiService = AIService(); // Instance du service AI
-  List<ProfileData> _topExtractedProfiles = []; // Profils affichés en haut
 
   // Attributs pour gérer différents types d'utilisateurs
   String _accountType = 'user'; // Par défaut: utilisateur standard
@@ -159,11 +158,6 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
   bool _isLoadingAccountInfo = true; // Indicateur de chargement des infos de compte
   Map<String, dynamic> _userData = {}; // Données de l'utilisateur
   
-  // Nouveaux attributs pour optimisation
-  bool _topProfilesExpanded = false; // État d'expansion des profils du haut
-  final int _initialTopProfilesCount = 3; // Nombre initial de profils à afficher en haut
-  bool _hasMoreTopProfilesToLoad = false; // Indicateur pour "Voir plus" en haut
-
   @override
   void initState() {
     super.initState();
@@ -182,49 +176,6 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
     _scrollController.dispose();
     _typingAnimationController.dispose();
     super.dispose();
-  }
-
-  // Application du lazy loading aux profils affichés en haut
-  void _applyLazyLoadingToTopList(List<ProfileData> allProfiles) {
-    if (allProfiles.isEmpty) {
-      _topExtractedProfiles = [];
-      _hasMoreTopProfilesToLoad = false;
-      return;
-    }
-    
-    // Si on a peu de profils, on les montre tous directement en haut
-    if (allProfiles.length <= _initialTopProfilesCount) {
-      _topExtractedProfiles = List.from(allProfiles);
-      _hasMoreTopProfilesToLoad = false;
-      return;
-    }
-    
-    // Sinon on applique le lazy loading pour la liste du haut
-    if (!_topProfilesExpanded) {
-      _topExtractedProfiles = allProfiles.take(_initialTopProfilesCount).toList();
-      _hasMoreTopProfilesToLoad = true;
-    } else {
-      _topExtractedProfiles = List.from(allProfiles);
-      _hasMoreTopProfilesToLoad = false;
-    }
-  }
-  
-  // Charge plus de profils dans la liste du haut
-  void _loadMoreTopProfiles() {
-    // On doit se souvenir de tous les profils de la dernière réponse pour pouvoir tous les afficher
-    // On suppose que la dernière réponse AI est celle qui a les profils complets
-    final lastAiMessage = _conversations.lastWhere(
-        (msg) => msg['type'] == 'copilot' && msg['profiles'] != null, 
-        orElse: () => {'profiles': <ProfileData>[]} // Fallback
-    );
-    final allProfilesFromLastResponse = List<ProfileData>.from(lastAiMessage['profiles'] ?? []);
-
-    if (allProfilesFromLastResponse.isNotEmpty) {
-      setState(() {
-        _topProfilesExpanded = true;
-        _applyLazyLoadingToTopList(allProfilesFromLastResponse);
-      });
-    }
   }
 
   // Charge les informations du compte pour adapter l'interface
@@ -336,7 +287,7 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
           });
           
           if (analysisResponse.profiles.isNotEmpty) {
-            _topExtractedProfiles = analysisResponse.profiles;
+            // Profiles are handled within the message now
           }
         } else {
           // Ajouter un message d'erreur
@@ -374,13 +325,17 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
     }
   }
 
-  // Pour envoyer une question
-  void _sendQuestion(String question) {
-    if (question.isEmpty) return;
+  // --- Sending Questions and Processing Responses ---
+  Future<void> _sendQuestion(String question) async {
+    final trimmedQuestion = question.trim();
+    if (trimmedQuestion.isEmpty) return;
+    if (!mounted) return;
+
+    print("--- CopilotScreen: _sendQuestion START ---"); // <-- PRINT 1
 
     final userMessage = {
       'type': 'user',
-      'content': question,
+      'content': trimmedQuestion,
       'timestamp': DateTime.now().toIso8601String(),
     };
     final loadingMessage = {
@@ -391,95 +346,108 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
     };
 
     setState(() {
-      _isLoading = true;
-      _conversations.insert(0, loadingMessage);
-      _conversations.insert(0, userMessage);
+      print("--- CopilotScreen: Adding user and loading messages to state ---"); // <-- PRINT 2
+      _conversations.add(userMessage);
+      _conversations.add(loadingMessage); // Add loading indicator
       _questionController.clear();
-      _isTyping = false;
+      _isLoading = true; // Set loading state for potential global indicator
     });
 
-    _scrollToBottom();
+    _scrollToBottom(); // Scroll after adding messages
 
-    // Appeler directement le service AI au lieu de l'analyse locale
-    _callAiService(question);
-  }
-
-  // Renommer et modifier _handleGeneralQuery pour appeler l'API AI
-  Future<void> _callAiService(String query) async {
-      if (!mounted) return;
-      
-    // Vérifier que userId n'est pas null ou vide avant d'appeler l'API
-    if (widget.userId == null || widget.userId.isEmpty) {
-      setState(() {
-        _conversations.removeWhere((msg) => msg['isLoading'] == true);
-        _conversations.insert(0, {
-          'type': 'copilot',
-          'content': "Erreur: Identifiant utilisateur non disponible. Veuillez vous reconnecter.",
-          'isError': true,
-          'timestamp': DateTime.now().toIso8601String(),
-        });
-        _isLoading = false;
-      });
-      _scrollToBottom();
-      return;
-    }
-    
     try {
-      // Utiliser le service AI pour traiter la requête utilisateur
-      // Passer la requête utilisateur et l'ID utilisateur
+       // Vérifier que userId n'est pas null ou vide avant d'appeler l'API
+       if (widget.userId.isEmpty) {
+         throw Exception("Identifiant utilisateur non disponible.");
+       }
+
+       print("--- CopilotScreen: Calling _aiService.complexUserQuery... ---"); // <-- PRINT 3
+       // Appel au service AI
       final AIQueryResponse aiResponse = await _aiService.complexUserQuery(
         widget.userId,
-        query,
+        trimmedQuestion,
       );
+      print("--- CopilotScreen: _aiService.complexUserQuery SUCCESS ---"); // <-- PRINT 4
 
-      // Supprimer le message de chargement
       if (mounted) {
-        setState(() {
-          _conversations.removeWhere((msg) => msg['isLoading'] == true);
-        });
-      }
-
-      // Traiter la réponse de l'IA
-      if (mounted) {
+         print("--- CopilotScreen: Calling _processApiResponse... ---"); // <-- PRINT 5
         _processApiResponse(aiResponse);
       }
 
     } catch (e) {
-      print("❌ Erreur lors de l'appel à l'IA: $e");
+      print("--- CopilotScreen: ERROR during AI call: $e ---"); // <-- PRINT 6 (Error)
       if (mounted) {
-        setState(() {
-          _conversations.removeWhere((msg) => msg['isLoading'] == true);
-          _conversations.insert(0, {
-            'type': 'copilot',
-            'content': "Désolé, une erreur est survenue. $e",
-            'isError': true,
-            'timestamp': DateTime.now().toIso8601String(),
-          });
-        });
-        _scrollToBottom();
+        _processApiResponse(AIQueryResponse( // Create an error response
+          response: "Désolé, une erreur est survenue lors de la communication avec l'assistant. $e",
+          profiles: [],
+          intent: 'error',
+          resultCount: 0,
+          hasError: true,
+        ));
       }
     } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
+       print("--- CopilotScreen: _sendQuestion FINALLY block ---"); // <-- PRINT 7
+       if (mounted) {
+          // Ensure loading indicator is removed even if processApiResponse wasn't called due to unmount
+          setState(() {
+             print("--- CopilotScreen: Removing loading indicator in finally ---"); // <-- PRINT 8
+             _conversations.removeWhere((msg) => msg['metadata']?['type'] == 'loading');
+             _isLoading = false;
+          });
+          _scrollToBottom(); // Scroll again after potential removal/addition
+       }
     }
+     print("--- CopilotScreen: _sendQuestion END ---"); // <-- PRINT 9
   }
 
-  // Helper to scroll to bottom
-  void _scrollToBottom() {
-    if (mounted) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_scrollController.hasClients) {
-          _scrollController.animateTo(
-            _scrollController.position.maxScrollExtent,
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeOut,
-          );
-        }
-      });
+  // Process the response from the AI service
+  void _processApiResponse(AIQueryResponse aiResponse) {
+    if (!mounted) return;
+    print("--- CopilotScreen: _processApiResponse START (hasError: ${aiResponse.hasError}) ---"); // <-- PRINT 10
+
+    // Normalize profiles first
+    List<ProfileData> normalizedProfiles = [];
+    if (aiResponse.profiles.isNotEmpty) {
+      normalizedProfiles = _normalizeProfileTypes(aiResponse.profiles);
     }
+
+    // S'assurer que la réponse n'est pas vide
+    String responseText = aiResponse.response.trim();
+    if (responseText.isEmpty && normalizedProfiles.isEmpty) {
+       responseText = "Je n'ai pas trouvé d'informations pertinentes pour votre demande.";
+    } else if (responseText.isEmpty && normalizedProfiles.isNotEmpty) {
+       // Keep text minimal if only profiles are returned
+       responseText = "Voici quelques suggestions qui pourraient correspondre :";
+    }
+
+    if (!mounted) return;
+    setState(() {
+      print("--- CopilotScreen: Updating state in _processApiResponse ---"); // <-- PRINT 11
+      // Remove loading indicator FIRST
+      _conversations.removeWhere((msg) => msg['metadata']?['type'] == 'loading');
+      // Add the actual response
+      _conversations.add({
+        'type': 'copilot',
+        'timestamp': DateTime.now().toIso8601String(),
+        // Store data needed for rendering directly in the message map
+        'metadata': {
+          'text': responseText, // Just the text part
+          'profiles': normalizedProfiles, // Store normalized profiles here
+          'intent': aiResponse.intent,
+          'resultCount': aiResponse.resultCount ?? normalizedProfiles.length,
+          'type': aiResponse.hasError ? 'error' : 'ai_response', // Mark as error if needed
+          'isLoading': false, // Ensure loading is false
+        },
+        // Keep 'content' for compatibility or user messages, but AI text is in metadata['text']
+        'content': responseText,
+        // Keep 'error' flag for simplicity in footer or other logic if needed
+        'error': aiResponse.hasError,
+      });
+      _isLoading = false; // Update global loading state
+    });
+
+    _scrollToBottom(); // Scroll after adding the final message
+    print("--- CopilotScreen: _processApiResponse END ---"); // <-- PRINT 12
   }
 
   // Normalize profile types (copied logic)
@@ -562,118 +530,12 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
 
   // Essaie de naviguer vers différents types d'entités en fonction de l'ID
   void _attemptNavigationWithMultipleTypes(String id) {
-    // Afficher un indicateur de chargement
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext context) {
-        return Dialog(
-          backgroundColor: Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(20.0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const CircularProgressIndicator(
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.deepPurple),
-                ),
-                const SizedBox(height: 20),
-                const Text(
-                  "Détection du type de lieu...",
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  "Nous déterminons le type d'entité",
-                  style: TextStyle(color: Colors.grey[600], fontSize: 14),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-    
-    // Tentative de détection du type d'entité via l'API
-    final url = Uri.parse('${getBaseUrl()}/api/ai/detect-producer-type/$id');
-    http.get(url).then((response) {
-      if (!mounted) return;
-      
-      // Fermer l'indicateur de chargement
-      Navigator.of(context).pop();
-      
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final detectedType = data['producerType'];
-        
-        // Naviguer en fonction du type détecté
-        if (detectedType == 'restaurant') {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => ProducerScreen(
-                producerId: id,
-                userId: widget.userId,
-              ),
-            ),
-          );
-        } else if (detectedType == 'leisureProducer') {
-          _fetchAndNavigateWithUnifiedApi(endpoint: 'unified/entity', id: id, buildScreen: (data, userId) => ProducerLeisureScreen(
-            producerId: data['producerId'],
-            userId: userId,
-          ));
-        } else if (detectedType == 'wellnessProducer') {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => ProducerScreen(
-                producerId: id,
-                userId: widget.userId,
-                isWellness: true,
-              ),
-            ),
-          );
-        } else if (detectedType == 'event') {
-          _fetchAndNavigateWithUnifiedApi(endpoint: 'unified/entity', id: id, buildScreen: (data, userId) => EventLeisureScreen(
-            id: data['producerId'],
-            eventData: null,
-          ));
-        } else if (detectedType == 'user') {
-          _navigateToUserProfile(id);
-        } else {
-          // Type non reconnu, essayer une approche universelle avec l'endpoint unifié
-          _fetchAndNavigateWithUnifiedApi(endpoint: 'unified/entity', id: id, buildScreen: (data, userId) => ProducerScreen(
-            producerId: data['producerId'],
-            userId: userId,
-            isWellness: data['entityType'] == 'wellnessProducer',
-          ));
-        }
-      } else {
-        // Si la détection échoue, essayer l'API unifiée
-        _fetchAndNavigateWithUnifiedApi(endpoint: 'unified/entity', id: id, buildScreen: (data, userId) => ProducerScreen(
-          producerId: data['producerId'],
-          userId: userId,
-          isWellness: data['entityType'] == 'wellnessProducer',
-        ));
-      }
-    }).catchError((e) {
-      if (!mounted) return;
-      
-      // Fermer l'indicateur de chargement s'il est encore ouvert
-      if (Navigator.canPop(context)) {
-        Navigator.of(context).pop();
-      }
-      
-      // Tenter l'API unifiée en cas d'erreur
-      _fetchAndNavigateWithUnifiedApi(endpoint: 'unified/entity', id: id, buildScreen: (data, userId) => ProducerScreen(
-        producerId: data['producerId'],
-        userId: userId,
-        isWellness: data['entityType'] == 'wellnessProducer',
-      ));
-    });
+    // Try to navigate using a general approach or show a selection dialog
+    _showNavigationError("Navigation vers un profil de type inconnu non implémentée.");
+    // Alternatively, you could implement a more sophisticated approach:
+    // - First try to fetch the entity type from an API
+    // - Then navigate to the appropriate route
+    // - Or show a selection dialog if multiple types are possible
   }
   
   // Affiche une erreur de navigation standardisée
@@ -681,8 +543,9 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        behavior: SnackBarBehavior.floating,
         backgroundColor: Colors.red.shade800,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 3),
       ),
     );
   }
@@ -1044,490 +907,703 @@ class _CopilotScreenState extends State<CopilotScreen> with TickerProviderStateM
     }
   }
 
+  // Method to scroll to the bottom of the conversation
+  void _scrollToBottom() {
+    if (_scrollController.hasClients) {
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
+    }
+  }
+
+  // Navigate to the vibemap with a specific profile highlighted
+  void _navigateToVibeMap(ProfileData profile) {
+    // Try to extract location from structuredData
+    final location = profile.structuredData != null ? profile.structuredData!['location'] : null;
+    final lat = location != null ? location['latitude'] : null;
+    final lng = location != null ? location['longitude'] : null;
+    if (lat == null || lng == null) {
+      _showNavigationError("Coordonnées manquantes pour la navigation vers la carte.");
+      return;
+    }
+    try {
+      context.push('/vibe-map?highlightId=${profile.id}&lat=$lat&lng=$lng');
+    } catch (e) {
+      _showNavigationError('Erreur de navigation vers la carte: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final bool isIOS = Platform.isIOS; // Platform check
     return Scaffold(
-      body: SafeArea(
-        child: Column(
-          children: [
-            // En-tête avec recherche
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: Colors.grey[200],
-                        borderRadius: BorderRadius.circular(25.0),
-                      ),
-                      child: TextField(
-                        controller: _searchController,
-                        decoration: InputDecoration(
-                          hintText: 'Rechercher...',
-                          border: InputBorder.none,
-                          prefixIcon: const Icon(Icons.search),
-                          contentPadding: const EdgeInsets.symmetric(vertical: 14.0),
-                        ),
-                        onSubmitted: (value) {
-                          if (value.isNotEmpty) {
-                            _analyzeAndNavigate(value);
-                          }
-                        },
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  VoiceSearchButton(
-                    onResult: (text) {
-                      _searchController.text = text;
-                      if (text.isNotEmpty) {
-                        _analyzeAndNavigate(text);
-                      }
-                    },
-                  ),
-                ],
-              ),
-            ),
-            
-            // Conteneur principal
-            Expanded(
-              child: _isLoading
-                  ? const Center(
-                      child: CircularProgressIndicator(),
-                    )
-                  : SingleChildScrollView(
-                      controller: _scrollController,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Section "Comment puis-je vous aider aujourd'hui?"
-                          const Padding(
-                            padding: EdgeInsets.all(16.0),
-                            child: Text(
-                              "Comment puis-je vous aider aujourd'hui?",
-                              style: TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                          
-                          // Widgets pour suggestions rapides
-                          _buildQuickSuggestions(),
-                          
-                          // Vos recommandations personalisées
-                          if (_recommendations.isNotEmpty) _buildRecommendations(),
-                          
-                          // Historique des conversations (si applicable)
-                          if (_conversations.isNotEmpty) _buildConversationHistory(),
-                          
-                          const SizedBox(height: 70), // Espace pour le champ de texte en bas
-                        ],
-                      ),
-                    ),
-            ),
-            
-            // Barre de saisie en bas
-            Padding(
-              padding: const EdgeInsets.all(8.0),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: Colors.grey[200],
-                        borderRadius: BorderRadius.circular(25.0),
-                      ),
-                      child: TextField(
-                        controller: _questionController,
-                        decoration: InputDecoration(
-                          hintText: 'Posez votre question...',
-                          border: InputBorder.none,
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16.0,
-                            vertical: 14.0,
-                          ),
-                        ),
-                        onSubmitted: (value) {
-                          if (value.isNotEmpty) {
-                            _sendQuestion(value);
-                          }
-                        },
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.send),
-                    onPressed: () {
-                      if (_questionController.text.isNotEmpty) {
-                        _sendQuestion(_questionController.text);
-                      }
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
+      backgroundColor: Colors.grey[50],
+      appBar: AppBar(
+        // ... (Existing AppBar code) ...
       ),
-    );
-  }
-
-  Widget _buildQuickSuggestions() {
-    final List<Map<String, String>> suggestions = [
-      {'icon': 'assets/icons/restaurant.png', 'text': 'Restaurants près de moi'},
-      {'icon': 'assets/icons/activities.png', 'text': 'Activités à faire ce week-end'},
-      {'icon': 'assets/icons/wellness.png', 'text': 'Lieux de bien-être'},
-      {'icon': 'assets/icons/events.png', 'text': 'Événements du jour'},
-    ];
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      body: Column(
         children: [
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 10.0,
-            runSpacing: 10.0,
-            children: suggestions.map((suggestion) {
-              return GestureDetector(
-                onTap: () {
-                  _sendQuestion(suggestion['text'] ?? '');
-                },
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16.0,
-                    vertical: 12.0,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(20.0),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.grey.withOpacity(0.2),
-                        spreadRadius: 1,
-                        blurRadius: 2,
-                        offset: const Offset(0, 1),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Image.asset(
-                        suggestion['icon'] ?? '',
-                        width: 24,
-                        height: 24,
-                        errorBuilder: (context, error, stackTrace) {
-                          return const Icon(Icons.image_not_supported, size: 24);
-                        },
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        suggestion['text'] ?? '',
-                        style: const TextStyle(fontSize: 14),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }).toList(),
-          ),
-          const SizedBox(height: 20),
-        ],
-      ),
-    );
-  }
+          // ... (Existing loading indicators, welcome card, etc.) ...
 
-  Widget _buildRecommendations() {
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            "Vos recommandations personnalisées",
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 10),
-          SizedBox(
-            height: 180,
+          // Conversation history
+          Expanded(
             child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              itemCount: _recommendations.length,
+              controller: _scrollController,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              // Calculate item count considering potential profile lists
+              itemCount: _calculateListItemCount(),
               itemBuilder: (context, index) {
-                final recommendation = _recommendations[index];
-                return GestureDetector(
-                  onTap: () {
-                    if (recommendation.containsKey('id')) {
-                      _analyzeAndNavigate('Afficher ${recommendation['name']}');
-                    }
-                  },
-                  child: Container(
-                    width: 140,
-                    margin: const EdgeInsets.only(right: 12),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(8),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.grey.withOpacity(0.15),
-                          spreadRadius: 1,
-                          blurRadius: 3,
-                          offset: const Offset(0, 1),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        ClipRRect(
-                          borderRadius: const BorderRadius.only(
-                            topLeft: Radius.circular(8),
-                            topRight: Radius.circular(8),
-                          ),
-                          child: CachedNetworkImage(
-                            imageUrl: recommendation['image'] ?? '',
-                            height: 100,
-                            width: double.infinity,
-                            fit: BoxFit.cover,
-                            placeholder: (context, url) => Container(
-                              color: Colors.grey[300],
-                              height: 100,
-                              width: double.infinity,
-                            ),
-                            errorWidget: (context, url, error) => Container(
-                              color: Colors.grey[300],
-                              height: 100,
-                              width: double.infinity,
-                              child: const Icon(Icons.image_not_supported),
-                            ),
-                          ),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.all(8.0),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                recommendation['name'] ?? '',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 13,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                recommendation['category'] ?? '',
-                                style: TextStyle(
-                                  color: Colors.grey[600],
-                                  fontSize: 12,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              const SizedBox(height: 4),
-                              Row(
-                                children: [
-                                  const Icon(
-                                    Icons.star,
-                                    color: Colors.amber,
-                                    size: 14,
-                                  ),
-                                  Text(
-                                    " ${recommendation['rating'] ?? '4.0'}",
-                                    style: const TextStyle(fontSize: 12),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
+                // Determine what item to build at this index
+                final item = _getItemForIndex(index);
+
+                if (item['type'] == 'message') {
+                  final message = item['data'] as Map<String, dynamic>;
+                  if (message['type'] == 'typing') {
+                    return _buildTypingIndicator();
+                  }
+                  return _buildMessageBubble(message, index); // Pass index for animation
+                } else if (item['type'] == 'profile_list') {
+                  final profiles = item['data'] as List<ProfileData>;
+                  final messageIndex = item['message_index'] as int; // Get original message index for animation delay
+                  return _buildHorizontalProfileList(profiles, messageIndex)
+                      .animate(delay: (100 + 50 * messageIndex).ms) // Delay after message animation
+                      .fadeIn(duration: 400.ms)
+                      .slideY(begin: 0.2, end: 0, curve: Curves.easeOutQuad);
+                }
+                return const SizedBox.shrink(); // Should not happen
               },
             ),
           ),
+
+          // ... (Existing loading indicator and input area) ...
         ],
       ),
     );
   }
 
-  Widget _buildConversationHistory() {
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            "Conversations récentes",
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 10),
-          ListView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: _conversations.length,
-            itemBuilder: (context, index) {
-              final conversation = _conversations[index];
-              return Card(
-                margin: const EdgeInsets.only(bottom: 10),
-                child: Padding(
-                  padding: const EdgeInsets.all(12.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const CircleAvatar(
-                            backgroundColor: Colors.blue,
-                            radius: 16,
-                            child: Icon(
-                              Icons.person,
-                              color: Colors.white,
-                              size: 16,
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  "Vous",
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(conversation['question'] ?? ''),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const CircleAvatar(
-                            backgroundColor: Colors.green,
-                            radius: 16,
-                            child: Icon(
-                              Icons.assistant,
-                              color: Colors.white,
-                              size: 16,
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  "Assistant",
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(conversation['answer'] ?? ''),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  // Pour analyser le texte de la requête et naviger au bon screen
-  void _analyzeAndNavigate(String text) {
-    // Pour le moment, on redirige vers la méthode _sendQuestion existante
-    // pour conserver la fonctionnalité actuelle
-    _sendQuestion(text);
-  }
-  
-  // Vérifier si le texte contient au moins un des mots clés
-  bool _containsKeywords(String text, List<String> keywords) {
-    for (var keyword in keywords) {
-      if (text.contains(keyword)) {
-        return true;
+  // Helper to determine the total number of items in the list (messages + profile lists)
+  int _calculateListItemCount() {
+    int count = 0;
+    for (final message in _conversations) {
+      count++; // Increment for the message itself
+      final metadata = message['metadata'] as Map<String, dynamic>? ?? {};
+      final profiles = (metadata['profiles'] as List<dynamic>? ?? [])
+          .whereType<ProfileData>()
+          .toList();
+      if (message['type'] == 'copilot' && profiles.isNotEmpty) {
+        count++; // Increment for the profile list associated with this message
       }
     }
-    return false;
+    return count;
   }
-  
-  // Traitement de la réponse de l'API
-  void _processApiResponse(AIQueryResponse aiResponse) {
-    // Afficher la réponse textuelle de l'IA
-    setState(() {
-      // Trouver et supprimer le message de chargement s'il existe encore
-      _conversations.removeWhere((msg) => msg['isLoading'] == true);
-      
-      // Ajouter la réponse de l'IA
-      _conversations.insert(0, {
-        'type': 'copilot',
-        'content': aiResponse.response,
-        'timestamp': DateTime.now().toIso8601String(),
-        'hasProfiles': aiResponse.profiles.isNotEmpty,
-        'intent': aiResponse.intent,
-        'resultCount': aiResponse.resultCount,
-        // Potentiellement ajouter 'analysisResults': aiResponse.analysisResults
-      });
-      
-      // Mettre à jour la liste des profils principaux
-      if (aiResponse.profiles.isNotEmpty) {
-        // Normaliser les types avant d'appliquer le lazy loading
-        final normalizedProfiles = _normalizeProfileTypes(aiResponse.profiles);
-        _applyLazyLoadingToTopList(normalizedProfiles);
-    } else {
-        _topExtractedProfiles = [];
-        _hasMoreTopProfilesToLoad = false;
+
+  // Helper to get the correct item (message or profile list) for a given ListView index
+  Map<String, dynamic> _getItemForIndex(int index) {
+    int currentItemIndex = 0;
+    int messageIndex = 0; // Keep track of the original message index
+    for (final message in _conversations) {
+      // Check if the current item is the message itself
+      if (currentItemIndex == index) {
+        return {'type': 'message', 'data': message};
       }
-      
-        _isLoading = false;
-      });
+      currentItemIndex++;
+      messageIndex++; // Increment message index after processing the message itself
 
-    _scrollToBottom();
-
-    // Logique de navigation basée sur l'intention (si nécessaire)
-    // Exemple: Si l'intention est une recherche géo, peut-être afficher la carte?
-    // if (aiResponse.intent == 'geo_search') { ... }
-    // Pour l'instant, on affiche juste la réponse et les profils.
+      // Check if this message has an associated profile list
+      final metadata = message['metadata'] as Map<String, dynamic>? ?? {};
+      final profiles = (metadata['profiles'] as List<dynamic>? ?? [])
+          .whereType<ProfileData>()
+          .toList();
+      if (message['type'] == 'copilot' && profiles.isNotEmpty) {
+        // Check if the current item is the profile list
+        if (currentItemIndex == index) {
+          return {'type': 'profile_list', 'data': profiles, 'message_index': messageIndex -1}; // Return profile list and original message index
+        }
+        currentItemIndex++;
+      }
+    }
+    // Should not be reached if _calculateListItemCount is correct
+    throw Exception("Index out of bounds in _getItemForIndex");
   }
 
-  // Navigue vers le profil utilisateur
-  void _navigateToUserProfile(String userId) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => ProfileScreen(
-          userId: userId,
+  // --- Updated _buildMessageBubble ---
+  Widget _buildMessageBubble(Map<String, dynamic> message, int listIndex) {
+    final isUser = message['type'] == 'user';
+    final metadata = message['metadata'] as Map<String, dynamic>? ?? {};
+    final bool isError = metadata['type'] == 'error';
+    final bool isLoading = metadata['isLoading'] == true; // Check if it's a loading placeholder
+    // Get text from metadata if available, otherwise from content (for user messages or older formats)
+    final String text = metadata['text'] as String? ?? message['content'] as String? ?? '';
+    final isIOS = Platform.isIOS;
+
+    // Handle loading message bubble separately
+    if (isLoading) {
+      return _buildLoadingMessage(text);
+    }
+
+    // Regular message bubble rendering
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: isIOS ? 6.0 : 8.0),
+      child: Row(
+        mainAxisAlignment: isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (!isUser) _buildAvatar(isUser),
+          SizedBox(width: isIOS ? 8.0 : 10.0),
+          Flexible(
+            child: Container(
+              padding: EdgeInsets.symmetric(
+                horizontal: isIOS ? 14.0 : 16.0,
+                vertical: isIOS ? 10.0 : 12.0,
+              ),
+              decoration: BoxDecoration(
+                color: isUser
+                    ? Colors.deepPurple.shade600
+                    : (isError ? Colors.red.shade50 : Colors.white),
+                borderRadius: BorderRadius.circular(isIOS ? 18.0 : 20.0).copyWith(
+                  bottomLeft: isUser ? Radius.circular(isIOS ? 18.0 : 20.0) : const Radius.circular(4),
+                  bottomRight: !isUser ? Radius.circular(isIOS ? 18.0 : 20.0) : const Radius.circular(4),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(isIOS ? 0.1 : 0.08),
+                    blurRadius: isIOS ? 4.0 : 6.0,
+                    offset: isIOS ? const Offset(0, 1) : const Offset(0, 2),
+                  ),
+                ],
+                border: !isUser ? Border.all(
+                  color: isError
+                      ? Colors.red.withOpacity(0.2)
+                      : (isIOS ? Colors.grey.withOpacity(0.3) : Colors.grey.withOpacity(0.2)),
+                  width: isIOS ? 0.5 : 1.0,
+                ) : null,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // --- Message Content Section (Text Only) ---
+                  if (isUser)
+                    SelectableText(
+                      text,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: isIOS ? 15.0 : 16.0,
+                        height: 1.4,
+                        letterSpacing: isIOS ? -0.2 : 0,
+                      ),
+                    )
+                  else // Copilot message rendering (Handles links within text)
+                    SelectableText.rich(
+                      TextSpan(
+                        style: TextStyle(
+                          color: isError ? Colors.red.shade800 : Colors.black87,
+                          fontSize: isIOS ? 15.0 : 16.0,
+                          height: 1.4,
+                          letterSpacing: isIOS ? -0.2 : 0,
+                        ),
+                        // Use the existing parser for links within the text
+                        children: AIService.parseMessageWithLinks(
+                          text,
+                          (type, id) => _navigateToProfile(type, id),
+                        ),
+                      ),
+                      enableInteractiveSelection: true,
+                      showCursor: true,
+                      cursorWidth: 2.0,
+                      cursorColor: Colors.deepPurple,
+                    ),
+                  // --- End Message Content Section ---
+
+                  // --- Message Footer Section ---
+                  // Pass the original message map to the footer builder
+                  _buildMessageFooter(message),
+                  // --- End Message Footer Section ---
+                ],
+              ),
+            ),
+          ).animate(delay: (50 * listIndex).ms) // Animate based on list index
+            .fadeIn(duration: 300.ms)
+            .slideX(
+              begin: isUser ? 0.2 : -0.2,
+              end: 0,
+              duration: 400.ms,
+              curve: Curves.easeOutCubic
+            ),
+          SizedBox(width: isIOS ? 8.0 : 10.0),
+          if (isUser) _buildAvatar(isUser),
+        ],
+      ),
+    );
+  }
+  // --- End Updated _buildMessageBubble ---
+
+
+  // --- New Helper Function for Horizontal Profile List ---
+  Widget _buildHorizontalProfileList(List<ProfileData> profiles, int messageIndex) {
+    if (profiles.isEmpty) {
+      return const SizedBox.shrink(); // Don't render if no profiles
+    }
+
+    final isIOS = Platform.isIOS;
+
+    return Container(
+      height: 160, // Adjusted height for compact cards + padding
+      margin: const EdgeInsets.only(top: 4.0, bottom: 8.0), // Add some margin
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        itemCount: profiles.length,
+        // Add padding for the list itself
+        padding: const EdgeInsets.symmetric(horizontal: 16.0),
+        physics: const BouncingScrollPhysics(), // Nice scroll physics
+        itemBuilder: (context, index) {
+          final profile = profiles[index];
+          return Padding(
+            // Padding between cards
+            padding: EdgeInsets.only(
+              right: index < profiles.length - 1 ? 12.0 : 0, // No padding after last card
+            ),
+            // Use the existing compact card builder
+            child: _buildCompactProfileCard(profile)
+                // Add subtle animation per card, delayed further
+                .animate(delay: (150 + 50 * messageIndex + 30 * index).ms)
+                .fadeIn(duration: 250.ms)
+                .move(begin: const Offset(0, 10), end: Offset.zero, curve: Curves.easeOut),
+          );
+        },
+      ),
+    );
+  }
+  // --- End New Helper Function ---
+
+
+  // ... (Existing helper functions: _formatTimestamp, _buildAvatar, _buildMessageFooter, _getIntentLabel, _buildCompactProfileCard, _getIconForType, _getColorForType, _navigateToVibeMap, _buildLoadingMessage, etc.) ...
+
+  // Builds the compact profile card (ensure implementation matches your needs)
+  Widget _buildCompactProfileCard(ProfileData profile) {
+    final Color typeColor = _getColorForType(profile.type ?? 'unknown');
+    final IconData typeIcon = _getIconForType(profile.type ?? 'unknown');
+    String imageUrl = profile.image ?? '';
+    final baseUrl = constants.getBaseUrlSync(); // Or use await getBaseUrl() if async needed
+
+    if (imageUrl.isNotEmpty) {
+      if (!imageUrl.startsWith('http') && !imageUrl.startsWith('data:')) {
+        imageUrl = imageUrl.startsWith('/') ? '$baseUrl$imageUrl' : '$baseUrl/$imageUrl';
+      }
+    } else {
+      imageUrl = ''; // Default placeholder handled by CachedNetworkImage
+    }
+
+    return Material(
+      borderRadius: BorderRadius.circular(12),
+      elevation: 2,
+      shadowColor: Colors.black.withOpacity(0.1),
+      child: InkWell(
+        onTap: () => _navigateToProfile(profile.type, profile.id),
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          width: 130, // Compact width
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey.withOpacity(0.15), width: 1),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Image section
+              Container(
+                height: 70,
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: typeColor.withOpacity(0.08),
+                  borderRadius: const BorderRadius.only(topLeft: Radius.circular(12), topRight: Radius.circular(12)),
+                ),
+                child: ClipRRect(
+                  borderRadius: const BorderRadius.only(topLeft: Radius.circular(12), topRight: Radius.circular(12)),
+                  child: CachedNetworkImage(
+                    imageUrl: imageUrl,
+                    fit: BoxFit.cover,
+                    placeholder: (context, url) => Center(child: Icon(typeIcon, color: typeColor.withOpacity(0.4), size: 20)),
+                    errorWidget: (context, url, error) => Center(child: Icon(typeIcon, color: typeColor.withOpacity(0.5), size: 24)),
+                  ),
+                ),
+              ),
+              // Text section
+              Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                     Text(
+                        profile.name ?? 'Inconnu',
+                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12.5),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                     ),
+                     const SizedBox(height: 3),
+                     if (profile.rating != null && profile.rating! > 0)
+                       Row(
+                          children: [
+                            Icon(Icons.star_rounded, color: Colors.amber.shade600, size: 14),
+                            const SizedBox(width: 3),
+                            Text(
+                               profile.rating!.toStringAsFixed(1),
+                               style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                       ),
+                   ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
+  }
+
+  // Builds the loading indicator message bubble
+  Widget _buildLoadingMessage(String text) {
+    final isIOS = Platform.isIOS;
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: isIOS ? 6.0 : 8.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildAvatar(false), // Copilot avatar
+          SizedBox(width: isIOS ? 8.0 : 10.0),
+          Flexible(
+            child: Container(
+              padding: EdgeInsets.symmetric(
+                horizontal: isIOS ? 14.0 : 16.0,
+                vertical: isIOS ? 10.0 : 12.0,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(isIOS ? 18.0 : 20.0).copyWith(bottomLeft: const Radius.circular(4)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(isIOS ? 0.1 : 0.08),
+                    blurRadius: isIOS ? 4.0 : 6.0,
+                    offset: isIOS ? const Offset(0, 1) : const Offset(0, 2),
+                  ),
+                ],
+                border: Border.all(
+                  color: isIOS ? Colors.grey.withOpacity(0.3) : Colors.grey.withOpacity(0.2),
+                  width: isIOS ? 0.5 : 1.0,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CupertinoActivityIndicator(radius: isIOS ? 10.0 : 12.0),
+                  const SizedBox(width: 12),
+                  Flexible( // Allow text to wrap if long
+                    child: Text(
+                      text.isNotEmpty ? text : "Traitement...", // Shorter default text
+                      style: TextStyle(
+                        color: Colors.black87,
+                        fontSize: isIOS ? 15.0 : 16.0,
+                      ),
+                      overflow: TextOverflow.ellipsis, // Prevent overflow
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Builds the typing indicator (dots animation)
+  Widget _buildTypingIndicator() {
+    // Similar structure to loading message but with dots
+    final isIOS = Platform.isIOS;
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: isIOS ? 6.0 : 8.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildAvatar(false),
+          SizedBox(width: isIOS ? 8.0 : 10.0),
+          Flexible(
+            child: Container(
+              padding: EdgeInsets.symmetric(
+                horizontal: isIOS ? 14.0 : 16.0,
+                vertical: isIOS ? 12.0 : 14.0, // Slightly more vertical padding for dots
+              ),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(isIOS ? 18.0 : 20.0).copyWith(bottomLeft: const Radius.circular(4)),
+                // Add shadows and borders if needed, like in _buildLoadingMessage
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(isIOS ? 0.1 : 0.08),
+                    blurRadius: isIOS ? 4.0 : 6.0,
+                    offset: isIOS ? const Offset(0, 1) : const Offset(0, 2),
+                  ),
+                ],
+                border: Border.all(
+                  color: isIOS ? Colors.grey.withOpacity(0.3) : Colors.grey.withOpacity(0.2),
+                  width: isIOS ? 0.5 : 1.0,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildDot(0),
+                  const SizedBox(width: 4),
+                  _buildDot(150),
+                  const SizedBox(width: 4),
+                  _buildDot(300),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Helper for typing indicator dots
+  Widget _buildDot(int delay) {
+    // Ensure _typingAnimationController is initialized and disposed properly
+    // Use FadeTransition or similar for animation
+    return FadeTransition(
+      opacity: CurvedAnimation(
+        parent: _typingAnimationController, // Make sure this controller is active
+        curve: Interval((delay / 600.0).clamp(0.0, 1.0), 1.0, curve: Curves.easeInOut),
+      ),
+      child: Container(
+        width: 8,
+        height: 8,
+        decoration: BoxDecoration(
+          color: Colors.teal.withOpacity(0.7),
+          shape: BoxShape.circle,
+        ),
+      ),
+    );
+  }
+
+  // Builds the avatar for user or copilot
+  Widget _buildAvatar(bool isUser) {
+    return CircleAvatar(
+      radius: 16,
+      backgroundColor: isUser ? Colors.deepPurple.shade300 : Colors.teal,
+      child: Icon(
+        isUser ? Icons.person_outline : Icons.emoji_objects_outlined, // Use outlined icons
+        color: Colors.white,
+        size: 18,
+      ),
+    );
+  }
+
+  // Builds the footer for a message bubble
+  Widget _buildMessageFooter(Map<String, dynamic> message) {
+    final isUser = message['type'] == 'user';
+    final metadata = message['metadata'] as Map<String, dynamic>? ?? {};
+    final isError = metadata['type'] == 'error';
+    final String? intent = metadata['intent'] as String?;
+    final int? resultCount = metadata['resultCount'] as int?;
+    // Ensure timestamp exists and is a string before parsing
+    final timestampString = message['timestamp'] as String?;
+    final timestamp = timestampString != null
+        ? _formatTimestamp(timestampString) // Format if valid
+        : ''; // Provide empty string or default if invalid/missing
+    final isIOS = Platform.isIOS;
+
+    // Don't show footer for loading messages
+    if (metadata['type'] == 'loading') return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.start, // Align to start
+        mainAxisSize: MainAxisSize.min, // Take minimum space
+        children: [
+          Text(
+            timestamp, // Use formatted timestamp
+            style: TextStyle(
+              color: isUser ? Colors.white70 : Colors.grey[600],
+              fontSize: isIOS ? 11.0 : 12.0,
+            ),
+          ),
+          // Result count badge (if available and not error/user)
+          if (!isUser && !isError && resultCount != null && resultCount > 0) ...[
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.deepPurple.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                '$resultCount résultat${resultCount > 1 ? 's' : ''}',
+                style: TextStyle(
+                  fontSize: 10,
+                  color: Colors.deepPurple[700],
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ],
+          // Intent badge (if available and not error/user/unknown)
+          if (!isUser && !isError && intent != null && intent != 'unknown' && intent != 'error' && intent != 'welcome') ...[
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.teal.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                _getIntentLabel(intent), // Use helper for friendly label
+                style: TextStyle(
+                  fontSize: 10,
+                  color: Colors.teal[700],
+                  fontWeight: FontWeight.w500,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // Formats the timestamp string
+  String _formatTimestamp(String timestamp) {
+    try {
+      final dateTime = DateTime.parse(timestamp).toLocal(); // Convert to local time
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final messageDate = DateTime(dateTime.year, dateTime.month, dateTime.day);
+
+      // Consider using the intl package for more robust formatting
+      // import 'package:intl/intl.dart';
+      if (messageDate == today) {
+        // return DateFormat('HH:mm').format(dateTime); // Example with intl
+        return '${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
+
+      } else {
+        // return DateFormat('dd/MM HH:mm').format(dateTime); // Example with intl
+        return '${dateTime.day.toString().padLeft(2, '0')}/${dateTime.month.toString().padLeft(2, '0')} ${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
+      }
+    } catch (e) {
+      print("Error formatting timestamp '$timestamp': $e");
+      return "--:--"; // Fallback for invalid format
+    }
+  }
+
+  // Gets a user-friendly label for an intent
+  String _getIntentLabel(String intent) {
+    switch (intent.toLowerCase()) {
+      case 'restaurant_search': return 'Restaurant';
+      case 'leisure_search': return 'Loisir';
+      case 'event_search': return 'Événement';
+      case 'wellness_search': return 'Bien-être';
+      case 'beauty_search': return 'Beauté';
+      case 'recommendation': return 'Suggestion';
+      case 'information': return 'Info';
+      case 'producer_analysis': return 'Analyse Pro';
+      // Add more mappings as needed
+      default:
+        // Capitalize first letter as a simple default formatting
+        if (intent.isEmpty) return 'Inconnu';
+        return intent[0].toUpperCase() + intent.substring(1);
+    }
+  }
+
+  // Gets the icon for a profile type
+  IconData _getIconForType(String type) {
+    switch (type.toLowerCase()) {
+      case 'restaurant': return Icons.restaurant_menu_outlined;
+      case 'leisureproducer': return Icons.local_activity_outlined;
+      case 'wellnessproducer': return Icons.spa_outlined;
+      case 'beautyplace': return Icons.face_retouching_natural_outlined;
+      case 'event': return Icons.event_outlined;
+      case 'user': return Icons.person_outline;
+      default: return Icons.place_outlined;
+    }
+  }
+
+  // Gets the color for a profile type
+  Color _getColorForType(String type) {
+    switch (type.toLowerCase()) {
+      case 'restaurant': return Colors.orange.shade600;
+      case 'leisureproducer': return Colors.purple.shade600;
+      case 'wellnessproducer': return Colors.teal.shade600;
+      case 'beautyplace': return Colors.pink.shade400;
+      case 'event': return Colors.green.shade600;
+      case 'user': return Colors.blue.shade600;
+      default: return Colors.grey.shade600;
+    }
+  }
+
+  // Added missing _navigateToUserProfile
+  void _navigateToUserProfile(String userId) {
+    if (userId.isEmpty) {
+      _showNavigationError("ID utilisateur manquant.");
+      return;
+    }
+    // Use GoRouter if configured, otherwise use Navigator
+    try {
+      context.push('/profile/$userId');
+    } catch (e) {
+      print("GoRouter navigation to profile failed: $e");
+      // Fallback or show specific error
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => ProfileScreen(userId: userId)),
+      );
+    }
+  }
+
+  // --- Navigation ---
+  void _navigateToProfile(String type, String id) {
+    print('📊 Navigation vers le profil de type $type avec ID: $id');
+    if (id.isEmpty) {
+      _showNavigationError("ID manquant pour la navigation.");
+      return;
+    }
+    try {
+      switch (type.toLowerCase()) {
+        case 'restaurant':
+          context.push('/producers/$id');
+          break;
+        case 'leisureproducer':
+          context.push('/leisureProducers/$id');
+          break;
+        case 'wellnessproducer':
+          context.push('/wellness/$id?isWellness=true');
+          break;
+        case 'beautyplace':
+          context.push('/wellness/$id?isBeauty=true');
+          break;
+        case 'event':
+          context.push('/events/$id');
+          break;
+        case 'user':
+          _navigateToUserProfile(id);
+          break;
+        case 'generic':
+        case 'unknown':
+          _attemptNavigationWithMultipleTypes(id);
+          break;
+        default:
+          _showNavigationError("Type de profil non reconnu: $type");
+      }
+    } catch (e) {
+      _showNavigationError('Erreur de navigation GoRouter: $e');
+    }
   }
 }

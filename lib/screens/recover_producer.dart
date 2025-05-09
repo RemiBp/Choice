@@ -420,6 +420,7 @@ class _RecoverProducerPageState extends State<RecoverProducerPage> with SingleTi
         iconTheme: IconThemeData(color: _currentColor),
         bottom: TabBar(
           controller: _tabController,
+          isScrollable: true,
           tabs: [
             Tab(
               child: Row(

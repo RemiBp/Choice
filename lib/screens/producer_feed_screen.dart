@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:video_player/video_player.dart';
 import 'package:visibility_detector/visibility_detector.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'dart:convert'; // Add import for base64Decode
 
 // Import Models and Services
 import '../models/post.dart';
@@ -38,6 +39,14 @@ const List<String> _wellnessCategories = ['Tous', 'Soins', 'Cours', 'Ateliers', 
 
 // --- Helper Functions (Define or Import) ---
 // Moved to producer_post_card.dart, ensure they are accessible there or move to utils.dart
+
+// --- Helper Functions for Image Handling ---
+// Add this utility function to handle base64 images
+ImageProvider? getImageProviderFromSource(String? imageSource) {
+  // Use the existing getImageProvider function from utils.dart
+  // This ensures consistency across the app
+  return getImageProvider(imageSource);
+}
 
 class ProducerFeedScreen extends StatefulWidget {
   final String userId; // Logged-in user ID

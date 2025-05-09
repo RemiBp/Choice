@@ -6,7 +6,6 @@ import 'post_detail_screen.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'profile_screen.dart';
-import 'producerLeisure_screen.dart';
 import 'producer_screen.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -35,8 +34,8 @@ import '../utils.dart' show getImageProvider, safeGetBool;
 import '../models/post.dart'; // USE this import for the consolidated Post model
 // Corrected imports for widgets relative to screens directory
 import 'widgets/profile_header.dart'; 
-import 'widgets/global_menus_list.dart';
-import 'widgets/filtered_items_list.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import '../widgets/producer_menu_card.dart'; // Import for ProducerMenuCard
 
 
 class MyProducerProfileScreen extends StatefulWidget {
@@ -231,8 +230,7 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
       
       if (response.statusCode == 200 && mounted) {
         final data = json.decode(response.body);
-        // Use safeGetBool for 'active' field
-        if (safeGetBool(data, 'active') == true && data['endDate'] != null) {
+        if (data['active'] == true && data['endDate'] != null) {
           setState(() {
             _hasActivePromotion = true;
             _promotionEndDate = DateTime.parse(data['endDate']);
@@ -791,6 +789,287 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
     );
   }
 
+  // *** ADDED: Helper for Global Menus (adapted from myproducerprofile_screen (2).dart) ***
+  List<Widget> _buildGlobalMenusWidgets(Map<String, dynamic> producer) {
+    final menus = producer['structured_data']?['Menus Globaux'] ?? [];
+    if (menus.isEmpty || !(menus is List)) {
+      return [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16.0),
+          child: Text('Aucun menu global disponible.'),
+        )
+      ];
+    }
+    
+    return menus.map<Widget>((menu) {
+      if (menu is! Map<String, dynamic>) return const SizedBox.shrink();
+      
+      final inclus = menu['inclus'] ?? [];
+      final originalPrice = double.tryParse(menu['prix']?.toString() ?? '0') ?? 0;
+      final discountedPrice = _hasActivePromotion ? originalPrice * (1 - _promotionDiscount / 100) : null;
+      
+      return Card(
+        margin: const EdgeInsets.symmetric(vertical: 8.0),
+        elevation: 2,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.orange.withOpacity(0.1),
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(12),
+                  topRight: Radius.circular(12),
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Text(
+                      menu['nom'] ?? 'Menu sans nom',
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
+                    ),
+                  ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      if (_hasActivePromotion && discountedPrice != null)
+                        Text(
+                          '${originalPrice.toStringAsFixed(2)} €',
+                          style: const TextStyle(fontSize: 14, decoration: TextDecoration.lineThrough, color: Colors.grey),
+                        ),
+                      Text(
+                        _hasActivePromotion && discountedPrice != null
+                            ? '${discountedPrice.toStringAsFixed(2)} €'
+                            : '${originalPrice.toStringAsFixed(2)} €',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _hasActivePromotion ? Colors.red : Colors.black87),
+                      ),
+                      if (_hasActivePromotion)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(8)),
+                          child: Text('-${_promotionDiscount.toStringAsFixed(0)}%', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white)),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            // ExpansionTile for details
+            ExpansionTile(
+              title: const Text('Voir le détail', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Colors.orangeAccent)),
+              tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
+              children: (inclus is List ? inclus as List : []).cast<Map<String, dynamic>>().map<Widget>((inclusItem) { // Fixed cast
+                final items = inclusItem['items'] ?? [];
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+                        decoration: BoxDecoration(color: Colors.grey[200], borderRadius: BorderRadius.circular(4)),
+                        child: Text(inclusItem['catégorie'] ?? 'Non spécifié', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black87)),
+                      ),
+                      const SizedBox(height: 8),
+                      ...(items is List ? items as List : []).cast<Map<String, dynamic>>().map<Widget>((item) { // Fixed cast
+                        return Card(
+                          elevation: 0, color: Colors.grey[50], margin: const EdgeInsets.only(bottom: 8),
+                          child: Padding(
+                            padding: const EdgeInsets.all(12.0),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Expanded(child: Text(item['nom'] ?? 'Nom non spécifié', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
+                                    if (item['note'] != null) _buildCompactRatingStars(item['note']),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                Text(item['description'] ?? 'Pas de description', style: TextStyle(fontSize: 14, color: Colors.grey[700])),
+                              ],
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ],
+                  ),
+                );
+              }).toList(),
+            ),
+          ],
+        ),
+      );
+    }).toList();
+  }
+  
+  // *** ADDED: Helper for Filtered Items (adapted from myproducerprofile_screen (2).dart) ***
+  List<Widget> _buildFilteredItemsWidgets(Map<String, dynamic> producer) {
+    if (!producer.containsKey('structured_data') || producer['structured_data'] == null) return [Text('Aucun item indépendant.')];
+    final structuredData = producer['structured_data'] as Map<String, dynamic>?;
+    if (structuredData == null) return [Text('Données structurées invalides.')];
+    final itemsData = structuredData['Items Indépendants'];
+    if (itemsData == null || !(itemsData is List) || itemsData.isEmpty) {
+      return [Text('Aucun item indépendant trouvé.')];
+    }
+    
+    final List<Widget> filteredWidgets = [];
+    
+    for (var category in itemsData) {
+      if (category is! Map<String, dynamic>) continue;
+      final categoryName = category['catégorie']?.toString().trim() ?? 'Autres';
+      final categoryItems = category['items'];
+      if (categoryItems == null || !(categoryItems is List) || categoryItems.isEmpty) continue;
+      
+      final List<Widget> itemsInCategory = [];
+      for (var item in categoryItems) {
+        if (item is! Map<String, dynamic>) continue;
+        
+        // Safely extract nutritional values
+        double carbonFootprint = 0.0;
+        try {
+          carbonFootprint = double.tryParse(item['carbon_footprint']?.toString() ?? '0') ?? 0.0;
+        } catch (_) {}
+        String nutriScore = item['nutri_score']?.toString() ?? 'N/A';
+        double calories = 0.0;
+        try {
+          var calVal = item['nutrition']?['calories'] ?? item['calories'];
+          calories = double.tryParse(calVal?.toString() ?? '0') ?? 0.0;
+        } catch (_) {}
+        
+        // Apply filters
+        bool passesCarbon = carbonFootprint <= (_selectedCarbon == "<3kg" ? 3 : 5);
+        bool passesNutri = nutriScore.isNotEmpty && nutriScore.compareTo(_selectedNutriScore == "A-B" ? 'C' : 'D') < 0;
+        bool passesCalories = calories <= _selectedMaxCalories;
+        
+        if (passesCarbon && passesNutri && passesCalories) {
+          final originalPrice = double.tryParse(item['prix']?.toString() ?? '0') ?? 0;
+          final discountedPrice = _hasActivePromotion ? originalPrice * (1 - _promotionDiscount / 100) : null;
+          
+          itemsInCategory.add(
+            Card(
+              margin: const EdgeInsets.symmetric(horizontal: 0, vertical: 6),
+              elevation: 1, color: Colors.grey[50],
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey[200]!)),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(child: Text(item['nom'] ?? 'Nom non spécifié', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
+                                  if (item['note'] != null) _buildCompactRatingStars(item['note']),
+                                ],
+                              ),
+                              if (item['description'] != null && item['description'].toString().isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 4),
+                                  child: Text(item['description'], style: TextStyle(fontSize: 14, color: Colors.grey[700]), maxLines: 2, overflow: TextOverflow.ellipsis),
+                                ),
+                            ],
+                          ),
+                        ),
+                        if (originalPrice > 0)
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              if (_hasActivePromotion && discountedPrice != null)
+                                Text('${originalPrice.toStringAsFixed(2)} €', style: const TextStyle(fontSize: 12, decoration: TextDecoration.lineThrough, color: Colors.grey)),
+                              Text(_hasActivePromotion && discountedPrice != null ? '${discountedPrice.toStringAsFixed(2)} €' : '${originalPrice.toStringAsFixed(2)} €',
+                                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: _hasActivePromotion ? Colors.red : Colors.black87),
+                              ),
+                              if (_hasActivePromotion)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(8)),
+                                  child: Text('-${_promotionDiscount.toStringAsFixed(0)}%', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white)),
+                                ),
+                            ],
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 8), const Divider(height: 1), const SizedBox(height: 8),
+                    Row( // Nutritional info
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(children: [const Icon(Icons.eco, size: 16, color: Colors.green), const SizedBox(width: 4), Text('${carbonFootprint.toStringAsFixed(1)} kg', style: const TextStyle(fontSize: 12, color: Colors.green, fontWeight: FontWeight.w500))]),
+                        Row(children: [const Icon(Icons.health_and_safety, size: 16, color: Colors.blue), const SizedBox(width: 4), Text('Nutri: $nutriScore', style: const TextStyle(fontSize: 12, color: Colors.blue, fontWeight: FontWeight.w500))]),
+                        Row(children: [const Icon(Icons.local_fire_department, size: 16, color: Colors.orange), const SizedBox(width: 4), Text('${calories.toInt()} cal', style: const TextStyle(fontSize: 12, color: Colors.orange, fontWeight: FontWeight.w500))]),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            )
+          );
+        }
+      }
+      
+      if (itemsInCategory.isNotEmpty) {
+        filteredWidgets.add(
+          ExpansionTile(
+            initiallyExpanded: true,
+            title: Row(
+              children: [
+                Icon(Icons.category_outlined, size: 18, color: Colors.grey),
+                SizedBox(width: 8),
+                Text(categoryName, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(color: Colors.grey[200], borderRadius: BorderRadius.circular(12)),
+                  child: Text('${itemsInCategory.length}', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black54)),
+                ),
+              ],
+            ),
+            children: itemsInCategory,
+          )
+        );
+      }
+    }
+    
+    if (filteredWidgets.isEmpty) {
+      return [Center(child: Padding(padding: EdgeInsets.symmetric(vertical: 20), child: Text('Aucun plat ne correspond aux filtres.')))];
+    }
+    
+    return filteredWidgets;
+  }
+
+  // *** ADDED: Helper for Compact Rating Stars (needed by menu/item builders) ***
+  Widget _buildCompactRatingStars(dynamic rating) {
+    double ratingValue = rating is int ? rating.toDouble() : 
+                        rating is double ? rating : 
+                        rating is String ? double.tryParse(rating) ?? 0.0 : 0.0;
+    
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: List.generate(5, (index) {
+        return Icon(
+          index < ratingValue.floor() 
+              ? Icons.star 
+              : index < ratingValue 
+                  ? Icons.star_half 
+                  : Icons.star_border,
+          color: Colors.amber,
+          size: 16,
+        );
+      }),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1020,7 +1299,7 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
                   children: [
                     const Icon(Icons.error_outline, size: 60, color: Colors.red),
                     const SizedBox(height: 16),
-                    Text('Erreur : \\${snapshot.error}', style: const TextStyle(fontSize: 16)),
+                    Text('Erreur : \${snapshot.error}', style: const TextStyle(fontSize: 16)),
                     const SizedBox(height: 16),
                     ElevatedButton(
                       style: ElevatedButton.styleFrom(backgroundColor: Colors.orangeAccent),
@@ -1208,22 +1487,22 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
                                        delegate: SliverChildListDelegate([
                                          Text("Menu Complet", style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
                                          const SizedBox(height: 8),
-                                         GlobalMenusList(
-                                           producer: producer,
-                                           hasActivePromotion: _hasActivePromotion,
-                                           promotionDiscount: _promotionDiscount,
-                                         ),
+                                         // *** MODIFICATION START: Integrate GlobalMenusList content directly ***
+                                         // Instead of calling GlobalMenusList(...), we assume it builds
+                                         // a list of widgets representing the menus.
+                                         // We'll need to replicate or adjust its build logic here if needed.
+                                         // For now, let's add a placeholder or assume it returns appropriate widgets.
+                                         // TODO: Replace this with the actual widgets built by GlobalMenusList
+                                         ..._buildGlobalMenusWidgets(producer), // Use spread operator
+                                         // *** MODIFICATION END ***
                                          const SizedBox(height: 24),
                                          Text("Plats Individuels", style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
                                          const SizedBox(height: 8),
-                                         FilteredItemsList(
-                                           producer: producer,
-                                           selectedCarbon: _selectedCarbon,
-                                           selectedNutriScore: _selectedNutriScore,
-                                           selectedMaxCalories: _selectedMaxCalories,
-                                           hasActivePromotion: _hasActivePromotion,
-                                           promotionDiscount: _promotionDiscount,
-                                         ),
+                                         // *** MODIFICATION START: Integrate FilteredItemsList content directly ***
+                                         // Similar to GlobalMenusList, avoid nesting lists.
+                                         // TODO: Replace this with the actual widgets built by FilteredItemsList
+                                         ..._buildFilteredItemsWidgets(producer), // Use spread operator
+                                         // *** MODIFICATION END ***
                                        ]),
                                      ),
                                    ),
@@ -1313,15 +1592,34 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
 
   // Navigation vers la liste détaillée des profils
   void _navigateToRelationDetails(String relationType) async {
+    // --- CORRECTION: Ne pas valider les profils ici, RelationDetailsScreen les charge ---
+    // final ids = getUserIds(data[relationType.toLowerCase()]); // 'data' n'est pas accessible ici
+    // if (ids.isEmpty) {
+    //   ScaffoldMessenger.of(context).showSnackBar(
+    //     const SnackBar(content: Text('Aucun profil à afficher.')),
+    //   );
+    //   return;
+    // }
+    // final validProfiles = await _validateProfiles(ids);
+    // if (validProfiles.isNotEmpty && mounted) {
+
+    // --- CORRECTION: Passer uniquement producerId et relationType ---
       Navigator.push(
         context,
         MaterialPageRoute(
           builder: (context) => RelationDetailsScreen(
-          producerId: widget.producerId,
+          producerId: widget.producerId, // Utilise widget.producerId
           relationType: relationType,
+          // --- CORRECTION: Supprimer le paramètre 'profiles' ---
+          // profiles: validProfiles,
           ),
         ),
       );
+    // } else {
+    //   ScaffoldMessenger.of(context).showSnackBar(
+    //     const SnackBar(content: Text('Aucun profil valide trouvé.')),
+    //   );
+    // }
   }
   
   // Bannière de promotion active
@@ -1618,7 +1916,6 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
                       ),
                     ),
                     const SizedBox(width: 16),
-                    
                     // Informations principales
                     Expanded(
                       child: Column(
@@ -1657,7 +1954,6 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
                             ],
                           ),
                           const SizedBox(height: 8),
-                          
                           // Note avec étoiles améliorée
                           Row(
                             children: [
@@ -1673,7 +1969,6 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
                             ],
                           ),
                           const SizedBox(height: 8),
-                          
                           // Adresse avec icône
                           if (data['address'] != null && data['address'].toString().isNotEmpty)
                             Row(
@@ -1738,9 +2033,7 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
                                   ),
                                 ],
                               ),
-
                           const SizedBox(height: 8),
-                          
                           // Description
                           Text(
                             data['description'] ?? 'Description non spécifiée',
@@ -1757,9 +2050,7 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
                     ),
                   ],
                 ),
-                
                 const SizedBox(height: 20),
-                
                 // Boutons d'action améliorés
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -1771,12 +2062,11 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
                         _showEditProfileDialog(data);
                       },
                     ),
-                    
                     _buildActionButton(
                       icon: Icons.monetization_on_outlined,
                       label: _hasActivePromotion ? 'Promo active' : 'Promotion',
                       onTap: () {
-                        if (_hasActivePromotion == true) {
+                        if (_hasActivePromotion) {
                           showDialog(
                             context: context,
                             builder: (context) => AlertDialog(
@@ -1807,9 +2097,8 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
                           _showPromotionDialog();
                         }
                       },
-                      isHighlighted: _hasActivePromotion == true,
+                      isHighlighted: _hasActivePromotion,
                     ),
-                    
                     _buildActionButton(
                       icon: Icons.insights,
                       label: 'Statistiques',
@@ -1822,7 +2111,6 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
                         );
                       },
                     ),
-                    
                     _buildActionButton(
                       icon: Icons.people,
                       label: 'Clients',
@@ -1999,7 +2287,7 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
         filteredTimes = List.generate(16, (index) => 0);
       }
     } catch (e) {
-      print("❌ Erreur lors de l\'extraction des données de popularité: $e");
+      print("❌ Erreur lors de l'extraction des données de popularité: $e");
       filteredTimes = List.generate(16, (index) => 0);
     }
 
@@ -2652,10 +2940,53 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
             height: 500, // Augmenter la hauteur pour l'onglet d'abonnement
             child: TabBarView(
               children: [
-                GlobalMenusList(
-                  producer: producer,
-                  hasActivePromotion: _hasActivePromotion,
-                  promotionDiscount: _promotionDiscount,
+                // Onglet Menu - Utilise une CustomScrollView et les helpers existants
+                SafeArea(
+                  top: false,
+                  bottom: false,
+                  child: Builder(
+                    builder: (BuildContext context) {
+                      // Le handle est nécessaire si ce TabBarView est dans un NestedScrollView
+                      // S'il n'est pas dans un NestedScrollView, vous pouvez potentiellement
+                      // simplifier en utilisant juste un ListView.
+                      final handle = NestedScrollView.sliverOverlapAbsorberHandleFor(context);
+                      return CustomScrollView(
+                        key: const PageStorageKey<String>('menuTab'),
+                        slivers: <Widget>[
+                          SliverOverlapInjector(handle: handle), // Injecte le padding de l'appBar
+                          SliverPadding(
+                            padding: const EdgeInsets.all(16.0),
+                            sliver: SliverList(
+                              delegate: SliverChildListDelegate([
+                                // Titre pour Menus Globaux
+                                Text(
+                                   "Menu Complet", // Ou un autre titre si vous préférez
+                                   style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)
+                                 ),
+                                const SizedBox(height: 16), // Espace ajouté
+                                // Utiliser votre fonction helper existante pour les menus globaux
+                                ..._buildGlobalMenusWidgets(producer), // Utilisation de l'opérateur spread '...'
+
+                                const SizedBox(height: 24), // Espace entre les sections
+
+                                // Titre pour Items Indépendants
+                                Text(
+                                   "Plats Individuels", // Ou un autre titre
+                                   style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)
+                                 ),
+                                const SizedBox(height: 16), // Espace ajouté
+                                // Section pour les filtres (si vous voulez les garder ici)
+                                _buildFilterOptions(),
+                                const SizedBox(height: 16), // Espace ajouté
+                                // Utiliser votre fonction helper existante pour les items filtrés/indépendants
+                                ..._buildFilteredItemsWidgets(producer), // Utilisation de l'opérateur spread '...'
+                              ]),
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
                 ),
                 _buildPhotosSection(producer['photos'] ?? []),
                 _buildPostsSection(),
@@ -2667,7 +2998,6 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
       ),
     );
   }
-  
   // Construction de l'onglet d'abonnement
   Widget _buildSubscriptionTab() {
     return SingleChildScrollView(
@@ -3065,41 +3395,6 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
     );
   }
   
-  // Widget pour afficher les étoiles de notation en format compact
-  Widget _buildCompactRatingStars(dynamic rating) {
-    double ratingValue = 0.0;
-    // --- FIX: More robust check for rating type --- 
-    if (rating is num) { // Handles both int and double
-      ratingValue = rating.toDouble();
-    } else if (rating is String) {
-      ratingValue = double.tryParse(rating) ?? 0.0;
-    } // If rating is null or other type, ratingValue remains 0.0
-    
-    // Ensure ratingValue is within a sensible range (e.g., 0-5)
-    ratingValue = ratingValue.clamp(0.0, 5.0);
-
-    // --- FIX: Add check for rating > 0 before displaying stars --- 
-    if (ratingValue <= 0) {
-      // Optionally return an empty container or placeholder if rating is 0 or invalid
-      return const SizedBox.shrink(); 
-    }
-    
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(Icons.star, color: Colors.amber, size: 16),
-        const SizedBox(width: 2),
-        Text(
-          ratingValue.toStringAsFixed(1),
-          style: const TextStyle(
-            fontSize: 14, 
-            fontWeight: FontWeight.bold, 
-            color: Colors.amber,
-          ),
-        ),
-      ],
-    );
-  }
 
   Widget _buildPhotosSection(List<dynamic> photos) {
     if (photos.isEmpty) {
@@ -3355,37 +3650,6 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
     );
   }
 
-  // Updated navigation function to accept Post object if needed, or adapt PostDetailScreen
-  // Option 1: Keep PostDetailScreen accepting Map (might need adjustments there)
-  void _navigateToPostDetail(Map<String, dynamic> postData) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => PostDetailScreen(
-          postId: postData['_id'] ?? '',
-          userId: widget.producerId,
-        ),
-      ),
-    );
-  }
-
-  // Option 2: Create a new function if PostDetailScreen is refactored for Post object
-   void _navigateToPostDetailFromPostObject(Post post) {
-     // --- FIX: Call PostDetailScreen with its required arguments --- 
-     Navigator.push(
-       context,
-       MaterialPageRoute(
-         builder: (context) => PostDetailScreen(
-           // Pass only postId and userId as required by PostDetailScreen constructor
-           postId: post.id, 
-           userId: widget.producerId, 
-           // Optionally pass referringScreen if needed
-           // referringScreen: 'MyProducerProfileScreen',
-        ),
-      ),
-    );
-  }
-
   Widget _buildMap(Map<String, dynamic>? coordinates) {
     try {
       // Vérification que coordinates et coordinates['coordinates'] existent
@@ -3450,48 +3714,54 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
   }
 
   Widget _buildProfileActions(Map<String, dynamic> data) {
-    // Helper function to safely get counts
     int getCount(dynamic field) {
       if (field is int) return field;
       if (field is List) return field.length;
       if (field is Map && field['count'] is int) return field['count'];
+      if (field is Map && field.isNotEmpty) return field.values.whereType<String>().length;
       return 0;
     }
-
-    // Get counts using the helper
-    final followersCount = getCount(data['followers'] ?? data['abonnés']);
-    final followingCount = getCount(data['following']);
-    final interestedCount = getCount(data['interestedUsers']);
-    final choicesCount = getCount(data['choiceUsers']);
-
-    // Function to safely get user list from potentially complex data structures
     List<String> getUserIds(dynamic field) {
       if (field is List) return field.whereType<String>().toList();
       if (field is Map && field['users'] is List) return (field['users'] as List).whereType<String>().toList();
+      if (field is Map && field.isNotEmpty) return field.values.whereType<String>().toList();
       return [];
     }
-
-    // *** MODIFIED Navigation Logic ***
-    void _navigateToRelationDetails(String relationType) {
+    void _navigateToRelationDetailsWrapper(String title, List<String> ids) async {
+      if (ids.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Aucun profil à afficher.')),
+        );
+        return;
+      }
+      final validProfiles = await _validateProfiles(ids);
+      if (validProfiles.isNotEmpty && mounted) {
         Navigator.push(
           context,
           MaterialPageRoute(
             builder: (context) => RelationDetailsScreen(
-            producerId: widget.producerId,
-            relationType: relationType,
+              producerId: widget.producerId, // Pass producerId
+              relationType: title, // Pass relationType
             ),
           ),
         );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Aucun profil valide trouvé.')),
+        );
+      }
     }
-
+    final followersCount = getCount(data['followers'] ?? data['abonnés']);
+    final followingCount = getCount(data['following']);
+    final interestedCount = getCount(data['interestedUsers']);
+    final choicesCount = getCount(data['choiceUsers']);
     return Padding(
       padding: const EdgeInsets.all(16.0),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
           GestureDetector(
-            // Pass the relation type directly
-            onTap: () => _navigateToRelationDetails('followers'), 
+            onTap: () => _navigateToRelationDetailsWrapper('Followers', getUserIds(data['followers'])),
             child: Column(
               children: [
                 Text('$followersCount', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
@@ -3500,8 +3770,7 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
             ),
           ),
           GestureDetector(
-            // Pass the relation type directly
-            onTap: () => _navigateToRelationDetails('following'), 
+            onTap: () => _navigateToRelationDetailsWrapper('Following', getUserIds(data['following'])),
             child: Column(
               children: [
                 Text('$followingCount', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
@@ -3509,21 +3778,23 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
               ],
             ),
           ),
-          // Note: 'interestedUsers' and 'choiceUsers' might not be standard relation types 
-          // that RelationDetailsScreen can handle. Verify if the backend supports these.
-          // Assuming for now they are not meant to be navigable lists like followers/following.
-          // If they should be, adjust the API call in RelationDetailsScreen accordingly.
-          Column(
+          GestureDetector(
+            onTap: () => _navigateToRelationDetailsWrapper('Interested', getUserIds(data['interestedUsers'])),
+            child: Column(
               children: [
                 Text('$interestedCount', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                 const Text('Interested'),
               ],
             ),
-          Column(
+          ),
+          GestureDetector(
+            onTap: () => _navigateToRelationDetailsWrapper('Choices', getUserIds(data['choiceUsers'])),
+            child: Column(
               children: [
                 Text('$choicesCount', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                 const Text('Choices'),
               ],
+            ),
           ),
         ],
       ),
@@ -3883,6 +4154,20 @@ class _MyProducerProfileScreenState extends State<MyProducerProfileScreen> with 
           );
         },
         childCount: photos.length,
+      ),
+    );
+  }
+
+  void _navigateToPostDetailFromPostObject(Post post) {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+        builder: (context) => PostDetailScreen(
+          postId: post.id,
+          userId: widget.producerId,
+          // Optionnel si nécessaire
+          referringScreen: 'MyProducerProfileScreen',
+        ),
       ),
     );
   }

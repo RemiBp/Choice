@@ -1614,7 +1614,7 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> with SingleTick
         
         // Contenu de la section (charge, erreur ou données)
         SizedBox(
-          height: 190,
+          height: 250, // Increased height from 190
           child: isLoading
               ? _buildSectionLoading(accentColor)
               : errorMessage.isNotEmpty
@@ -2319,8 +2319,8 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> with SingleTick
                       ],
                     ),
                     
-                    const SizedBox(height: 10),
-                    
+                    const SizedBox(height: 8), // Reduced height
+
                     // Note avec étoiles graphiques
                     Row(
                       children: [
@@ -2339,8 +2339,8 @@ class _ProducerSearchPageState extends State<ProducerSearchPage> with SingleTick
                       ],
                     ),
                     
-                    const SizedBox(height: 10),
-                    
+                    const SizedBox(height: 8), // Reduced height
+
                     // Bouton voir plus
                         Container(
                       width: double.infinity,

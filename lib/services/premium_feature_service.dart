@@ -19,6 +19,13 @@ class PremiumFeatureService {
   /// Récupère les informations d'abonnement d'un producteur
   Future<Map<String, dynamic>> getSubscriptionInfo(String producerId) async {
     try {
+      // Vérifier d'abord si nous avons des infos en local
+      final localData = await getLocalSubscriptionInfo(producerId);
+      if (localData != null) {
+        // On utilise les données locales comme fallback, mais on continue de récupérer les données à jour
+        print('ℹ️ Utilisation des données d\'abonnement locales pour $producerId');
+      }
+      
       final token = await AuthService.getTokenStatic(); // Get token
       final response = await http.get(
         Uri.parse('${constants.getBaseUrl()}/api/premium-features/subscription-info/$producerId'),
@@ -26,17 +33,42 @@ class PremiumFeatureService {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token', // Add token header
         },
+      ).timeout(
+        const Duration(seconds: 5), // Timeout de 5 secondes
+        onTimeout: () {
+          print('⚠️ Timeout lors de la récupération des infos d\'abonnement - Utilisation des valeurs par défaut');
+          if (localData != null) {
+            return http.Response(json.encode(localData), 200);
+          }
+          throw Exception('Timeout lors de la récupération des informations d\'abonnement');
+        },
       );
       
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
+        // Sauvegarder les données localement pour les utiliser comme fallback
+        saveSubscriptionInfoLocally(producerId, data);
         return data;
+      } else if (response.statusCode == 502 || response.statusCode >= 500) {
+        print('⚠️ Erreur serveur (${response.statusCode}) lors de la récupération des infos d\'abonnement');
+        // Utiliser les données locales si disponibles en cas d'erreur serveur
+        if (localData != null) {
+          return localData;
+        }
+        throw Exception('Erreur lors de la récupération des informations d\'abonnement (Code: ${response.statusCode})');
       } else {
         throw Exception('Erreur lors de la récupération des informations d\'abonnement (Code: ${response.statusCode})');
       }
     } catch (e) {
       print('❌ Erreur dans getSubscriptionInfo: $e');
-      rethrow;
+      // En cas d'erreur, retourner un niveau gratuit par défaut
+      return {
+        'subscription': {
+          'level': 'gratuit',
+          'status': 'active',
+          'expiresAt': null
+        }
+      };
     }
   }
   
@@ -50,11 +82,19 @@ class PremiumFeatureService {
     try {
       final token = await AuthService.getTokenStatic(); // Get token
       final url = Uri.parse('${constants.getBaseUrl()}/api/premium-features/can-access/$producerId/$featureId');
+      
       final response = await http.get(
         url,
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token', // Add token header
+        },
+      ).timeout(
+        const Duration(seconds: 5), // Timeout de 5 secondes pour éviter de bloquer l'interface
+        onTimeout: () {
+          print('⚠️ Timeout lors de la vérification d\'accès pour $featureId - Considéré comme non accessible');
+          _updateCache(producerId, featureId, false);
+          return http.Response('{"hasAccess": false, "timeout": true}', 408); // Timeout HTTP status
         },
       );
       
@@ -66,13 +106,20 @@ class PremiumFeatureService {
         _updateCache(producerId, featureId, hasAccess);
         
         return hasAccess;
+      } else if (response.statusCode == 502 || response.statusCode >= 500) {
+        // Erreur de serveur ou gateway error - refus présumé, mais avec un log plus explicite
+        print('⚠️ Erreur serveur (${response.statusCode}) lors de la vérification de l\'accès à $featureId - Refus d\'accès présumé temporairement');
+        _updateCache(producerId, featureId, false);
+        return false;
       } else {
         print('❌ Erreur lors de la vérification de l\'accès (Code: ${response.statusCode}) - Refus d\'accès présumé.');
         _updateCache(producerId, featureId, false);
         return false;
       }
     } catch (e) {
-      print('❌ Erreur dans canAccessFeature: $e');
+      print('❌ Erreur dans canAccessFeature pour $featureId: $e');
+      // Cache l'erreur pour éviter des requêtes répétées
+      _updateCache(producerId, featureId, false);
       return false;
     }
   }
@@ -405,92 +452,100 @@ class PremiumFeatureTeaser extends StatelessWidget {
     final service = PremiumFeatureService();
     
     return FutureBuilder<String>(
+      // Ajouter une valeur par défaut pour éviter d'attendre le Future
       future: service._getRequiredLevelForFeature(featureId),
+      // Définir initialData pour éviter de bloquer l'interface
+      initialData: 'pro',
       builder: (context, snapshot) {
+        // Utiliser la valeur par défaut en cas d'erreur
         final requiredLevel = snapshot.data ?? 'pro';
         final levelColor = color ?? service._getLevelColor(requiredLevel);
         
-        return Stack(
-          children: [
-            ClipRect(
-              child: ColorFiltered(
+        return Card(
+          elevation: 1,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          clipBehavior: Clip.antiAlias,
+          child: Stack(
+            children: [
+              // Premier plan désaturé, mais toujours visible
+              ColorFiltered(
                 colorFilter: ColorFilter.mode(
                   Colors.grey.withOpacity(0.5),
                   BlendMode.saturation,
                 ),
                 child: child,
               ),
-            ),
-            Positioned.fill(
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.5),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: levelColor.withOpacity(0.2),
-                          shape: BoxShape.circle,
+              Positioned.fill(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.5),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: levelColor.withOpacity(0.2),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            icon,
+                            color: levelColor,
+                            size: 32,
+                          ),
                         ),
-                        child: Icon(
-                          icon,
-                          color: levelColor,
-                          size: 32,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        title,
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: Text(
-                          description,
-                          textAlign: TextAlign.center,
+                        const SizedBox(height: 12),
+                        Text(
+                          title,
                           style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.white.withOpacity(0.8),
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
                           ),
                         ),
-                      ),
-                      const SizedBox(height: 16),
-                      ElevatedButton.icon(
-                        onPressed: () => service.showUpgradeDialog(
-                          context, 
-                          producerId, 
-                          featureId
-                        ),
-                        icon: Icon(Icons.lock_open),
-                        label: Text('Débloquer'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: levelColor,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 20,
-                            vertical: 12,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
+                        const SizedBox(height: 8),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          child: Text(
+                            description,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.white.withOpacity(0.8),
+                            ),
                           ),
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 16),
+                        ElevatedButton.icon(
+                          onPressed: () => service.showUpgradeDialog(
+                            context, 
+                            producerId, 
+                            featureId
+                          ),
+                          icon: Icon(Icons.lock_open),
+                          label: Text('Débloquer'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: levelColor,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 20,
+                              vertical: 12,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         );
       },
     );

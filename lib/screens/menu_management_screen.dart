@@ -132,7 +132,7 @@ class _MenuManagementScreenState extends State<MenuManagementScreen> {
   List<Map<String, dynamic>> globalMenus = [];
   Map<String, List<Map<String, dynamic>>> independentItems = {};
   bool isLoading = true;
-
+  
   @override
   void initState() {
     super.initState();
@@ -144,7 +144,7 @@ class _MenuManagementScreenState extends State<MenuManagementScreen> {
     final url = Uri.parse('${constants.getBaseUrl()}/api/producers/${widget.producerId}');
     try {
       final response = await http.get(url);
-
+      
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         print("Données du backend : $data");
@@ -189,7 +189,7 @@ class _MenuManagementScreenState extends State<MenuManagementScreen> {
         }
 
         if (mounted) {
-          setState(() {
+        setState(() {
             globalMenus = safeGlobalMenus;
             independentItems = groupedItems;
             isLoading = false;
@@ -240,15 +240,15 @@ class _MenuManagementScreenState extends State<MenuManagementScreen> {
         if (mounted) {
             _showSuccess("Mise à jour réussie");
         }
-      } else {
+        } else {
         print("❌ Erreur lors de la mise à jour : ${response.body}");
         if (mounted) {
             _showError("Erreur lors de la mise à jour : ${response.statusCode}");
         }
-      }
+        }
     } catch (e) {
       print("❌ Erreur réseau : $e");
-        if (mounted) {
+       if (mounted) {
             _showError("Erreur réseau : $e");
         }
     }
@@ -292,45 +292,45 @@ class _MenuManagementScreenState extends State<MenuManagementScreen> {
   void _addIndependentCategory() {
     // Demander le nom de la nouvelle catégorie à l'utilisateur
     showDialog(
-      context: context,
+        context: context,
       builder: (context) {
         final TextEditingController categoryController = TextEditingController();
-        return AlertDialog(
+            return AlertDialog(
           title: const Text('Nouvelle Catégorie'),
           content: TextField(
             controller: categoryController,
             decoration: const InputDecoration(hintText: 'Nom de la catégorie'),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Annuler'),
-            ),
+               ),
+               actions: [
+                 TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Annuler'),
+                 ),
             TextButton(
               onPressed: () {
                 final categoryName = categoryController.text.trim();
                 if (categoryName.isNotEmpty && !independentItems.containsKey(categoryName)) {
-                    setState(() {
+                setState(() {
                         independentItems[categoryName] = []; // Ajouter la nouvelle catégorie vide
                     });
                     Navigator.pop(context);
                 } else if (categoryName.isEmpty) {
                     _showError("Le nom de la catégorie ne peut pas être vide.");
-                } else {
+                             } else {
                      _showError("Cette catégorie existe déjà.");
                 }
               },
               child: const Text('Ajouter'),
-            ),
-          ],
-        );
+                 ),
+               ],
+            );
       },
     );
   }
 
 
   void _addIndependentItem(String category) {
-    setState(() {
+        setState(() {
       independentItems[category]?.add({
         "nom": "Nouvel Item", // Nom par défaut
         "description": "",
@@ -351,24 +351,24 @@ class _MenuManagementScreenState extends State<MenuManagementScreen> {
 
   void _deleteIndependentCategory(String category) {
       showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-              title: const Text('Confirmer la suppression'),
+        context: context,
+        builder: (context) => AlertDialog(
+           title: const Text('Confirmer la suppression'),
               content: Text('Voulez-vous vraiment supprimer la catégorie "$category" et tous ses items ?'),
-              actions: [
+           actions: [
                   TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')),
-                  TextButton(
+             TextButton(
                       onPressed: () {
                           setState(() {
                               independentItems.remove(category);
                           });
                           Navigator.pop(context);
                       },
-                      child: const Text('Supprimer', style: TextStyle(color: Colors.red)),
-                  ),
-              ],
-          ),
-      );
+               child: const Text('Supprimer', style: TextStyle(color: Colors.red)),
+                    ),
+                  ],
+                ),
+     );
   }
 
   @override
@@ -390,7 +390,7 @@ class _MenuManagementScreenState extends State<MenuManagementScreen> {
               padding: const EdgeInsets.all(16.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
+                  children: [
                   _buildGlobalMenusSection(),
                   const SizedBox(height: 20),
                   _buildIndependentItemsSection(),
@@ -399,10 +399,10 @@ class _MenuManagementScreenState extends State<MenuManagementScreen> {
                   ElevatedButton(
                       onPressed: _addIndependentCategory,
                       child: const Text("Ajouter une Catégorie Indépendante"),
-                  ),
-                ],
-              ),
-            ),
+                                              ),
+                                          ],
+                                        ),
+      ),
     );
   }
 
@@ -424,7 +424,7 @@ class _MenuManagementScreenState extends State<MenuManagementScreen> {
               final menuPrice = menu["prix"]?.toString() ?? "N/A";
               final menuId = menu["_id"]?.toString(); // Récupérer l'ID du menu s'il existe
 
-              return Card(
+                return Card(
                 margin: const EdgeInsets.symmetric(vertical: 8.0),
                 child: ExpansionTile(
                   // Clé unique pour conserver l'état d'expansion
@@ -459,7 +459,7 @@ class _MenuManagementScreenState extends State<MenuManagementScreen> {
                     // Boutons d'action
                     Row(
                       mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
+                children: [
                         IconButton(
                           icon: const Icon(Icons.delete, color: Colors.red),
                           tooltip: "Supprimer ce menu",
@@ -557,13 +557,13 @@ class _MenuManagementScreenState extends State<MenuManagementScreen> {
                         final itemPrice = item["prix"]?.toString() ?? "N/A";
                         final itemId = item["_id"]?.toString(); // Récupérer l'ID de l'item
 
-                        return ListTile(
+                      return ListTile(
                           title: Text(itemName),
                           subtitle: Text("Prix : $itemPrice"),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
+                         trailing: Row(
+                           mainAxisSize: MainAxisSize.min,
+                  children: [
+                             IconButton(
                                 icon: const Icon(Icons.edit, color: Colors.blue),
                                 tooltip: "Modifier cet item",
                                 onPressed: () {
@@ -594,14 +594,14 @@ class _MenuManagementScreenState extends State<MenuManagementScreen> {
                                         _showError("Impossible de modifier : ID de l'item manquant.");
                                     }
                                 },
-                              ),
-                              IconButton(
+                             ),
+                             IconButton(
                                 icon: const Icon(Icons.delete, color: Colors.red),
                                 tooltip: "Supprimer cet item",
                                 onPressed: () => _deleteIndependentItem(category, itemIndex),
-                              ),
-                            ],
-                          ),
+                             ),
+                           ],
+                         ),
                            // Optionnel: onTap pour voir les détails si nécessaire
                            // onTap: () { /* Naviguer vers une vue détaillée ? */ },
                         );

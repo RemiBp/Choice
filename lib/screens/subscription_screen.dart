@@ -266,8 +266,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> with SingleTick
                       fontWeight: FontWeight.w500,
                       fontSize: 12,
                     ),
-                  ),
-                ],
+          ),
+        ],
               ),
             ),
           ],
@@ -353,7 +353,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> with SingleTick
               const SizedBox(height: 16),
               Divider(color: Colors.grey.shade300),
               const SizedBox(height: 16),
-              // Liste des fonctionnalités
+          // Liste des fonctionnalités
               ...features.map((feature) => Padding(
                 padding: const EdgeInsets.only(bottom: 10),
                         child: Row(

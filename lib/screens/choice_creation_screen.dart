@@ -3,6 +3,7 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:ui';
+import 'dart:math';
 import '../utils/constants.dart' as constants;
 import '../widgets/rating_slider.dart';
 import '../widgets/emotion_selector.dart';
@@ -10,6 +11,320 @@ import '../widgets/location_search.dart';
 import 'dart:convert';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_rating_bar/flutter_rating_bar.dart';
+import 'package:lottie/lottie.dart';
+import 'package:flutter/services.dart';
+
+// Classe pour dessiner le checkmark
+class CheckmarkPainter extends CustomPainter {
+  final Color color;
+  final double strokeWidth;
+  
+  CheckmarkPainter({
+    required this.color,
+    this.strokeWidth = 3.0,
+  });
+  
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+    
+    final path = Path()
+      ..moveTo(0, size.height / 2)
+      ..lineTo(size.width / 3, size.height)
+      ..lineTo(size.width, 0);
+    
+    canvas.drawPath(path, paint);
+  }
+  
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+// Classe pour dessiner le logo Choice
+class ChoiceLogoPainter extends CustomPainter {
+  final double progress;
+  final Color color;
+  
+  ChoiceLogoPainter({
+    this.progress = 1.0,
+    this.color = const Color(0xFF2196F3),
+  });
+  
+  @override
+  void paint(Canvas canvas, Size size) {
+    // Configuration du pinceau pour le cercle avec un dégradé
+    final gradient = LinearGradient(
+      colors: [
+        const Color(0xFF29B6F6), // Bleu clair
+        const Color(0xFF0288D1), // Bleu foncé
+      ],
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+    );
+    
+    // Créer le shader du dégradé
+    final rect = Rect.fromCircle(
+      center: Offset(size.width / 2, size.height / 2),
+      radius: size.width * 0.4,
+    );
+    final gradientShader = gradient.createShader(rect);
+    
+    final circlePaint = Paint()
+      ..shader = gradientShader
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = size.width * 0.08
+      ..strokeCap = StrokeCap.round;
+    
+    // Centre du cercle
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width * 0.4;
+    
+    // Dessiner le cercle ouvert (C) avec une animation
+    final startAngle = -0.1; // Légèrement décalé pour commencer en haut
+    final sweepAngle = 5.5 * progress; // Cercle ouvert à environ 300 degrés
+    canvas.drawArc(rect, startAngle, sweepAngle, false, circlePaint);
+    
+    // Dessiner le checkmark si progress > 0.6
+    if (progress > 0.6) {
+      final checkProgress = (progress - 0.6) / 0.4; // Normaliser entre 0 et 1
+      final checkPaint = Paint()
+        ..shader = gradientShader
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = size.width * 0.08
+        ..strokeCap = StrokeCap.round;
+      
+      final path = Path();
+      
+      // Ajuster points de départ/arrivée du checkmark pour mieux correspondre au logo
+      // Point de départ du checkmark (légèrement décalé vers la gauche et le bas)
+      path.moveTo(
+        center.dx - radius * 0.28,
+        center.dy + radius * 0.05
+      );
+      
+      // Premier segment du checkmark (partie descendante)
+      if (checkProgress > 0.5) {
+        path.lineTo(
+          center.dx - radius * 0.05, 
+          center.dy + radius * 0.3
+        );
+      } else {
+        // Animation du premier segment
+        final firstSegmentProgress = checkProgress * 2.0; // 0-0.5 → 0-1.0
+        path.lineTo(
+          center.dx - radius * 0.28 + (radius * 0.23 * firstSegmentProgress),
+          center.dy + radius * 0.05 + (radius * 0.25 * firstSegmentProgress)
+        );
+      }
+      
+      // Deuxième segment (la partie montante)
+      if (checkProgress > 0.5) {
+        final secondSegmentProgress = (checkProgress - 0.5) * 2.0; // 0.5-1.0 → 0-1.0
+        path.lineTo(
+          center.dx - radius * 0.05 + radius * 0.48 * secondSegmentProgress,
+          center.dy + radius * 0.3 - (radius * 0.55 * secondSegmentProgress)
+        );
+      }
+      
+      canvas.drawPath(path, checkPaint);
+    }
+    
+    // Dessiner l'étoile si progress > 0.9
+    if (progress > 0.9) {
+      final starProgress = (progress - 0.9) / 0.1; // Normaliser entre 0 et 1
+      
+      // Position ajustée en haut à droite - plus proche du vrai logo
+      final starCenter = Offset(
+        center.dx + radius * 0.50,
+        center.dy - radius * 0.50
+      );
+      
+      // Étoile plus réaliste avec un dégradé
+      final starGradient = RadialGradient(
+        colors: [
+          Colors.white,
+          const Color(0xFF29B6F6),
+        ],
+        center: Alignment.center,
+        radius: 0.6,
+      );
+      
+      // Faire pulser l'étoile légèrement
+      final pulseValue = 1.0 + sin(starProgress * pi * 3) * 0.1;
+      
+      final starRect = Rect.fromCircle(
+        center: starCenter,
+        radius: radius * 0.15 * pulseValue, // Étoile légèrement plus grande
+      );
+      
+      final starPaint = Paint()
+        ..shader = starGradient.createShader(starRect)
+        ..style = PaintingStyle.fill;
+      
+      // Ajouter un halo autour de l'étoile
+      final glowPaint = Paint()
+        ..color = const Color(0xFF29B6F6).withOpacity(0.3 * starProgress)
+        ..style = PaintingStyle.fill
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 8 * starProgress);
+      
+      canvas.drawCircle(starCenter, radius * 0.2 * starProgress, glowPaint);
+      
+      // Dessiner une étoile à quatre branches plus proche du logo véritable
+      final starPath = Path();
+      const numPoints = 4;
+      const innerRadius = 0.4; // Rendre l'étoile plus pointue
+      
+      for (int i = 0; i < numPoints * 2; i++) {
+        final pointRadius = i.isEven 
+          ? radius * 0.15 * pulseValue  // Branches principales plus longues
+          : radius * 0.06 * pulseValue; // Points intermédiaires plus courts
+          
+        // Rotation de 45 degrés pour aligner avec le logo
+        final angle = 2 * pi * i / (numPoints * 2) + (pi/4);
+        
+        final point = Offset(
+          starCenter.dx + pointRadius * cos(angle),
+          starCenter.dy + pointRadius * sin(angle)
+        );
+        
+        if (i == 0) {
+          starPath.moveTo(point.dx, point.dy);
+        } else {
+          starPath.lineTo(point.dx, point.dy);
+        }
+      }
+      
+      starPath.close();
+      canvas.drawPath(starPath, starPaint);
+      
+      // Ajouter un effet de brillance
+      final highlightPaint = Paint()
+        ..color = Colors.white.withOpacity(0.9 * starProgress)
+        ..style = PaintingStyle.fill
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 2);
+      
+      final highlightPath = Path();
+      highlightPath.addOval(
+        Rect.fromCircle(
+          center: Offset(
+            starCenter.dx - radius * 0.04,
+            starCenter.dy - radius * 0.04
+          ),
+          radius: radius * 0.05 * starProgress * pulseValue
+        )
+      );
+      
+      canvas.drawPath(highlightPath, highlightPaint);
+      
+      // Ajouter des rayons lumineux autour de l'étoile
+      if (starProgress > 0.7) {
+        final rayProgress = (starProgress - 0.7) / 0.3;
+        final rayPaint = Paint()
+          ..color = Colors.white.withOpacity(0.5 * rayProgress)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.5
+          ..strokeCap = StrokeCap.round;
+        
+        for (int i = 0; i < 8; i++) {
+          final angle = 2 * pi * i / 8 + (pi/8); // Offset pour aligner avec branches
+          final startPoint = Offset(
+            starCenter.dx + radius * 0.16 * cos(angle),
+            starCenter.dy + radius * 0.16 * sin(angle)
+          );
+          final endPoint = Offset(
+            starCenter.dx + radius * (0.25 + 0.1 * rayProgress) * cos(angle),
+            starCenter.dy + radius * (0.25 + 0.1 * rayProgress) * sin(angle)
+          );
+          
+          canvas.drawLine(startPoint, endPoint, rayPaint);
+        }
+      }
+    }
+  }
+  
+  @override
+  bool shouldRepaint(covariant ChoiceLogoPainter oldDelegate) {
+    return oldDelegate.progress != progress || oldDelegate.color != color;
+  }
+}
+
+// Widget pour animer avec un délai
+class DelayedAnimation extends StatefulWidget {
+  final Widget child;
+  final Duration delay;
+  final Duration duration;
+  final Curve curve;
+  final Widget Function(BuildContext context, Animation<double> animation, Widget? child) builder;
+
+  const DelayedAnimation({
+    Key? key,
+    required this.child,
+    required this.delay,
+    required this.duration,
+    required this.builder,
+    this.curve = Curves.easeOut,
+  }) : super(key: key);
+
+  @override
+  State<DelayedAnimation> createState() => _DelayedAnimationState();
+}
+
+class _DelayedAnimationState extends State<DelayedAnimation> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _animation;
+  bool _visible = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: widget.duration,
+    );
+    
+    // Création du Tween ici au lieu de l'avoir comme paramètre const
+    final tween = Tween<double>(begin: 0.0, end: 1.0);
+    
+    _animation = tween.animate(
+      CurvedAnimation(
+        parent: _controller,
+        curve: widget.curve,
+      ),
+    );
+
+    Future.delayed(widget.delay, () {
+      if (mounted) {
+        setState(() {
+          _visible = true;
+        });
+        _controller.forward();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_visible) {
+      return const SizedBox.shrink();
+    }
+    
+    return AnimatedBuilder(
+      animation: _animation,
+      builder: (context, child) => widget.builder(context, _animation, child),
+      child: widget.child,
+    );
+  }
+}
 
 class ChoiceCreationScreen extends StatefulWidget {
   final String userId;
@@ -47,7 +362,7 @@ class ConsumedItem {
   };
 }
 
-class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
+class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> with SingleTickerProviderStateMixin {
   String _selectedType = '';
   Map<String, dynamic>? _selectedLocation;
   final Map<String, double> _ratings = {};
@@ -57,6 +372,8 @@ class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
   bool _isLoading = false;
   bool _isVerifying = false;
   bool _isVerified = false;
+  bool _showSuccessAnimation = false;
+  late AnimationController _animationController;
 
   bool _loadingMenuItems = false;
   List<dynamic> _fetchedMenus = [];
@@ -106,8 +423,30 @@ class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
     
     // S'assurer que l'état est bien réinitialisé au démarrage
     _resetSelection();
+    
+    // Initialize animation controller avec une durée plus longue
+    _animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 4500), // Augmenter la durée pour profiter de l'animation
+    );
+    
+    _animationController.addStatusListener((status) {
+      if (status == AnimationStatus.completed) {
+        setState(() {
+          _showSuccessAnimation = false;
+        });
+        _animationController.reset();
+        Navigator.pop(context, true);
+      }
+    });
   }
   
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
+  }
+
   // Fonction pour réinitialiser la sélection et revenir au choix du type
   void _resetSelection() {
     setState(() {
@@ -169,17 +508,19 @@ class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
   Future<void> _verifyLocation() async {
     if (_selectedLocation == null) return;
 
-    setState(() {
-      _isVerifying = true;
-      _isVerified = false;
-      _fetchedCriteriaRatings.clear();
-      _dynamicWellnessCriteriaKeys.clear();
-      _loadingCriteria = false;
-      _loadingMenuItems = false;
-      _fetchedMenus = [];
-      _fetchedCategorizedItems = {};
-      _selectedConsumedItems.clear();
-    });
+    if (mounted) {
+      setState(() {
+        _isVerifying = true;
+        _isVerified = false;
+        _fetchedCriteriaRatings.clear();
+        _dynamicWellnessCriteriaKeys.clear();
+        _loadingCriteria = false;
+        _loadingMenuItems = false;
+        _fetchedMenus = [];
+        _fetchedCategorizedItems = {};
+        _selectedConsumedItems.clear();
+      });
+    }
 
     try {
       final url = Uri.parse('${constants.getBaseUrl()}/api/choices/verify');
@@ -196,10 +537,12 @@ class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        setState(() {
-          _isVerified = data['verified'] ?? false;
-          _isVerifying = false;
-        });
+        if (mounted) {
+          setState(() {
+            _isVerified = data['verified'] ?? false;
+            _isVerifying = false;
+          });
+        }
 
         if (_isVerified) {
           if (_selectedType == 'wellness') {
@@ -215,15 +558,19 @@ class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
         }
       } else {
         final errorData = json.decode(response.body);
-        setState(() { _isVerifying = false; });
+        if (mounted) {
+          setState(() { _isVerifying = false; });
+        }
         _showVerificationError('Erreur ${response.statusCode}: ${errorData['message'] ?? 'Erreur serveur'}');
       }
     } catch (e) {
       print('Error verifying location: $e');
-      setState(() {
-        _isVerifying = false;
-        _isVerified = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isVerifying = false;
+          _isVerified = false;
+        });
+      }
       _showVerificationError('Erreur lors de la vérification: $e');
     }
   }
@@ -250,11 +597,21 @@ class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
         final data = json.decode(response.body);
         final producerData = data;
         
+        // --- DEBUG LOGGING START ---
+        print('Raw producer data received for $placeId:');
+        try {
+          print(json.encode(producerData)); // Print the whole structure
+        } catch (e) {
+          print('Could not encode producerData: $e');
+          print(producerData.toString()); // Fallback to toString
+        }
+        // --- DEBUG LOGGING END ---
+
         if (producerData != null && producerData['criteria_ratings'] is Map) {
-           print('Received criteria data: ${producerData['criteria_ratings']}');
-           
+           print('Received criteria data (using criteria_ratings): ${producerData['criteria_ratings']}');
+
            _fetchedCriteriaRatings = Map<String, dynamic>.from(producerData['criteria_ratings']);
-           
+
            _dynamicWellnessCriteriaKeys = _fetchedCriteriaRatings.keys
                .where((key) => key != 'average_score')
                .toList();
@@ -362,15 +719,20 @@ class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
   }
 
   void _showVerificationError(String message) {
-    if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(message),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 4),
-          ),
-        );
-    }
+    // Check mounted status first
+    if (!mounted) return;
+
+    // Capture ScaffoldMessengerState safely
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+
+    // Now show the SnackBar using the captured state
+    scaffoldMessenger.showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+        duration: const Duration(seconds: 4),
+      ),
+    );
   }
 
   Future<void> _submitChoice() async {
@@ -435,13 +797,15 @@ class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
 
       if (response.statusCode == 201) {
          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Choice créé avec succès!'),
-                backgroundColor: Colors.green,
-              ),
-            );
-            Navigator.pop(context, true);
+            setState(() {
+              _isLoading = false;
+              _showSuccessAnimation = true;
+            });
+            
+            // Add haptic feedback for success
+            HapticFeedback.mediumImpact();
+            
+            _animationController.forward();
          }
       } else {
         final errorData = json.decode(response.body);
@@ -451,6 +815,9 @@ class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
     } catch (e) {
       print('Error creating choice: $e');
        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('Erreur: $e'),
@@ -458,123 +825,123 @@ class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
             ),
           );
        }
-    } finally {
-      if (mounted) {
-          setState(() {
-            _isLoading = false;
-          });
-      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Nouveau Choice'),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () {
-            if (_isVerified) {
-               setState(() {
-                 _isVerified = false;
-                 _selectedLocation = null;
-                 _ratings.clear();
-                 _dynamicWellnessCriteriaKeys.clear();
-                 _fetchedCriteriaRatings.clear();
-                 _selectedConsumedItems.clear();
-                 _fetchedMenus = [];
-                 _fetchedCategorizedItems = {};
-               });
-            } else if (_selectedLocation != null) {
-               setState(() {
-                  _selectedLocation = null;
-               });
-            } else if (_selectedType.isNotEmpty) {
-               _resetSelection();
-            } else {
-              Navigator.pop(context);
-            }
-          },
-        ),
-        actions: [
-          if (_selectedLocation != null && !_isVerified && !_isVerifying)
-            TextButton(
-              child: const Text('CHANGER', style: TextStyle(color: Colors.white)),
-              onPressed: _resetSelection,
+    return Stack(
+      children: [
+        Scaffold(
+          appBar: AppBar(
+            title: const Text('Nouveau Choice'),
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back),
+              onPressed: () {
+                if (_isVerified) {
+                   setState(() {
+                     _isVerified = false;
+                     _selectedLocation = null;
+                     _ratings.clear();
+                     _dynamicWellnessCriteriaKeys.clear();
+                     _fetchedCriteriaRatings.clear();
+                     _selectedConsumedItems.clear();
+                     _fetchedMenus = [];
+                     _fetchedCategorizedItems = {};
+                   });
+                } else if (_selectedLocation != null) {
+                   setState(() {
+                      _selectedLocation = null;
+                   });
+                } else if (_selectedType.isNotEmpty) {
+                   _resetSelection();
+                } else {
+                  Navigator.pop(context);
+                }
+              },
             ),
-          if (_isVerified && !_isLoading)
-            TextButton.icon(
-              icon: const Icon(Icons.check, color: Colors.white),
-              label: const Text(
-                'VALIDER',
-                style: TextStyle(color: Colors.white),
-              ),
-              onPressed: _submitChoice,
-            ),
-          if (_isLoading || _isVerifying)
-             const Padding(
-               padding: EdgeInsets.only(right: 16.0),
-               child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3))),
-             ),
-        ],
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (_selectedType.isEmpty) ...[
-              const Text(
-                'Que souhaitez-vous partager ?',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
+            actions: [
+              if (_selectedLocation != null && !_isVerified && !_isVerifying)
+                TextButton(
+                  child: const Text('CHANGER', style: TextStyle(color: Colors.white)),
+                  onPressed: _resetSelection,
                 ),
-              ),
-              const SizedBox(height: 20),
-              _buildTypeSelectionCards(),
-            ] else ...[
-              if (_selectedLocation == null) ...[
-                 Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        _selectedType == 'restaurant'
-                            ? 'Restaurant'
-                            : _selectedType == 'event'
-                                ? 'Événement'
-                                : 'Bien-être',
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      TextButton.icon(
-                        icon: const Icon(Icons.arrow_back, size: 18),
-                        label: const Text('Changer Type'),
-                        onPressed: _resetSelection,
-                      ),
-                    ],
+              if (_isVerified && !_isLoading)
+                TextButton.icon(
+                  icon: const Icon(Icons.check, color: Colors.white),
+                  label: const Text(
+                    'VALIDER',
+                    style: TextStyle(color: Colors.white),
                   ),
-                  const Divider(),
-                _buildLocationSearch(),
-              ] else ...[
-                if (!_isVerified) ...[
-                  _buildVerificationSection(),
+                  onPressed: _submitChoice,
+                ),
+              if (_isLoading || _isVerifying)
+                 const Padding(
+                   padding: EdgeInsets.only(right: 16.0),
+                   child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3))),
+                 ),
+            ],
+          ),
+          body: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (_selectedType.isEmpty) ...[
+                  const Text(
+                    'Que souhaitez-vous partager ?',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  _buildTypeSelectionCards(),
                 ] else ...[
-                  _buildSelectedLocationHeader(),
-                  const SizedBox(height: 16),
-                  _buildRatingSection(),
-                  const SizedBox(height: 24),
-                  _buildPostCreationSection(),
-                   const SizedBox(height: 24),
+                  if (_selectedLocation == null) ...[
+                     Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            _selectedType == 'restaurant'
+                                ? 'Restaurant'
+                                : _selectedType == 'event'
+                                    ? 'Événement'
+                                    : 'Bien-être',
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          TextButton.icon(
+                            icon: const Icon(Icons.arrow_back, size: 18),
+                            label: const Text('Changer Type'),
+                            onPressed: _resetSelection,
+                          ),
+                        ],
+                      ),
+                      const Divider(),
+                    _buildLocationSearch(),
+                  ] else ...[
+                    if (!_isVerified) ...[
+                      _buildVerificationSection(),
+                    ] else ...[
+                      _buildSelectedLocationHeader(),
+                      const SizedBox(height: 16),
+                      _buildRatingSection(),
+                      const SizedBox(height: 24),
+                      _buildPostCreationSection(),
+                       const SizedBox(height: 24),
+                    ],
+                  ],
                 ],
               ],
-            ],
-          ],
+            ),
+          ),
         ),
-      ),
+        if (_showSuccessAnimation)
+          _buildSuccessAnimation(),
+      ],
     );
   }
 
@@ -1449,6 +1816,210 @@ class _ChoiceCreationScreenState extends State<ChoiceCreationScreen> {
                  onPressed: _submitChoice,
                ),
              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSuccessAnimation() {
+    // Couleur principale du logo Choice (Bleu)
+    const Color choiceLogoColor = Color(0xFF00B0FF);
+    
+    return Positioned.fill(
+      child: Container(
+        color: Colors.black54,
+        child: Stack(
+          children: [
+            // Confetti animation in the background
+            Positioned.fill(
+              child: Lottie.network(
+                'https://assets1.lottiefiles.com/packages/lf20_vwcwjxgx.json', // Confetti animation
+                fit: BoxFit.cover,
+              ),
+            ),
+            // Main success card in the center
+            Center(
+              child: DelayedAnimation(
+                delay: Duration.zero,
+                duration: const Duration(milliseconds: 500),
+                curve: Curves.elasticOut,
+                builder: (context, animation, child) {
+                  return Transform.scale(
+                    scale: animation.value,
+                    child: child,
+                  );
+                },
+                child: Container(
+                  width: 300,
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(24),
+                    boxShadow: [
+                      BoxShadow(
+                        color: choiceLogoColor.withOpacity(0.3),
+                        blurRadius: 15,
+                        spreadRadius: 5,
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      // Logo Choice avec animation progressive
+                      DelayedAnimation(
+                        delay: Duration.zero,
+                        duration: const Duration(milliseconds: 2500), // Animation plus longue pour le logo
+                        curve: Curves.easeOutCubic,
+                        builder: (context, animation, child) {
+                          // Déclencher l'animation de sortie après la fin de l'animation du logo
+                          if (animation.status == AnimationStatus.completed && 
+                              mounted && _showSuccessAnimation) {
+                            Future.delayed(const Duration(milliseconds: 1000), () {
+                              if (mounted && _showSuccessAnimation) {
+                                _animationController.forward();
+                              }
+                            });
+                          }
+                          
+                          return Container(
+                            width: 160,
+                            height: 160,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.white,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: choiceLogoColor.withOpacity(0.2),
+                                  blurRadius: 10,
+                                  spreadRadius: 2,
+                                ),
+                              ],
+                            ),
+                            child: Center(
+                              child: CustomPaint(
+                                size: const Size(120, 120),
+                                painter: ChoiceLogoPainter(
+                                  progress: animation.value,
+                                  color: choiceLogoColor,
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                        child: const SizedBox(), // Placeholder
+                      ),
+                      const SizedBox(height: 24),
+                      // Nom du logo "Choice"
+                      DelayedAnimation(
+                        delay: const Duration(milliseconds: 800),
+                        duration: const Duration(milliseconds: 800),
+                        builder: (context, animation, child) {
+                          return Opacity(
+                            opacity: animation.value,
+                            child: Transform.translate(
+                              offset: Offset(0, 10 * (1 - animation.value)),
+                              child: Text(
+                                "Choice",
+                                style: TextStyle(
+                                  color: choiceLogoColor,
+                                  fontSize: 32,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 1.2,
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                        child: const SizedBox(), // Placeholder
+                      ),
+                      const SizedBox(height: 16),
+                      // Text with typing animation
+                      DelayedAnimation(
+                        delay: const Duration(milliseconds: 1200),
+                        duration: const Duration(milliseconds: 800),
+                        builder: (context, animation, child) {
+                          final String text = 'Choice créé avec succès!';
+                          final int charactersToShow = (text.length * animation.value).round();
+                          return Text(
+                            text.substring(0, charactersToShow),
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: choiceLogoColor,
+                            ),
+                          );
+                        },
+                        child: const SizedBox(), // Placeholder
+                      ),
+                      const SizedBox(height: 12),
+                      DelayedAnimation(
+                        delay: const Duration(milliseconds: 1400),
+                        duration: const Duration(milliseconds: 500),
+                        builder: (context, animation, child) {
+                          return Opacity(
+                            opacity: animation.value,
+                            child: child,
+                          );
+                        },
+                        child: Text(
+                          _selectedLocation?['name'] ?? '',
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: Colors.grey[700],
+                            fontWeight: FontWeight.w500,
+                          ),
+                          textAlign: TextAlign.center,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      DelayedAnimation(
+                        delay: const Duration(milliseconds: 1600),
+                        duration: const Duration(milliseconds: 500),
+                        builder: (context, animation, child) {
+                          return Transform.translate(
+                            offset: Offset(0, 20 * (1 - animation.value)),
+                            child: Opacity(
+                              opacity: animation.value,
+                              child: child,
+                            ),
+                          );
+                        },
+                        child: ElevatedButton(
+                          onPressed: () {
+                            setState(() {
+                              _showSuccessAnimation = false;
+                            });
+                            _animationController.reset();
+                            Navigator.pop(context, true);
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: choiceLogoColor,
+                            foregroundColor: Colors.white,
+                            minimumSize: const Size(double.infinity, 50),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            elevation: 3,
+                          ),
+                          child: const Text(
+                            'CONTINUER',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           ],
         ),
       ),

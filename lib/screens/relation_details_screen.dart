@@ -80,7 +80,7 @@ class _RelationDetailsScreenState extends State<RelationDetailsScreen> {
     return Center(
                 child: Text(
                     'Aucun utilisateur trouvé pour "${widget.relationType}".'));
-          }
+  }
 
           final relations = snapshot.data!;
 
@@ -106,7 +106,7 @@ class _RelationDetailsScreenState extends State<RelationDetailsScreen> {
                   child: userImage == constants.getDefaultAvatarUrl() 
                          ? const Icon(Icons.person)
                          : null,
-                ),
+            ),
                 title: Text(userName),
                 onTap: () {
       Navigator.push(

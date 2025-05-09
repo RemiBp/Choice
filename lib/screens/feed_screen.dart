@@ -1707,7 +1707,7 @@ class _FeedScreenState extends State<FeedScreen> with SingleTickerProviderStateM
                         CircleAvatar(
                           radius: 22,
                           backgroundImage: post.authorAvatar != null && post.authorAvatar!.isNotEmpty
-                              ? CachedNetworkImageProvider(post.authorAvatar!)
+                              ? getImageProvider(post.authorAvatar!)
                               : null,
                           backgroundColor: post.authorAvatar == null || post.authorAvatar!.isEmpty
                               ? post.getTypeColor().withOpacity(0.7)
@@ -1808,22 +1808,12 @@ class _FeedScreenState extends State<FeedScreen> with SingleTickerProviderStateM
                           isActive: post.isInterested ?? false,
                           count: post.interestedCount,
                           onPressed: () {
-                            // Update optimistic UI
+                            // Update optimistic UI et appelle toggleInterest
                             setState(() {
                               post.isInterested = !post.isInterested!;
                               post.interestedCount = (post.interestedCount ?? 0) + (post.isInterested! ? 1 : -1);
                             });
-                            _controller.markInterested(
-                              post,
-                              'feed',
-                              post.isLeisureProducer ?? false
-                            );
-                          },
-                        ),
-                        IconButton(
-                          icon: Icon(Icons.share_outlined, color: Colors.grey[600]),
-                          onPressed: () {
-                            // TODO: Implémenter le partage
+                            _controller.markInterested(post, 'feed', post.isLeisureProducer ?? false);
                           },
                         ),
                       ],
